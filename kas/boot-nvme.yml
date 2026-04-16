@@ -1,0 +1,6 @@
+header:
+  version: 14
+
+local_conf_header:
+  boot-nvme: |
+    WKS_FILE = "kart-rpi5-nvme.wks"

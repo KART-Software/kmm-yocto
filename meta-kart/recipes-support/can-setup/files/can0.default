@@ -1,0 +1,6 @@
+# CAN0 interface configuration
+# Edit this file to change CAN bus parameters.
+
+IFACE=can0
+BITRATE=500000
+RESTART_MS=100

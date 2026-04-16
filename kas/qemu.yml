@@ -1,0 +1,18 @@
+header:
+  version: 14
+
+machine: qemuarm64
+
+local_conf_header:
+  qemu-image: |
+    IMAGE_FSTYPES = "ext4"
+
+  qemu-features: |
+    DISTRO_FEATURES:append = " opengl"
+
+  qemu-resources: |
+    QB_MEM = "-m 2048"
+    QB_CPU = "-cpu cortex-a57"
+    QB_SMP = "-smp 4"
+    QB_DRIVE_TYPE = "/dev/vd"
+    QB_OPT_APPEND = "-device virtio-gpu-pci -display default"

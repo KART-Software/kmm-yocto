@@ -1,0 +1,50 @@
+header:
+  version: 14
+
+distro: poky
+
+repos:
+  poky:
+    url: https://git.yoctoproject.org/poky
+    branch: scarthgap
+    layers:
+      meta:
+      meta-poky:
+
+  meta-openembedded:
+    url: https://github.com/openembedded/meta-openembedded.git
+    branch: scarthgap
+    layers:
+      meta-oe:
+      meta-python:
+      meta-networking:
+      meta-filesystems:
+
+  meta-qt6:
+    url: https://code.qt.io/yocto/meta-qt6.git
+    branch: "6.8"
+    layers:
+      .:
+
+  meta-kart:
+    path: meta-kart
+    layers:
+      .:
+
+local_conf_header:
+  base-init: |
+    INIT_MANAGER = "systemd"
+
+  base-distro: |
+    DISTRO_FEATURES:append = " wayland systemd pam polkit"
+    DISTRO_FEATURES:remove = "x11 sysvinit bluetooth pcmcia 3g nfc"
+
+  base-network: |
+    PACKAGECONFIG:append:pn-networkmanager = " modemmanager"
+
+  base-cache: |
+    DL_DIR ?= "${TOPDIR}/../downloads"
+    SSTATE_DIR ?= "${TOPDIR}/../sstate-cache"
+
+  base-misc: |
+    INHERIT += "rm_work"

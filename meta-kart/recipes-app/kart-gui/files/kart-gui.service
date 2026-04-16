@@ -1,0 +1,20 @@
+[Unit]
+Description=Kart GUI Application
+After=weston.service
+Wants=weston.service
+
+[Service]
+Type=simple
+User=kart
+Group=kart
+EnvironmentFile=-/run/weston-env
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=QT_QPA_PLATFORM=wayland
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/python3 /opt/kart-gui/kart-gui.py
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

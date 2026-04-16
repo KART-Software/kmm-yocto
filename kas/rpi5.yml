@@ -1,0 +1,37 @@
+header:
+  version: 14
+
+machine: raspberrypi5
+
+repos:
+  meta-raspberrypi:
+    url: https://github.com/agherzan/meta-raspberrypi.git
+    branch: scarthgap
+    layers:
+      .:
+
+local_conf_header:
+  rpi5-machine: |
+    MACHINE_FEATURES:remove = "bluetooth wifi"
+
+  rpi5-license: |
+    LICENSE_FLAGS_ACCEPTED:append = " synaptics-killswitch"
+
+  rpi5-image: |
+    IMAGE_FSTYPES = "wic wic.bz2 wic.bmap"
+
+  rpi5-spi-can: |
+    ENABLE_SPI_BUS = "1"
+    ENABLE_CAN = "1"
+    CAN_OSCILLATOR = "16000000"
+    CAN0_INTERRUPT_PIN = "25"
+
+  rpi5-gpu: |
+    GPU_MEM = "256"
+    DISABLE_OVERSCAN = "1"
+
+  rpi5-serial: |
+    ENABLE_UART = "1"
+
+  rpi5-pcie: |
+    RPI_EXTRA_CONFIG = "dtparam=pciex1\ndtparam=pciex1_gen=3"

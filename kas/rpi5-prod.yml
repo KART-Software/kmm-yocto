@@ -1,0 +1,13 @@
+header:
+  version: 14
+  includes:
+    - base.yml
+    - rpi5.yml
+    - boot-nvme.yml
+
+target: kart-image
+
+local_conf_header:
+  prod-features: |
+    IMAGE_ROOTFS_EXTRA_SPACE = "0"
+    EXTRA_IMAGE_FEATURES:append = " ssh-server-openssh"

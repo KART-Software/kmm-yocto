@@ -1,0 +1,27 @@
+[Unit]
+Description=Weston, a Wayland compositor, as a system service
+Documentation=man:weston(1) man:weston.ini(5)
+Documentation=http://wayland.freedesktop.org/
+Requires=seatd.service systemd-user-sessions.service
+After=seatd.service systemd-user-sessions.service dbus.socket
+Wants=dbus.socket
+Before=graphical.target
+ConditionPathExists=/dev/tty0
+
+[Service]
+Type=notify
+EnvironmentFile=/etc/default/weston
+ExecStartPre=+/bin/sh -c 'uid=$(id -u kart) && mkdir -p /run/user/$uid && chmod 0700 /run/user/$uid && chown kart:kart /run/user/$uid && echo "XDG_RUNTIME_DIR=/run/user/$uid" > /run/weston-env'
+ExecStart=/usr/bin/weston --modules=systemd-notify.so
+ExecStartPost=-/usr/bin/psplash-write "QUIT"
+EnvironmentFile=-/run/weston-env
+Environment=SEATD_SOCK=/run/seatd.sock
+User=kart
+Group=kart
+WorkingDirectory=/home/kart
+SupplementaryGroups=video input render tty
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Tailscale node agent
+Documentation=https://tailscale.com/kb/
+Wants=network-online.target
+After=network-online.target NetworkManager.service
+
+[Service]
+ExecStartPre=/usr/sbin/tailscaled --cleanup
+ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641
+ExecStopPost=/usr/sbin/tailscaled --cleanup
+Restart=on-failure
+RuntimeDirectory=tailscale
+StateDirectory=tailscale
+
+[Install]
+WantedBy=multi-user.target

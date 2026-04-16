@@ -1,0 +1,14 @@
+header:
+  version: 14
+  includes:
+    - base.yml
+    - rpi5.yml
+
+target: kart-image
+
+local_conf_header:
+  dev-features: |
+    EXTRA_IMAGE_FEATURES:append = " debug-tweaks ssh-server-openssh"
+
+  dev-packages: |
+    IMAGE_INSTALL:append = " strace lsof vim rsync curl jq htop"

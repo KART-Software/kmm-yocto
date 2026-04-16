@@ -1,0 +1,15 @@
+[Unit]
+Description=Bring up CAN0 interface
+After=sys-subsystem-net-devices-can0.device
+BindsTo=sys-subsystem-net-devices-can0.device
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/default/can0
+ExecStart=/usr/sbin/can0-up.sh
+ExecStop=/sbin/ip link set can0 down
+
+[Install]
+WantedBy=multi-user.target

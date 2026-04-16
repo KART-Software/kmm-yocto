@@ -1,0 +1,6 @@
+header:
+  version: 14
+
+local_conf_header:
+  boot-sdcard: |
+    WKS_FILE = "kart-rpi5-sdcard.wks"

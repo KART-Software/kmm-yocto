@@ -1,0 +1,34 @@
+# Yocto build artifacts
+build/
+tmp/
+cache/
+
+# Downloads and shared state cache
+downloads/
+sstate-cache/
+
+# Upstream layers pulled by kas-container
+poky/
+meta-openembedded/
+meta-qt6/
+meta-raspberrypi/
+
+# kas lock files (uncomment to track)
+# *.lock.yml
+
+# Python cache
+.mypy_cache/
+__pycache__/
+*.pyc
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+.kas_shell_history
+
+# OS
+.DS_Store
+Thumbs.db
