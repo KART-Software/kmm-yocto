@@ -170,8 +170,8 @@ ping -c 3 8.8.8.8
 systemctl status weston
 
 # GUI アプリが起動しているか
-systemctl status kart-gui
-journalctl -u kart-gui -f
+systemctl status kart-machine-manager
+journalctl -u kart-machine-manager -f
 ```
 
 ### CAN バス確認
@@ -249,11 +249,11 @@ systemctl restart can0-up
 ### GPIO ピン変更
 
 ```bash
-# /opt/kart-gui/gpio-config.json を編集
-vi /opt/kart-gui/gpio-config.json
+# /opt/kart-machine-manager/gpio-config.json を編集
+vi /opt/kart-machine-manager/gpio-config.json
 
 # GUI 再起動
-systemctl restart kart-gui
+systemctl restart kart-machine-manager
 ```
 
 ### MCP2515 CAN HAT 設定変更
@@ -285,7 +285,7 @@ kmm-yocto/
 │   ├── conf/layer.conf
 │   ├── recipes-core/images/kart-image.bb
 │   ├── recipes-graphics/weston/          # Kiosk 設定
-│   ├── recipes-app/kart-gui/             # PyQt6 GUI アプリ
+│   ├── recipes-app/kart-machine-manager/  # PyQt6 GUI アプリ
 │   ├── recipes-support/can-setup/        # CAN 初期化
 │   ├── recipes-connectivity/tailscale/   # Tailscale VPN
 │   ├── recipes-kernel/linux/             # カーネル config fragments

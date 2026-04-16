@@ -1,9 +1,0 @@
-{
-  "chip": "gpiochip0",
-  "input_pin": 17,
-  "output_pin": 27,
-  "description": {
-    "input_pin": "General purpose input (e.g. button or sensor)",
-    "output_pin": "General purpose output (e.g. LED or relay)"
-  }
-}

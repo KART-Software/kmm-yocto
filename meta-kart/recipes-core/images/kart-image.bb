@@ -28,7 +28,7 @@ IMAGE_INSTALL:append = " \
     pciutils \
     usbutils \
     ethtool \
-    kart-gui \
+    kart-machine-manager \
     psplash \
     bash \
     less \
