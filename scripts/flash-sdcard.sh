@@ -27,16 +27,20 @@ if ! [[ "$DEVICE" =~ ^/dev/sd[a-z]+$ ]] && ! [[ "$DEVICE" =~ ^/dev/mmcblk[0-9]+$
     exit 1
 fi
 
-# Prevent accidental write to system disk
+# Warn if /dev/sda — may be the system disk
 if [ "$DEVICE" = "/dev/sda" ]; then
-    echo "ERROR: Refusing to write to /dev/sda (likely system disk)."
-    exit 1
+    echo "WARNING: /dev/sda is often the system disk."
+    read -rp "Are you sure $DEVICE is the SD card? [y/N] " sda_confirm
+    if [[ ! "$sda_confirm" =~ ^[Yy]$ ]]; then
+        echo "Aborted."
+        exit 0
+    fi
 fi
 
 # Find image if not specified
 if [ -z "$IMAGE_PATH" ]; then
-    WIC_FILE=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5.wic.bz2" -type f 2>/dev/null | head -1)
-    BMAP_FILE=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5.wic.bmap" -type f 2>/dev/null | head -1)
+    WIC_FILE=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5*.wic.bz2" -type f 2>/dev/null | sort | tail -1)
+    BMAP_FILE=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5*.wic.bmap" -type f 2>/dev/null | sort | tail -1)
 
     if [ -z "$WIC_FILE" ]; then
         echo "ERROR: No .wic.bz2 image found in $IMAGE_DIR"
@@ -73,6 +77,11 @@ else
         fi
     done
 fi
+
+# Wipe existing filesystem signatures and partition table
+echo "==> Wiping existing signatures on $DEVICE..."
+wipefs --all --force "$DEVICE" 2>/dev/null || true
+dd if=/dev/zero of="$DEVICE" bs=1M count=16 status=none conv=fsync 2>/dev/null || true
 
 # Use bmaptool if available and bmap file exists, otherwise dd
 if command -v bmaptool &>/dev/null && [ -n "${BMAP_FILE:-}" ] && [ -f "${BMAP_FILE:-}" ]; then

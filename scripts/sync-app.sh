@@ -10,7 +10,8 @@
 # Target options (default: --qemu):
 #   --qemu            QEMU with TAP networking (root@192.168.7.2)
 #   --qemu-slirp      QEMU with user-mode networking (root@localhost -p 2222)
-#   --target HOST     Custom host/IP (e.g. RPi5 address)
+#   --target HOST     Custom host/IP, connects as root@HOST
+#   --host HOST       SSH config host name (user/port from ~/.ssh/config)
 #
 # Other options:
 #   --no-restart      Skip kart-machine-manager service restart after deploy
@@ -39,6 +40,8 @@ while [[ $# -gt 0 ]]; do
         --qemu-slirp)  SSH_HOST="root@localhost"; SSH_PORT="2222" ;;
         --target)      SSH_HOST="root@$2"; shift ;;
         --target=*)    SSH_HOST="root@${1#--target=}" ;;
+        --host)        SSH_HOST="$2"; shift ;;
+        --host=*)      SSH_HOST="${1#--host=}" ;;
         --no-restart)  OPT_RESTART=0 ;;
         -h|--help)     usage ;;
         -*)            echo "ERROR: unknown option: $1" >&2; exit 1 ;;

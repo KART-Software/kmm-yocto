@@ -31,15 +31,34 @@ pip install kas
 ## ビルド方法
 
 ```bash
-# 本番イメージ (Raspberry Pi 5)
+# 本番イメージ (RPi5, NVMe ブート)
 kas-container build kas/rpi5-prod.yml
 
-# 開発イメージ (Raspberry Pi 5, debug-tweaks 有効)
-kas-container build kas/local-dev.yml
+# 開発イメージ (RPi5, SD カードブート)
+kas-container build kas/local-dev.yml:kas/boot-sdcard.yml
+
+# 開発イメージ (RPi5, NVMe ブート)
+kas-container build kas/local-dev.yml:kas/boot-nvme.yml
 
 # QEMU 開発イメージ (実機不要で動作確認)
 kas-container build kas/qemu-dev.yml
 ```
+
+> **kas の `:` 記法**: 複数の YAML を `:` で連結すると設定がマージされます。
+> `local-dev.yml` にはブート方式が含まれないため、`boot-sdcard.yml` または `boot-nvme.yml` を追加指定してください。
+
+### kas 構成ファイル一覧
+
+| ファイル | 種別 | 内容 |
+|----------|------|------|
+| `base.yml` | ベース | 共通設定 (repos, distro features, sstate) |
+| `rpi5.yml` | マシン | RPi5 固有 (BSP, SPI/CAN, GPU) |
+| `qemu.yml` | マシン | QEMU 固有 (qemuarm64, virtio-gpu) |
+| `boot-sdcard.yml` | フラグメント | SD カードブート (WKS 指定) |
+| `boot-nvme.yml` | フラグメント | NVMe ブート (WKS 指定) |
+| `rpi5-prod.yml` | 組み合わせ | base + rpi5 + boot-nvme (本番) |
+| `local-dev.yml` | 組み合わせ | base + rpi5 + debug-tweaks (開発) |
+| `qemu-dev.yml` | 組み合わせ | base + qemu + debug-tweaks (QEMU 開発) |
 
 ### キャッシュの共有
 
