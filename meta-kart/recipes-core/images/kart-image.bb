@@ -32,6 +32,7 @@ IMAGE_INSTALL:append = " \
     psplash \
     bash \
     less \
+    systemd-analyze \
 "
 
 # ---------------------------------------------------------------------------
@@ -51,6 +52,15 @@ IMAGE_ROOTFS_EXTRA_SPACE = "0"
 
 # Ensure systemd is used
 IMAGE_INSTALL:append = " systemd-serialgetty"
+
+# ---------------------------------------------------------------------------
+# Precompile Python bytecode (.pyc) at image build time
+# ---------------------------------------------------------------------------
+ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;"
+compile_python_bytecode() {
+    ${STAGING_BINDIR_NATIVE}/python3-native/python3 \
+        -c "import compileall; compileall.compile_dir('${IMAGE_ROOTFS}/usr/lib/python3.12/', quiet=2, force=True)"
+}
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"

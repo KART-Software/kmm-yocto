@@ -12,6 +12,7 @@ EnvironmentFile=-/run/weston-env
 EnvironmentFile=-/opt/kart/kart-machine-manager/app/.env
 Environment=WAYLAND_DISPLAY=wayland-1
 Environment=QT_QPA_PLATFORM=wayland
+Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=DEBUG=TRUE
 ExecStartPre=+/bin/sh -c 'mkdir -p /opt/kart/kart-machine-manager/app/log && chown kart:kart /opt/kart/kart-machine-manager/app/log'
 ExecStart=/usr/bin/python3 /opt/kart/kart-machine-manager/app/main.py

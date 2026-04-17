@@ -70,13 +70,15 @@ echo "==> Deploying $(realpath "$SRC_DIR") -> ${SSH_HOST}:${DEPLOY_DST}"
 # Ensure parent directory exists
 ssh "${SSH_OPTS[@]}" "$SSH_HOST" "mkdir -p $(dirname "${DEPLOY_DST%/}")"
 
+# Precompile .pyc on host (using uv to ensure dependencies are available)
+echo "==> Precompiling Python bytecode on host..."
+(cd "$SRC_DIR/app" && uv run python -m compileall -q "$SRC_DIR") 2>/dev/null || true
+
 rsync -avz --delete \
     -e "$RSYNC_SSH" \
     --exclude='.git/' \
     --exclude='.venv/' \
     --exclude='.ruff_cache/' \
-    --exclude='__pycache__/' \
-    --exclude='*.pyc' \
     --exclude='log/' \
     --exclude='uv.lock' \
     --exclude='.python-version' \

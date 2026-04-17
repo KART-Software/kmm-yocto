@@ -1,0 +1,6 @@
+header:
+  version: 14
+
+local_conf_header:
+  app-embed: |
+    KART_APP_SRC = "/work/kart-machine-manager"

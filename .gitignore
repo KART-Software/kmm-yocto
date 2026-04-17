@@ -13,6 +13,9 @@ meta-openembedded/
 meta-qt6/
 meta-raspberrypi/
 
+# App source copied for embedded builds
+kart-machine-manager/
+
 # kas lock files (uncomment to track)
 # *.lock.yml
 
