@@ -3,7 +3,6 @@ header:
   includes:
     - base.yml
     - rpi5.yml
-    - boot-nvme.yml
 
 target: kart-image
 
