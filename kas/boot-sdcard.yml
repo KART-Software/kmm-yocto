@@ -4,3 +4,4 @@ header:
 local_conf_header:
   boot-sdcard: |
     WKS_FILE = "kart-rpi5-sdcard.wks"
+    IMAGE_LINK_NAME = "${IMAGE_BASENAME}-${MACHINE}-sdcard"

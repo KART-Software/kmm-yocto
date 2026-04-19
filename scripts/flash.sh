@@ -2,26 +2,50 @@
 # flash.sh — Write kart-image to SD card or NVMe SSD
 #
 # Usage:
-#   sudo ./scripts/flash.sh /dev/sdX
-#   sudo ./scripts/flash.sh /dev/mmcblk0
-#   sudo ./scripts/flash.sh /dev/nvme0n1
-#   sudo ./scripts/flash.sh /dev/sdX [image-path]
+#   sudo ./scripts/flash.sh -sdcard /dev/sdX
+#   sudo ./scripts/flash.sh -sdcard /dev/mmcblk0
+#   sudo ./scripts/flash.sh -nvme /dev/nvme0n1
+#   sudo ./scripts/flash.sh -y -sdcard /dev/sdX
 #
-# By default, looks for the latest built .wic.bz2 image.
+# Options:
+#   -y          Skip confirmation prompt
+#
+# The -sdcard or -nvme flag is required to select the correct image.
 
 set -euo pipefail
 
-DEVICE="${1:-}"
-IMAGE_DIR="build/tmp/deploy/images/raspberrypi5"
-IMAGE_PATH="${2:-}"
-
-if [ -z "$DEVICE" ]; then
-    echo "Usage: $0 <device> [image-path]"
-    echo "  e.g.: sudo $0 /dev/sdb"
-    echo "  e.g.: sudo $0 /dev/mmcblk0"
-    echo "  e.g.: sudo $0 /dev/nvme0n1"
+usage() {
+    echo "Usage: $0 [-y] <-sdcard|-nvme> <device>"
+    echo ""
+    echo "Options:"
+    echo "  -y          Skip confirmation prompt"
+    echo ""
+    echo "Examples:"
+    echo "  sudo $0 -sdcard /dev/sdb"
+    echo "  sudo $0 -sdcard /dev/mmcblk0"
+    echo "  sudo $0 -nvme /dev/nvme0n1"
+    echo "  sudo $0 -y -sdcard /dev/sdb"
     exit 1
+}
+
+AUTO_YES=false
+if [ "${1:-}" = "-y" ]; then
+    AUTO_YES=true
+    shift
 fi
+
+if [ $# -lt 2 ]; then
+    usage
+fi
+
+case "$1" in
+    -sdcard) IMAGE_TYPE="sdcard" ;;
+    -nvme)   IMAGE_TYPE="nvme" ;;
+    *)       echo "ERROR: First argument must be -sdcard or -nvme (got '$1')"; echo ""; usage ;;
+esac
+
+DEVICE="$2"
+IMAGE_DIR="${IMAGE_DIR:-build/tmp/deploy/images/raspberrypi5}"
 
 # Safety check — allow /dev/sdX, /dev/mmcblkN, /dev/nvmeXnY
 if ! [[ "$DEVICE" =~ ^/dev/sd[a-z]+$ ]] && \
@@ -32,27 +56,33 @@ if ! [[ "$DEVICE" =~ ^/dev/sd[a-z]+$ ]] && \
     exit 1
 fi
 
-# Find image if not specified
-if [ -z "$IMAGE_PATH" ]; then
-    WIC_FILE=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5*.wic.bz2" -type f 2>/dev/null | sort | tail -1)
-    BMAP_FILE=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5*.wic.bmap" -type f 2>/dev/null | sort | tail -1)
+# Find image by type
+WIC_FILE=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5-${IMAGE_TYPE}.wic.bz2" 2>/dev/null | head -1)
+BMAP_FILE=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5-${IMAGE_TYPE}.wic.bmap" 2>/dev/null | head -1)
 
-    if [ -z "$WIC_FILE" ]; then
-        echo "ERROR: No .wic.bz2 image found in $IMAGE_DIR"
-        echo "       Build first: kas-container build kas/local-dev.yml:kas/boot-sdcard.yml"
-        exit 1
+if [ -z "$WIC_FILE" ]; then
+    echo "ERROR: No ${IMAGE_TYPE} image found in $IMAGE_DIR"
+    echo "       Expected: kart-image-raspberrypi5-${IMAGE_TYPE}.wic.bz2"
+    if [ "$IMAGE_TYPE" = "sdcard" ]; then
+        echo "       Build: kas-container build kas/local-dev.yml:kas/boot-sdcard.yml"
+    else
+        echo "       Build: kas-container build kas/rpi5-prod.yml"
     fi
-    IMAGE_PATH="$WIC_FILE"
+    exit 1
 fi
+IMAGE_PATH="$WIC_FILE"
 
 echo "==> Target device: $DEVICE"
+echo "==> Image type: $IMAGE_TYPE"
 echo "==> Image: $IMAGE_PATH"
 echo ""
 echo "WARNING: All data on $DEVICE will be destroyed!"
-read -rp "Continue? [y/N] " confirm
-if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-    echo "Aborted."
-    exit 0
+if [ "$AUTO_YES" = false ]; then
+    read -rp "Continue? [y/N] " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo "Aborted."
+        exit 0
+    fi
 fi
 
 # Unmount any existing partitions
