@@ -11,7 +11,7 @@ Raspberry Pi 5 向け組み込み Linux イメージを Yocto (scarthgap) + kas-
 | ビルドツール | kas-container (Docker) |
 | GUI | Wayland + Weston (kiosk) + PyQt6 |
 | init | systemd |
-| ネットワーク | NetworkManager |
+| ネットワーク | systemd-networkd |
 | CAN | MCP2515 (SocketCAN) |
 | GPIO | libgpiod |
 | リモートアクセス | Tailscale + SSH |
@@ -19,14 +19,28 @@ Raspberry Pi 5 向け組み込み Linux イメージを Yocto (scarthgap) + kas-
 
 ## 前提条件
 
+- **Ubuntu 22.04 以降** (WSL2 含む)
 - Docker がインストール済み
-- kas-container が使用可能 (`pip install kas` or `docker pull ghcr.io/siemens/kas/kas`)
+- kas-container が使用可能 (`pipx install kas` or `docker pull ghcr.io/siemens/kas/kas`)
 - 十分なディスク容量 (初回ビルドで 50GB 以上推奨)
+- QEMU を使う場合: ホストに `qemu-system-aarch64` がインストール済み
 
 ```bash
-# kas-container のインストール (まだの場合)
-pip install kas
+# pipx のインストール (まだの場合)
+sudo apt install pipx
+pipx ensurepath   # ~/.local/bin を PATH に追加（シェル再起動が必要）
+
+# kas-container のインストール
+pipx install kas
+
+# QEMU のインストール
+sudo apt install qemu-system-arm qemu-efi-aarch64
+
+# バージョン確認
+qemu-system-aarch64 --version
 ```
+
+> **注意**: Yocto の `runqemu` はビルド成果物内の QEMU を使う場合がありますが、本プロジェクトの `run-qemu.sh` は**ホストの `qemu-system-aarch64`** を直接呼び出します。
 
 ## ビルド方法
 
@@ -112,21 +126,11 @@ kas-container build kas/rpi5-prod.yml
 # ビルド
 kas-container build kas/qemu-dev.yml
 
-# QEMU 起動 (VNC サーバーがポート 5900 で起動)
+# QEMU 起動 (VNC サーバーがポート 5901 で起動)
 ./scripts/run-qemu.sh --vnc
 
 # 別ターミナルで VNC クライアント接続
-vncviewer localhost:5900
-```
-
-### X11 フォワーディング
-
-```bash
-# ホスト側で X11 アクセスを許可
-xhost +local:
-
-# QEMU 起動 (ホストの X サーバーに直接表示)
-./scripts/run-qemu.sh --x11
+vncviewer localhost:5901
 ```
 
 ### シリアルコンソールのみ
@@ -139,7 +143,7 @@ xhost +local:
 
 ```bash
 # QEMU 起動中に別ターミナルから (debug-tweaks 有効時)
-ssh -p 2222 root@localhost
+ssh root@192.168.7.2
 ```
 
 ## 生成物
@@ -148,36 +152,80 @@ ssh -p 2222 root@localhost
 
 ```
 build/tmp/deploy/images/raspberrypi5/
-├── kart-image-raspberrypi5.wic       # NVMe 書き込み用イメージ
-├── kart-image-raspberrypi5.wic.bz2   # 圧縮版
-└── kart-image-raspberrypi5.wic.bmap  # bmaptool 用マップ
+├── kart-image-raspberrypi5-sdcard.wic.bz2   # SD カード書き込み用
+├── kart-image-raspberrypi5-sdcard.wic.bmap  # bmaptool 用マップ
+├── kart-image-raspberrypi5-nvme.wic.bz2     # NVMe 書き込み用
+└── kart-image-raspberrypi5-nvme.wic.bmap    # bmaptool 用マップ
 
 build/tmp/deploy/images/qemuarm64/
 ├── kart-image-qemuarm64.wic          # QEMU 用
 └── kart-image-qemuarm64.qcow2        # QEMU 用 (qcow2)
 ```
 
-## NVMe への書き込み
+## SD カード / NVMe への書き込み
 
-### bmaptool (推奨・高速)
+### flash.sh (推奨)
 
 ```bash
-sudo bmaptool copy \
-    build/tmp/deploy/images/raspberrypi5/kart-image-raspberrypi5.wic.bz2 \
-    /dev/nvme0n1
+# SD カード
+sudo ./scripts/flash.sh -sdcard /dev/sdb
+sudo ./scripts/flash.sh -sdcard /dev/mmcblk0
+
+# NVMe
+sudo ./scripts/flash.sh -nvme /dev/nvme0n1
+
+# 確認プロンプトをスキップ
+sudo ./scripts/flash.sh -y -sdcard /dev/sdb
 ```
 
-### dd
+`-sdcard` / `-nvme` は必須。ビルド時の IMAGE_LINK_NAME に対応するイメージを自動選択する。
 
-```bash
-bzcat build/tmp/deploy/images/raspberrypi5/kart-image-raspberrypi5.wic.bz2 \
-    | sudo dd of=/dev/nvme0n1 bs=4M status=progress conv=fsync
+<details>
+<summary>Windows での書き込み</summary>
+
+#### Raspberry Pi Imager を使う場合
+
+`.wic.bz2` を事前に展開して `.wic` ファイルにしておく必要がある（bz2 のままでは書き込めない）。
+
+1. `kart-image-raspberrypi5-<sdcard|nvme>.wic.bz2` を展開
+2. Raspberry Pi Imager を起動 → 「Use custom」で `.wic` ファイルを選択
+3. 書き込み先のデバイスを選択して書き込み
+
+> Imager の Wi-Fi / SSH 設定オプションは Yocto イメージには効かないため無視してよい。
+
+#### WSL2 + flash.sh を使う場合
+
+WSL2 ではホスト側のディスクがデフォルトで見えないため、事前に `wsl --mount` でマウントが必要。
+
+```powershell
+# PowerShell (管理者) — ディスク番号を確認
+Get-Disk
+
+# WSL にマウント (例: ディスク番号 1 の場合)
+wsl --mount \\.\PHYSICALDRIVE1 --bare
 ```
 
-### ヘルパースクリプト
+```bash
+# WSL2 内 — デバイスが見えることを確認してからフラッシュ
+lsblk
+sudo ./scripts/flash.sh -sdcard /dev/sdb
+```
+
+```powershell
+# 書き込み完了後にアンマウント（忘れずに）
+wsl --unmount \\.\PHYSICALDRIVE1
+```
+
+</details>
+
+### リモートマシンでの書き込み
 
 ```bash
-sudo ./scripts/flash-nvme.sh /dev/nvme0n1
+# SD カードリーダーが別 PC に接続されている場合
+./scripts/remote-flash.sh -sdcard user@remote-pc /dev/sdb
+
+# 確認プロンプトをスキップ
+./scripts/remote-flash.sh -y -nvme user@remote-pc /dev/nvme0n1
 ```
 
 ## Raspberry Pi 5 EEPROM 設定
@@ -210,7 +258,7 @@ systemctl status
 
 # ネットワーク確認
 ip addr
-nmcli device status
+networkctl status
 ping -c 3 8.8.8.8
 ```
 
@@ -342,8 +390,11 @@ kmm-yocto/
 │   ├── recipes-kernel/linux/             # カーネル config fragments
 │   └── wic/kart-rpi5-nvme.wks           # NVMe パーティション定義
 ├── scripts/
-│   ├── run-qemu.sh       # QEMU 起動ヘルパー
-│   └── flash-nvme.sh     # NVMe 書き込みヘルパー
+│   ├── build.sh          # ビルドヘルパー
+│   ├── run-qemu.sh       # QEMU 起動 (ホストの qemu-system-aarch64 を使用)
+│   ├── flash.sh          # SD/NVMe 書き込み (-sdcard/-nvme 指定)
+│   ├── remote-flash.sh   # リモート書き込み
+│   └── sync-app.sh       # アプリデプロイ (rsync)
 ├── .gitignore
 └── README.md
 ```
