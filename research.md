@@ -767,3 +767,46 @@ RPi5 は kernel ブートが SD カード読み込みで遅いが、weston/GUI �
 - `systemd-networkd-wait-online` の遅延起動または無効化を検討
 - NVMe ブートでの kernel 起動時間短縮を検証
 
+---
+
+### 10. 遅延タイマーの改善 (OnBootSec=10s → After=kmm-start + OnActiveSec=500ms)
+
+#### 目的
+固定 10 秒だった resolved / timesyncd の遅延起動を、GUI 起動完了に連動させる。
+
+#### 変更内容
+
+**Before:**
+```ini
+[Timer]
+OnBootSec=10s
+AccuracySec=1s
+```
+
+**After:**
+```ini
+[Unit]
+After=kmm-start.service
+
+[Timer]
+OnActiveSec=500ms
+AccuracySec=1ms
+```
+
+- `After=kmm-start.service`: タイマー自体が `timers.target` から Want されてキューに入るが、`After=` により kmm-start 完了まで active にならない
+- `OnActiveSec=500ms`: タイマーが active になってから 500ms 後に発火
+- `AccuracySec=1ms`: 省電力のためのタイマー合算を無効化（起動時 1 回きりなので影響なし。1s だと最大 +1s の遅延が発生していた）
+
+#### 効果（RPi5 実機）
+
+| 指標 | Before (10s) | After (500ms) |
+|------|-------------|---------------|
+| kmm-start 完了 | @8.6s | @8.7s |
+| タイマー active | - | @8.7s |
+| resolved/timesyncd 起動 | @10.0s | **@9.2s** |
+| 遅延（kmm-start→起動） | 固定 1.4s | **0.5s** |
+
+GUI 描画（kmm-start 完了 +300ms ≈ @9.0s）との重なりもなし。
+
+---
+
