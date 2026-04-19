@@ -85,11 +85,12 @@ EOF
 
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timesyncd-delayed-start.timer << 'EOF'
 [Unit]
-Description=Delay systemd-timesyncd start until after boot
+Description=Delay systemd-timesyncd start until after GUI
+After=kmm-start.service
 
 [Timer]
-OnBootSec=10s
-AccuracySec=1s
+OnActiveSec=500ms
+AccuracySec=1ms
 Unit=timesyncd-delayed-start.service
 
 [Install]
@@ -125,11 +126,12 @@ EOF
 
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/resolved-delayed-start.timer << 'EOF'
 [Unit]
-Description=Delay systemd-resolved start until after boot
+Description=Delay systemd-resolved start until after GUI
+After=kmm-start.service
 
 [Timer]
-OnBootSec=10s
-AccuracySec=1s
+OnActiveSec=500ms
+AccuracySec=1ms
 Unit=resolved-delayed-start.service
 
 [Install]
