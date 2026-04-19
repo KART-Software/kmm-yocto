@@ -1,0 +1,25 @@
+[Unit]
+Description=Kart Machine Manager Application
+After=basic.target
+
+[Service]
+Type=simple
+User=kart
+Group=kart
+WorkingDirectory=/opt/kart/kart-machine-manager/app
+EnvironmentFile=-/run/kmm-env
+EnvironmentFile=-/opt/kart/kart-machine-manager/app/.env
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=QT_QPA_PLATFORM=wayland
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=DEBUG=TRUE
+ExecStartPre=+/bin/sh -c 'uid=$(id -u kart); echo "XDG_RUNTIME_DIR=/run/user/$uid" > /run/kmm-env'
+ExecStartPre=+/bin/sh -c 'uid=$(id -u kart); mkdir -p /run/user/$uid && chown kart:kart /run/user/$uid'
+ExecStartPre=+/bin/sh -c 'mkdir -p /opt/kart/kart-machine-manager/app/log && chown kart:kart /opt/kart/kart-machine-manager/app/log'
+ExecStart=/usr/bin/python3 /opt/kart/kart-machine-manager/app/main.py
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

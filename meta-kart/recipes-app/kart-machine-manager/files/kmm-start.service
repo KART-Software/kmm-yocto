@@ -1,0 +1,16 @@
+[Unit]
+Description=Notify Kart Machine Manager to start GUI
+After=weston.service
+Requires=weston.service kmmd.service
+
+[Service]
+Type=oneshot
+User=kart
+Group=kart
+WorkingDirectory=/opt/kart/kart-machine-manager/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m src.ipc.socket_notify START
+TimeoutStartSec=10
+
+[Install]
+WantedBy=multi-user.target
