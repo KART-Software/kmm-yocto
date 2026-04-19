@@ -1,6 +1,8 @@
 [Unit]
 Description=Seat management daemon
 Documentation=man:seatd(1)
+DefaultDependencies=no
+After=sysinit.target
 
 [Service]
 Type=simple

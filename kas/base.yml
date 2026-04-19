@@ -39,9 +39,6 @@ local_conf_header:
     DISTRO_FEATURES:append = " wayland systemd pam polkit"
     DISTRO_FEATURES:remove = "x11 sysvinit bluetooth pcmcia 3g nfc"
 
-  base-network: |
-    PACKAGECONFIG:append:pn-networkmanager = " modemmanager"
-
   base-cache: |
     DL_DIR ?= "${TOPDIR}/../downloads"
     SSTATE_DIR ?= "${TOPDIR}/../sstate-cache"

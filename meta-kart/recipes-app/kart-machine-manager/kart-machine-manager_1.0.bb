@@ -4,7 +4,8 @@ LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
 SRC_URI = " \
-    file://kart-machine-manager.service \
+    file://kmmd.service \
+    file://kmm-start.service \
 "
 
 # Set KART_APP_SRC to embed app source into the image at build time.
@@ -47,15 +48,17 @@ do_install() {
             -c "import compileall; compileall.compile_dir('${D}/opt/kart/kart-machine-manager/', quiet=2, force=True)"
     fi
 
-    # systemd service
+    # systemd services
     install -d ${D}${systemd_system_unitdir}
-    install -m 0644 ${WORKDIR}/kart-machine-manager.service ${D}${systemd_system_unitdir}/kart-machine-manager.service
+    install -m 0644 ${WORKDIR}/kmmd.service ${D}${systemd_system_unitdir}/kmmd.service
+    install -m 0644 ${WORKDIR}/kmm-start.service ${D}${systemd_system_unitdir}/kmm-start.service
 }
 
-SYSTEMD_SERVICE:${PN} = "kart-machine-manager.service"
+SYSTEMD_SERVICE:${PN} = "kmmd.service kmm-start.service"
 SYSTEMD_AUTO_ENABLE = "enable"
 
 FILES:${PN} = " \
     /opt/kart \
-    ${systemd_system_unitdir}/kart-machine-manager.service \
+    ${systemd_system_unitdir}/kmmd.service \
+    ${systemd_system_unitdir}/kmm-start.service \
 "

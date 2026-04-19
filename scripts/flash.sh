@@ -1,9 +1,11 @@
 #!/bin/bash
-# flash-sdcard.sh — Write kart-image to SD card
+# flash.sh — Write kart-image to SD card or NVMe SSD
 #
 # Usage:
-#   sudo ./scripts/flash-sdcard.sh /dev/sdX
-#   sudo ./scripts/flash-sdcard.sh /dev/sdX [image-path]
+#   sudo ./scripts/flash.sh /dev/sdX
+#   sudo ./scripts/flash.sh /dev/mmcblk0
+#   sudo ./scripts/flash.sh /dev/nvme0n1
+#   sudo ./scripts/flash.sh /dev/sdX [image-path]
 #
 # By default, looks for the latest built .wic.bz2 image.
 
@@ -17,24 +19,17 @@ if [ -z "$DEVICE" ]; then
     echo "Usage: $0 <device> [image-path]"
     echo "  e.g.: sudo $0 /dev/sdb"
     echo "  e.g.: sudo $0 /dev/mmcblk0"
+    echo "  e.g.: sudo $0 /dev/nvme0n1"
     exit 1
 fi
 
-# Safety check — allow /dev/sdX and /dev/mmcblkN
-if ! [[ "$DEVICE" =~ ^/dev/sd[a-z]+$ ]] && ! [[ "$DEVICE" =~ ^/dev/mmcblk[0-9]+$ ]]; then
-    echo "ERROR: '$DEVICE' does not look like a valid SD card device."
-    echo "       Expected /dev/sdX or /dev/mmcblkN"
+# Safety check — allow /dev/sdX, /dev/mmcblkN, /dev/nvmeXnY
+if ! [[ "$DEVICE" =~ ^/dev/sd[a-z]+$ ]] && \
+   ! [[ "$DEVICE" =~ ^/dev/mmcblk[0-9]+$ ]] && \
+   ! [[ "$DEVICE" =~ ^/dev/nvme[0-9]+n[0-9]+$ ]]; then
+    echo "ERROR: '$DEVICE' does not look like a valid block device."
+    echo "       Expected /dev/sdX, /dev/mmcblkN, or /dev/nvmeXnY"
     exit 1
-fi
-
-# Warn if /dev/sda — may be the system disk
-if [ "$DEVICE" = "/dev/sda" ]; then
-    echo "WARNING: /dev/sda is often the system disk."
-    read -rp "Are you sure $DEVICE is the SD card? [y/N] " sda_confirm
-    if [[ ! "$sda_confirm" =~ ^[Yy]$ ]]; then
-        echo "Aborted."
-        exit 0
-    fi
 fi
 
 # Find image if not specified
@@ -62,8 +57,8 @@ fi
 
 # Unmount any existing partitions
 echo "==> Unmounting existing partitions on $DEVICE..."
-if [[ "$DEVICE" =~ ^/dev/mmcblk ]]; then
-    # mmcblk partitions use p1, p2 format
+if [[ "$DEVICE" =~ ^/dev/(mmcblk|nvme) ]]; then
+    # mmcblk/nvme partitions use p1, p2 format
     for part in "${DEVICE}"p*; do
         if mount | grep -q "$part"; then
             umount "$part" 2>/dev/null || true
@@ -99,8 +94,18 @@ fi
 sync
 echo ""
 echo "==> Done! Image written to $DEVICE"
-echo ""
-echo "Next steps:"
-echo "  1. Insert SD card into RPi5 and power on."
-echo "  2. Default login: root (no password) or kart user."
-echo "  3. Connect via serial console or SSH (if NetworkManager connects)."
+
+# Show device-specific next steps
+if [[ "$DEVICE" =~ ^/dev/nvme ]]; then
+    echo ""
+    echo "Next steps:"
+    echo "  1. Ensure RPi5 EEPROM is configured for NVMe boot:"
+    echo "     sudo rpi-eeprom-config --edit"
+    echo "     Set: BOOT_ORDER=0xf416"
+    echo "  2. Insert NVMe into RPi5 M.2 HAT and power on."
+else
+    echo ""
+    echo "Next steps:"
+    echo "  1. Insert SD card into RPi5 and power on."
+fi
+echo "  Default login: root (no password) or kart user."
