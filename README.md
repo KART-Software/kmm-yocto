@@ -67,8 +67,14 @@ qemu-system-aarch64 --version
 ```
 
 - `prod` / `dev` は `--sdcard` または `--nvme` の指定が必須
-- `--with-app` を指定すると、`../kart-machine-manager` からアプリソースをコピー＆プリコンパイルしてイメージに埋め込む
+- `--with-app` を指定すると、kas が GitHub から kart-machine-manager をクローンしてイメージに埋め込む
 - 未指定の場合は `/opt/kart` が空で作成され、`sync-app.sh` で後からデプロイできる
+
+> **`--with-app` の前に `.env` の配置が必要:**
+>
+> `meta-kart/recipes-app/kart-machine-manager/files/.env` を配置する（チームメンバーから取得してください）。
+>
+> `.env` がないとビルドが失敗します。
 
 ### kas-container 直接実行
 

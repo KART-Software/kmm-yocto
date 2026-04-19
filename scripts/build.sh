@@ -13,14 +13,12 @@
 #   --sdcard     SD カードブート (dev 用)
 #   --nvme       NVMe ブート (dev 用)
 #   --with-app   kart-machine-manager をイメージに埋め込む
-#                (../kart-machine-manager からコピー & プリコンパイル)
+#                (kas/app-embed.yml で GitHub からクローン)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_SRC_DIR="$PROJECT_DIR/../kart-machine-manager"
-APP_DEST_DIR="$PROJECT_DIR/kart-machine-manager"
 
 # --- Parse arguments ---
 TARGET=""
@@ -66,39 +64,8 @@ case "$TARGET" in
 esac
 
 # --- App embedding ---
-cleanup_app() {
-    if [ -d "$APP_DEST_DIR" ]; then
-        echo "==> Cleaning up copied app source"
-        rm -rf "$APP_DEST_DIR"
-    fi
-}
-
 if [ "$WITH_APP" = true ]; then
-    if [ ! -d "$APP_SRC_DIR" ]; then
-        echo "Error: App source not found at $APP_SRC_DIR" >&2
-        exit 1
-    fi
-
-    echo "==> Precompiling app bytecode"
-    (cd "$APP_SRC_DIR" && uv run python -m compileall -q .)
-
-    echo "==> Copying app source to $APP_DEST_DIR"
-    cp -a "$APP_SRC_DIR" "$APP_DEST_DIR"
-
     KAS_CONFIG="$KAS_CONFIG:kas/app-embed.yml"
-
-    # Cleanup on exit (success or failure)
-    trap cleanup_app EXIT
-
-    # Force rebuild of kart-machine-manager (BitBake won't detect external source changes)
-    # Run cleansstate + build in a single kas-container invocation
-    echo "==> Building with app (cleansstate + build)"
-    cd "$PROJECT_DIR"
-    kas-container shell "$KAS_CONFIG" -c \
-        "bitbake -c cleansstate kart-machine-manager kart-image && bitbake kart-image"
-
-    echo "==> Build complete ($TARGET)"
-    exit 0
 fi
 
 # --- Build ---

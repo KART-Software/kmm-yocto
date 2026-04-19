@@ -6,6 +6,7 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 SRC_URI = " \
     file://kmmd.service \
     file://kmm-start.service \
+    ${@'file://.env' if d.getVar('KART_APP_SRC') else ''} \
 "
 
 # Set KART_APP_SRC to embed app source into the image at build time.
@@ -13,6 +14,10 @@ SRC_URI = " \
 #   KART_APP_SRC = "/path/to/kart-machine-manager"
 # When unset, /opt/kart is created empty (deploy later via sync-app.sh).
 KART_APP_SRC ?= ""
+
+# Changing this value invalidates BitBake sstate cache automatically.
+KART_APP_REVISION ?= ""
+do_install[vardeps] += "KART_APP_REVISION"
 
 inherit systemd
 
@@ -46,6 +51,8 @@ do_install() {
         # Precompile .pyc
         ${STAGING_BINDIR_NATIVE}/python3-native/python3 \
             -c "import compileall; compileall.compile_dir('${D}/opt/kart/kart-machine-manager/', quiet=2, force=True)"
+        # Install .env
+        install -m 0644 ${WORKDIR}/.env ${D}/opt/kart/kart-machine-manager/app/.env
     fi
 
     # systemd services

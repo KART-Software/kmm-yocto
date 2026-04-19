@@ -1,6 +1,18 @@
 header:
   version: 14
 
+# アプリ更新時は refspec と KART_APP_REVISION を同じコミットハッシュに揃えること。
+# refspec: kas がクローンするコミット
+# KART_APP_REVISION: BitBake sstate キャッシュ無効化用
+repos:
+  kart-machine-manager:
+    url: "https://github.com/KART-Software/kart-machine-manager.git"
+    refspec: 2da4009482802251086c4b54d4dd59d8b7668759
+    path: kart-machine-manager
+    layers:
+      "": excluded
+
 local_conf_header:
   app-embed: |
     KART_APP_SRC = "/work/kart-machine-manager"
+    KART_APP_REVISION = "2da4009482802251086c4b54d4dd59d8b7668759"
