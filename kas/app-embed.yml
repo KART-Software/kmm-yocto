@@ -7,7 +7,7 @@ header:
 repos:
   kart-machine-manager:
     url: "https://github.com/KART-Software/kart-machine-manager.git"
-    refspec: 2da4009482802251086c4b54d4dd59d8b7668759
+    refspec: 58975172b2c5c9e8c7c4c763d953213e154516b9
     path: kart-machine-manager
     layers:
       "": excluded
@@ -15,4 +15,4 @@ repos:
 local_conf_header:
   app-embed: |
     KART_APP_SRC = "/work/kart-machine-manager"
-    KART_APP_REVISION = "2da4009482802251086c4b54d4dd59d8b7668759"
+    KART_APP_REVISION = "58975172b2c5c9e8c7c4c763d953213e154516b9"

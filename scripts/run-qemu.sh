@@ -72,6 +72,14 @@ if [[ -z "${ROOTFS}" || ! -f "${ROOTFS}" ]]; then
     exit 1
 fi
 
+# --- Data partition (persistent, /dev/vdb → /data) ---
+DATA_IMG="${IMAGE_DIR}/data.ext4"
+if [[ ! -f "${DATA_IMG}" ]]; then
+    echo "Creating data partition image: ${DATA_IMG} (128M)"
+    dd if=/dev/zero of="${DATA_IMG}" bs=1M count=128
+    mkfs.ext4 -L data -q "${DATA_IMG}"
+fi
+
 QEMU="qemu-system-aarch64"
 if ! command -v "${QEMU}" &>/dev/null; then
     echo "ERROR: ${QEMU} not found. Install qemu-system-arm." >&2
@@ -136,6 +144,7 @@ fi
 
 echo "kernel  : ${KERNEL}"
 echo "rootfs  : ${ROOTFS}"
+echo "data    : ${DATA_IMG}"
 if [[ "${OPT_SLIRP}" -eq 1 ]]; then
     echo "network : slirp (ssh -p 2222 root@localhost)"
 elif [[ "${OPT_VNC}" -eq 1 ]]; then
@@ -160,6 +169,8 @@ echo ""
     -append "root=/dev/vda rw ${KERNEL_NET} console=ttyAMA0 console=hvc0 swiotlb=0" \
     -drive id=disk0,file="${ROOTFS}",if=none,format=raw \
     -device virtio-blk-pci,drive=disk0 \
+    -drive id=disk1,file="${DATA_IMG}",if=none,format=raw \
+    -device virtio-blk-pci,drive=disk1 \
     "${NET_ARGS[@]}" \
     -object rng-random,filename=/dev/urandom,id=rng0 \
     -device virtio-rng-pci,rng=rng0 \

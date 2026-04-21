@@ -54,7 +54,23 @@ IMAGE_INSTALL:append = " systemd-serialgetty"
 # ---------------------------------------------------------------------------
 # Precompile Python bytecode (.pyc) at image build time
 # ---------------------------------------------------------------------------
-ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;mask_vconsole_setup;delay_timesyncd_start;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;mask_unnecessary_services;"
+ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;mask_vconsole_setup;delay_timesyncd_start;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;mask_unnecessary_services;"
+
+# ---------------------------------------------------------------------------
+# Create /data mount point and fstab entry for persistent data partition
+# ---------------------------------------------------------------------------
+create_data_mount() {
+    install -d ${IMAGE_ROOTFS}/data
+    echo "LABEL=data  /data  ext4  defaults  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
+
+    # Ensure /data and /data/log are world-writable at every boot
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d
+    cat > ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d/data-partition.conf << 'EOF'
+d /data     0777 root root -
+d /data/log 0777 root root -
+EOF
+}
+
 compile_python_bytecode() {
     ${STAGING_BINDIR_NATIVE}/python3-native/python3 \
         -c "import compileall; compileall.compile_dir('${IMAGE_ROOTFS}/usr/lib/python3.12/', quiet=2, force=True)"
@@ -70,9 +86,8 @@ delay_timesyncd_start() {
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timers.target.wants
 
-    # Prevent timesyncd from delaying sysinit.
+    # Prevent timesyncd from delaying sysinit (remove wants link only, no mask).
     rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-timesyncd.service
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-timesyncd.service
 
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timesyncd-delayed-start.service << 'EOF'
 [Unit]
@@ -80,7 +95,7 @@ Description=Delayed start of systemd-timesyncd
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'systemctl unmask systemd-timesyncd.service && systemctl start systemd-timesyncd.service'
+ExecStart=/bin/systemctl start systemd-timesyncd.service
 EOF
 
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timesyncd-delayed-start.timer << 'EOF'
@@ -111,9 +126,8 @@ delay_resolved_start() {
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timers.target.wants
 
-    # Prevent resolved from delaying sysinit.
+    # Prevent resolved from delaying sysinit (remove wants link only, no mask).
     rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-resolved.service
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-resolved.service
 
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/resolved-delayed-start.service << 'EOF'
 [Unit]
@@ -121,7 +135,7 @@ Description=Delayed start of systemd-resolved
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'systemctl unmask systemd-resolved.service && systemctl start systemd-resolved.service'
+ExecStart=/bin/systemctl start systemd-resolved.service
 EOF
 
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/resolved-delayed-start.timer << 'EOF'
