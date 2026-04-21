@@ -2,7 +2,8 @@
 Description=Tailscale node agent
 Documentation=https://tailscale.com/kb/
 Wants=network-online.target
-After=network-online.target NetworkManager.service
+After=network-online.target NetworkManager.service data.mount
+Requires=data.mount
 
 [Service]
 Environment=TS_LOGS_DIR=/data/tailscale

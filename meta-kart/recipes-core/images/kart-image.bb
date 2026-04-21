@@ -69,7 +69,7 @@ ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;mask_vc
 # ---------------------------------------------------------------------------
 create_data_mount() {
     install -d ${IMAGE_ROOTFS}/data
-    echo "LABEL=data  /data  ext4  defaults  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
+    echo "LABEL=data  /data  ext4  defaults,nofail  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
 
     # Ensure /data and /data/log are world-writable at every boot
     install -d ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d

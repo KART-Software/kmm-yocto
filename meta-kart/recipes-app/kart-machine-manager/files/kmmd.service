@@ -1,6 +1,7 @@
 [Unit]
 Description=Kart Machine Manager Application
-After=basic.target
+After=basic.target data.mount
+Requires=data.mount
 
 [Service]
 Type=simple
