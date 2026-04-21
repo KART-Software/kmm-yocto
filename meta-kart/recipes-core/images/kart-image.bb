@@ -53,6 +53,7 @@ IMAGE_INSTALL:append:qemuarm64 = " \
 # ---------------------------------------------------------------------------
 # Image tweaks
 # ---------------------------------------------------------------------------
+IMAGE_FEATURES += "read-only-rootfs"
 IMAGE_ROOTFS_EXTRA_SPACE = "0"
 
 # Ensure systemd is used
