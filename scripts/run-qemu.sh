@@ -89,6 +89,16 @@ fi
 # --- Cleanup on exit (Ctrl+C, poweroff, kill, etc.) ---
 TAP_CREATED=0
 cleanup() {
+    # Remove FORWARD rules
+    local host_if
+    host_if=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')
+    if [[ -n "${host_if}" ]]; then
+        sudo iptables -D FORWARD -i tap0 -o "${host_if}" -j ACCEPT 2>/dev/null || true
+        sudo iptables -D FORWARD -i "${host_if}" -o tap0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
+    fi
+    # Remove NAT rule
+    sudo iptables -t nat -D POSTROUTING -s 192.168.7.0/24 ! -d 192.168.7.0/24 -j MASQUERADE 2>/dev/null || true
+
     if [[ "${TAP_CREATED}" -eq 1 ]] && ip link show tap0 &>/dev/null; then
         echo ""
         echo "Removing tap0..."
@@ -115,6 +125,22 @@ else
         sudo ip addr add 192.168.7.1/24 dev tap0
         sudo ip link set tap0 up
         TAP_CREATED=1
+    fi
+
+    # Enable NAT so the guest can reach the internet via the host
+    if ! sudo iptables -t nat -C POSTROUTING -s 192.168.7.0/24 ! -d 192.168.7.0/24 -j MASQUERADE 2>/dev/null; then
+        sudo iptables -t nat -A POSTROUTING -s 192.168.7.0/24 ! -d 192.168.7.0/24 -j MASQUERADE
+    fi
+
+    # Allow forwarding between tap0 and the default outbound interface (Docker sets FORWARD policy to DROP)
+    HOST_IF=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')
+    if [[ -n "${HOST_IF}" ]]; then
+        if ! sudo iptables -C FORWARD -i tap0 -o "${HOST_IF}" -j ACCEPT 2>/dev/null; then
+            sudo iptables -I FORWARD -i tap0 -o "${HOST_IF}" -j ACCEPT
+        fi
+        if ! sudo iptables -C FORWARD -i "${HOST_IF}" -o tap0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; then
+            sudo iptables -I FORWARD -i "${HOST_IF}" -o tap0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+        fi
     fi
     NET_ARGS=(
         -device virtio-net-pci,netdev=net0,mac=52:54:00:12:35:02

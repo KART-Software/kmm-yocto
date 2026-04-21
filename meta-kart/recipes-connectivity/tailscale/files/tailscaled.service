@@ -5,12 +5,12 @@ Wants=network-online.target
 After=network-online.target NetworkManager.service
 
 [Service]
-ExecStartPre=/usr/sbin/tailscaled --cleanup
-ExecStart=/usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641
-ExecStopPost=/usr/sbin/tailscaled --cleanup
+Environment=TS_LOGS_DIR=/data/tailscale
+ExecStartPre=/usr/sbin/tailscaled --cleanup --statedir=/data/tailscale
+ExecStart=/usr/sbin/tailscaled --statedir=/data/tailscale --socket=/run/tailscale/tailscaled.sock --port=41641
+ExecStopPost=/usr/sbin/tailscaled --cleanup --statedir=/data/tailscale
 Restart=on-failure
 RuntimeDirectory=tailscale
-StateDirectory=tailscale
 
 [Install]
 WantedBy=multi-user.target

@@ -31,15 +31,22 @@ IMAGE_INSTALL:append = " \
     bash \
     less \
     systemd-analyze \
+    tailscale \
 "
 
 # ---------------------------------------------------------------------------
 # Raspberry Pi 5 specific packages
 # ---------------------------------------------------------------------------
 IMAGE_INSTALL:append:raspberrypi5 = " \
-    tailscale \
     can-utils \
     can-setup \
+    kernel-modules \
+"
+
+# ---------------------------------------------------------------------------
+# QEMU specific packages
+# ---------------------------------------------------------------------------
+IMAGE_INSTALL:append:qemuarm64 = " \
     kernel-modules \
 "
 
@@ -66,8 +73,9 @@ create_data_mount() {
     # Ensure /data and /data/log are world-writable at every boot
     install -d ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d
     cat > ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d/data-partition.conf << 'EOF'
-d /data     0777 root root -
-d /data/log 0777 root root -
+d /data           0777 root root -
+d /data/log       0777 root root -
+d /data/tailscale 0700 root root -
 EOF
 }
 
