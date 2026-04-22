@@ -34,4 +34,8 @@ local_conf_header:
     ENABLE_UART = "1"
 
   rpi5-pcie: |
-    RPI_EXTRA_CONFIG = "dtparam=pciex1\ndtparam=pciex1_gen=3"
+    RPI_EXTRA_CONFIG = "dtparam=pciex1\ndtparam=pciex1_gen=3\nboot_delay=0\ndisable_splash=1"
+
+  rpi5-cmdline: |
+    CMDLINE:append = " quiet loglevel=3"
+    DISABLE_RPI_BOOT_LOGO = "1"
