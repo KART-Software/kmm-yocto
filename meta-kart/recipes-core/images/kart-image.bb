@@ -71,6 +71,11 @@ create_data_mount() {
     install -d ${IMAGE_ROOTFS}/data
     echo "LABEL=data  /data  ext4  defaults,nofail  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
 
+    # /boot is required by systemd local-fs.target; use LABEL for portability
+    # across SD (mmcblk0p1) and NVMe (nvme0n1p1).
+    install -d ${IMAGE_ROOTFS}/boot
+    echo "LABEL=boot  /boot  vfat  defaults,nofail  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
+
     # Ensure /data and /data/log are world-writable at every boot
     install -d ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d
     cat > ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d/data-partition.conf << 'EOF'

@@ -3,6 +3,6 @@
 # Root partition: ext4
 # Data partition: ext4 persistent storage (survives rootfs updates, fstab managed by kart-image.bb)
 
-part /boot --source bootimg-partition --ondisk mmcblk0 --fstype=vfat --label boot --active --align 4096 --size 256M
-part / --source rootfs --ondisk mmcblk0 --fstype=ext4 --label root --align 4096
+part --source bootimg-partition --ondisk mmcblk0 --fstype=vfat --label boot --active --align 4096 --size 256M --use-uuid
+part / --source rootfs --ondisk mmcblk0 --fstype=ext4 --label root --align 4096 --use-uuid
 part --ondisk mmcblk0 --fstype=ext4 --label data --align 4096 --fixed-size 128M

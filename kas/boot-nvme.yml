@@ -5,3 +5,4 @@ local_conf_header:
   boot-nvme: |
     WKS_FILE = "kart-rpi5-nvme.wks"
     IMAGE_LINK_NAME = "${IMAGE_BASENAME}-${MACHINE}-nvme"
+    CMDLINE_ROOT_PARTITION = "/dev/nvme0n1p2"
