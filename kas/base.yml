@@ -37,7 +37,13 @@ local_conf_header:
 
   base-distro: |
     DISTRO_FEATURES:append = " wayland systemd pam polkit"
-    DISTRO_FEATURES:remove = "x11 sysvinit bluetooth pcmcia 3g nfc"
+    DISTRO_FEATURES:remove = "x11 sysvinit bluetooth pcmcia 3g nfc zeroconf nfs"
+
+  base-systemd: |
+    PACKAGECONFIG:remove:pn-systemd = "rfkill vconsole"
+
+  base-busybox: |
+    PACKAGECONFIG:remove:pn-busybox = "syslog"
 
   base-cache: |
     DL_DIR ?= "${TOPDIR}/../downloads"

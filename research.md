@@ -810,3 +810,124 @@ GUI 描画（kmm-start 完了 +300ms ≈ @9.0s）との重なりもなし。
 
 ---
 
+### 11. 不要サービスの mask → パッケージ除外への置き換え
+
+#### 背景
+これまで `mask_unnecessary_services()` / `mask_vconsole_setup()` で `/dev/null` シンボリックリンクによる mask をしていたが、
+パッケージ自体はイメージに残っていた。DISTRO_FEATURES / PACKAGECONFIG で元から除外する方式に変更。
+
+#### 変更内容
+
+**[kas/base.yml](kas/base.yml)**:
+```yaml
+DISTRO_FEATURES:remove = "x11 sysvinit bluetooth pcmcia 3g nfc zeroconf nfs"
+PACKAGECONFIG:remove:pn-systemd = "rfkill vconsole"
+PACKAGECONFIG:remove:pn-busybox = "syslog"
+```
+
+**[meta-kart/recipes-core/images/kart-image.bb](meta-kart/recipes-core/images/kart-image.bb)**:
+- `mask_unnecessary_services()` 関数を削除
+- `mask_vconsole_setup()` 関数を削除
+- `ROOTFS_POSTPROCESS_COMMAND` から両関数の呼び出しを削除
+
+#### 除外されるパッケージ
+
+| パッケージ | 依存元 | 除外理由 |
+|-----------|--------|---------|
+| `avahi-daemon` | `packagegroup-base-zeroconf` (DISTRO_FEATURES zeroconf) | mDNS 不要 |
+| `rpcbind` | `packagegroup-base-nfs` (DISTRO_FEATURES nfs) | NFS 未使用 |
+| `busybox-syslog` / `busybox-klogd` | busybox PACKAGECONFIG syslog | systemd-journald と重複 |
+| `systemd-vconsole-setup` | systemd PACKAGECONFIG vconsole | Weston 占有で TTY 未使用 |
+| `systemd-rfkill` | systemd PACKAGECONFIG rfkill | Bluetooth/WiFi 無効化制御不要 |
+
+#### 効果
+- イメージサイズ減（パッケージ自体が入らない）
+- `systemctl --failed` の rfkill 関連エラーが消える
+- mask ファイル管理が不要に
+
+#### 実機検証結果（再ビルド後の RPi5）
+
+```
+Startup finished in 1.320s (kernel) + 7.738s (userspace) = 9.059s
+```
+
+**パッケージ除外確認** (opkg list-installed):
+
+| パッケージ | 状態 |
+|-----------|------|
+| `systemd-rfkill` | NOT INSTALLED ✓ |
+| `systemd-vconsole-setup` | NOT INSTALLED ✓ |
+| `busybox-syslog` | NOT INSTALLED ✓ |
+| `avahi-daemon` | NOT INSTALLED ✓ |
+| `rpcbind` | NOT INSTALLED ✓ |
+
+**failed units**: 2 (rfkill 起因) → **0**
+
+起動時間自体は 8.86s → 9.06s でほぼ変わらず（誤差レベル）。
+これは今回の変更が起動時間短縮ではなくイメージクリーン化が目的なため想定通り。
+
+---
+
+### 12. agetty / serial-getty の扱い（調査のみ）
+
+#### 現状
+- `kart-image.bb` で `systemd-serialgetty` を明示的に IMAGE_INSTALL
+- `util-linux-agetty` は systemd の RRECOMMENDS で入る
+- `getty@tty1.service` と `serial-getty@ttyAMA0.service` が有効
+
+#### 用途と影響
+| ユニット | 用途 | 影響 |
+|---------|------|------|
+| `getty@tty1` | HDMI でのログインプロンプト | Weston が tty1 占有するため実質未使用 |
+| `serial-getty@ttyAMA0` | UART 経由デバッグログイン | 現地で SSH/Tailscale 不通時の復旧手段 |
+
+**SSH には影響なし**（sshd は独立）。
+
+#### 削除時の起動時間効果
+- どちらも `Type=idle` でクリティカルパスに乗らない
+- `systemd-analyze blame` の top にも出ない
+- 体感速度改善はほぼ期待できない（数十 ms / 数 MB のイメージサイズ削減のみ）
+
+#### 結論
+- serial-getty は**復旧手段として残す**推奨（本番で SSH 不通時の最後の砦）
+- 削除するなら `systemd-serialgetty` を `local-dev.yml` へ移し、本番で除外する形
+
+---
+
+### 13. RPi5 実機 8.9 秒計測 + wait-online の影響範囲確認
+
+#### 環境
+- RPi5 (SD カード), kernel 1.325s + userspace 7.530s = **8.855s**
+
+#### blame 上位
+```
+4.449s systemd-networkd-wait-online.service
+1.403s tailscaled.service
+ 711ms weston.service
+ 703ms kmm-start.service
+ 421ms dev-mmcblk0p2.device
+ 150ms dbus.service
+```
+
+#### critical-chain（GUI 系）
+
+```
+weston.service        +711ms  (開始 @1.468s → ready @2.179s)
+kmm-start.service     +703ms  (weston 完了後)
+kmmd.service          +46ms   (basic.target から並列)
+```
+
+すべて `basic.target @1.452s` から分岐。**`network-online.target` を経由しない**。
+
+#### 結論: `systemd-networkd-wait-online` を削除しても GUI 表示時刻は変わらない
+
+| 指標 | Before | 仮に wait-online 削除後 |
+|------|--------|-------------------------|
+| **GUI 表示** | ~2.2s | ~2.2s（変わらず） |
+| `multi-user.target` 到達 | 7.5s | ~2.5s（見た目の改善） |
+| tailscaled 接続確立 | 7.5s 後 | ~2.5s 後 |
+
+GUI 起動時間の短縮目的では wait-online 削除は無効。ただし tailscale 接続確立タイミングの前倒しには有効。
+
+---
+

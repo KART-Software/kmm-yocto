@@ -62,7 +62,7 @@ IMAGE_INSTALL:append = " systemd-serialgetty"
 # ---------------------------------------------------------------------------
 # Precompile Python bytecode (.pyc) at image build time
 # ---------------------------------------------------------------------------
-ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;mask_vconsole_setup;delay_timesyncd_start;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;mask_unnecessary_services;"
+ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;delay_timesyncd_start;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;"
 
 # ---------------------------------------------------------------------------
 # Create /data mount point and fstab entry for persistent data partition
@@ -83,11 +83,6 @@ EOF
 compile_python_bytecode() {
     ${STAGING_BINDIR_NATIVE}/python3-native/python3 \
         -c "import compileall; compileall.compile_dir('${IMAGE_ROOTFS}/usr/lib/python3.12/', quiet=2, force=True)"
-}
-
-mask_vconsole_setup() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-vconsole-setup.service
 }
 
 delay_timesyncd_start() {
@@ -181,28 +176,6 @@ generate_ssh_host_keys() {
     # Mask the service so it doesn't even check at boot
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
     ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sshdgenkeys.service
-}
-
-# ---------------------------------------------------------------------------
-# Mask services unnecessary for kiosk operation
-# ---------------------------------------------------------------------------
-mask_unnecessary_services() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
-
-    # avahi-daemon: mDNS/DNS-SD not needed for kiosk
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/avahi-daemon.service
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/avahi-daemon.socket
-
-    # dnsmasq: DNS/DHCP server not needed for kiosk
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/dnsmasq.service
-
-    # rpcbind: NFS RPC port mapper not needed
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/rpcbind.service
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/rpcbind.socket
-
-    # busybox-klogd/syslog: redundant with systemd-journald
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/busybox-klogd.service
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/busybox-syslog.service
 }
 
 # Weston/Wayland configuration
