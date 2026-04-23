@@ -53,8 +53,14 @@ qemu-system-aarch64 --version
 # RPi5 本番 (SD カード) + アプリ埋め込み
 ./scripts/build.sh prod --sdcard --with-app
 
+# RPi5 本番 (NVMe) + アプリ埋め込み
+./scripts/build.sh prod --nvme --with-app
+
 # RPi5 開発 (SD カード, debug-tweaks)
 ./scripts/build.sh dev --sdcard
+
+# RPi5 開発 (SD カード) + アプリ埋め込み
+./scripts/build.sh dev --sdcard --with-app 
 
 # RPi5 開発 (NVMe) + アプリ埋め込み
 ./scripts/build.sh dev --nvme --with-app
