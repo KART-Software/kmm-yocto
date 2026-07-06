@@ -2,5 +2,5 @@
 # Edit this file to change CAN bus parameters.
 
 IFACE=can0
-BITRATE=500000
+BITRATE=1000000
 RESTART_MS=100

@@ -9,6 +9,9 @@ SRC_URI = " \
     ${@'file://.env' if d.getVar('KART_APP_SRC') else ''} \
 "
 
+# QEMU has no CAN hardware; ship a drop-in that runs the app in mock (DEBUG) mode.
+SRC_URI:append:qemuarm64 = " file://kmmd-debug.conf"
+
 # Set KART_APP_SRC to embed app source into the image at build time.
 # e.g. in kas local_conf_header:
 #   KART_APP_SRC = "/path/to/kart-machine-manager"
@@ -61,6 +64,13 @@ do_install() {
     install -m 0644 ${WORKDIR}/kmm-start.service ${D}${systemd_system_unitdir}/kmm-start.service
 }
 
+# QEMU-only: drop-in enabling mock CAN (DEBUG=TRUE) since there is no can0.
+do_install:append:qemuarm64() {
+    install -d ${D}${systemd_system_unitdir}/kmmd.service.d
+    install -m 0644 ${WORKDIR}/kmmd-debug.conf \
+        ${D}${systemd_system_unitdir}/kmmd.service.d/debug.conf
+}
+
 SYSTEMD_SERVICE:${PN} = "kmmd.service kmm-start.service"
 SYSTEMD_AUTO_ENABLE = "enable"
 
@@ -69,3 +79,5 @@ FILES:${PN} = " \
     ${systemd_system_unitdir}/kmmd.service \
     ${systemd_system_unitdir}/kmm-start.service \
 "
+
+FILES:${PN}:append:qemuarm64 = " ${systemd_system_unitdir}/kmmd.service.d/debug.conf"

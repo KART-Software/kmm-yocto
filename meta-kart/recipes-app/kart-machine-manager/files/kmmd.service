@@ -14,7 +14,6 @@ Environment=KMM_LOG_DIR=/data/log/kmm/
 Environment=WAYLAND_DISPLAY=wayland-1
 Environment=QT_QPA_PLATFORM=wayland
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=DEBUG=TRUE
 ExecStartPre=+/bin/sh -c 'uid=$(id -u kart); echo "XDG_RUNTIME_DIR=/run/user/$uid" > /run/kmm-env'
 ExecStartPre=+/bin/sh -c 'uid=$(id -u kart); mkdir -p /run/user/$uid && chown kart:kart /run/user/$uid'
 ExecStartPre=+/bin/sh -c 'mkdir -p /data/log/kmm && chown kart:kart /data/log/kmm'

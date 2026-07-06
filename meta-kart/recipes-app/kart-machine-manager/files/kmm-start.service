@@ -1,7 +1,8 @@
 [Unit]
 Description=Notify Kart Machine Manager to start GUI
-After=weston.service
+After=weston.service can0-up.service
 Requires=weston.service kmmd.service
+Wants=can0-up.service
 
 [Service]
 Type=oneshot
