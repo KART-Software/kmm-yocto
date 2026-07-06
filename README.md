@@ -17,6 +17,16 @@ Raspberry Pi 5 向け組み込み Linux イメージを Yocto (scarthgap) + kas-
 | リモートアクセス | Tailscale + SSH |
 | LTE | PIX-MT100 (USB NIC) |
 
+## 使用ハードウェア
+
+| 用途 | 製品 | 備考 |
+|------|------|------|
+| M.2 SSD HAT | [Waveshare Raspberry Pi 5 用 PCIe-M.2 SSD 変換基板（ヒートシンク&ファン付属）](https://ssci.to/9859) | NVMe ブート用。RPi5 の PCIe に M.2 NVMe SSD を接続 |
+| CAN HAT | [Waveshare RS485 CAN HAT](https://amzn.asia/d/07GRvdVZ) | MCP2515 (SPI) + SIT65HVD230 トランシーバ。**オシレータ 12MHz / INT=GPIO25** — `kas/rpi5.yml` の `CAN_OSCILLATOR=12000000` / `CAN0_INTERRUPT_PIN=25` と一致 |
+
+> **M.2 SSD へのイメージ書き込みには USB⇔M.2 (NVMe) 変換アダプタ（または外付けケース）が必要。**
+> SSD は M.2 HAT 経由で Pi 本体の PCIe に載るため、そのままでは PC から書き込めない。SSD を USB-M.2 変換で書き込み機に接続し、`flash.sh -nvme` / `remote-flash.sh -nvme` で焼いてから HAT に取り付ける（詳細は「[SD カード / NVMe への書き込み](#sd-カード--nvme-への書き込み)」）。
+
 ## 前提条件
 
 - **Ubuntu 22.04 以降** (WSL2 含む)
@@ -175,6 +185,8 @@ build/tmp/deploy/images/qemuarm64/
 ```
 
 ## SD カード / NVMe への書き込み
+
+> **M.2 SSD (NVMe) に焼く場合は USB⇔M.2 (NVMe) 変換アダプタが必要。** SSD は [M.2 HAT](#使用ハードウェア) 経由で Pi の PCIe に載るため書き込み時は取り外し、USB-M.2 変換で書き込み機に接続してから `-nvme` で焼く。
 
 ### flash.sh (推奨)
 
