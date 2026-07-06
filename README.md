@@ -344,6 +344,34 @@ ip addr
 # http://192.168.0.1
 ```
 
+## アプリのデプロイ（再ビルド不要）
+
+`kart-machine-manager` の**アプリコードだけ**を更新する場合は、再ビルド・再フラッシュせず `sync-app.sh` で rsync デプロイできる。
+
+```bash
+# 実機 (直 IP / Tailscale IP)
+./scripts/sync-app.sh --target <IP>
+
+# ~/.ssh/config のホスト名を使う
+./scripts/sync-app.sh --host <ssh-config-host>
+
+# QEMU (デフォルト: root@192.168.7.2)
+./scripts/sync-app.sh --qemu
+
+# デプロイ元を明示 (デフォルトは ../kart-machine-manager)
+./scripts/sync-app.sh --target <IP> /path/to/kart-machine-manager
+```
+
+配置先は `/opt/kart/kart-machine-manager/`（`.pyc` プリコンパイル → rsync → `chown kart:kart`）。`.git` `.venv` `log/` `uv.lock` などは除外。`--no-restart` で配置のみ。
+
+デプロイ後にコードを反映するには daemon を再起動する。systemd ユニットは `kmmd.service`（デーモン）と `kmm-start.service`（GUI 起動通知）:
+
+```bash
+ssh root@<IP> 'systemctl restart kmmd && systemctl start kmm-start'
+```
+
+> **注意:** `sync-app.sh` は**アプリコードのみ**を配る。OS 側の設定（CAN bitrate / オシレータ、systemd ユニット、カーネル config など）は反映されないため、それらの変更は再ビルド + 再フラッシュが必要。
+
 ## 設定変更
 
 ### CAN bitrate 変更
@@ -380,6 +408,23 @@ rpi5-spi-can: |
 ```
 
 変更後、再ビルドが必要。
+
+### オシレータ周波数の変更（再ビルド不要）
+
+MCP2515 のオシレータ周波数は boot パーティションの `config.txt` に dtoverlay パラメータとして書かれているため、再ビルドせず実機上で変更できる。HAT の水晶と設定値が一致していないと CAN が通信できない（設定ビットレートと実効ビットレートがずれる）ので、現物の水晶（8.000 / 12.000 / 16.000 MHz など）に合わせる。
+
+```bash
+# 実機上で編集 (/boot は vfat で rw マウント)
+vi /boot/config.txt
+# dtoverlay=mcp2515-can0,oscillator=12000000,interrupt=25
+#                        ^^^^^^^^^^^^^^^^^^^^ ここを 8000000 / 16000000 などに変更
+
+reboot
+```
+
+PC 側で boot パーティション (FAT32, label=boot) をマウントして `config.txt` を編集してもよい。
+
+> 恒久的に確定したら `kas/rpi5.yml` の `CAN_OSCILLATOR` も同じ値に更新する（次回以降のビルドに反映）。上記「MCP2515 CAN HAT 設定変更」参照。
 
 ## プロジェクト構成
 
