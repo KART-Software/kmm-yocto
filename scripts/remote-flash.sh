@@ -10,6 +10,11 @@
 # Options:
 #   -y          Skip all confirmation prompts
 #
+# After flashing, you are always prompted (hidden input, shown locally over the
+# ssh -t session) for a Tailscale auth key which is written to the remote
+# device's boot partition. Press Enter with no input to skip. The key is never
+# passed as a command-line argument.
+#
 # The -sdcard or -nvme flag is required to select the correct image.
 #
 # What it does:
@@ -29,6 +34,8 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -y          Skip all confirmation prompts"
+    echo ""
+    echo "After flashing, prompts for a Tailscale auth key (Enter to skip)."
     echo ""
     echo "Examples:"
     echo "  $0 -sdcard user@192.168.0.10 /dev/sdb"
@@ -100,7 +107,7 @@ echo ""
 # --- Check remote prerequisites ---
 echo "==> Checking remote prerequisites on ${SSH_HOST}..."
 MISSING=""
-for cmd in dd sudo wipefs; do
+for cmd in dd sudo wipefs lsblk findmnt; do
     if ! ssh "$SSH_HOST" "command -v $cmd" &>/dev/null; then
         MISSING="$MISSING $cmd"
     fi

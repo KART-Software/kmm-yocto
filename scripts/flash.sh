@@ -10,6 +10,11 @@
 # Options:
 #   -y          Skip confirmation prompt
 #
+# After flashing, you are always prompted (hidden input) for a Tailscale auth
+# key which is written to the boot partition for first-boot auto-connect.
+# Press Enter with no input to skip. The key can also be supplied via the
+# TS_AUTHKEY env var.
+#
 # The -sdcard or -nvme flag is required to select the correct image.
 
 set -euo pipefail
@@ -20,6 +25,8 @@ usage() {
     echo "Options:"
     echo "  -y          Skip confirmation prompt"
     echo ""
+    echo "After flashing, prompts for a Tailscale auth key (Enter to skip)."
+    echo ""
     echo "Examples:"
     echo "  sudo $0 -sdcard /dev/sdb"
     echo "  sudo $0 -sdcard /dev/mmcblk0"
@@ -28,23 +35,82 @@ usage() {
     exit 1
 }
 
-AUTO_YES=false
-if [ "${1:-}" = "-y" ]; then
-    AUTO_YES=true
-    shift
-fi
+# Read a Tailscale auth key without exposing it on the command line.
+# Priority: $TS_AUTHKEY env > hidden interactive prompt (tty) > piped stdin.
+get_authkey() {
+    if [ -n "${TS_AUTHKEY:-}" ]; then
+        printf '%s' "$TS_AUTHKEY"
+        return 0
+    fi
+    local key=""
+    if [ -t 0 ]; then
+        read -rsp "Tailscale auth key (empty to skip): " key
+        echo >&2
+    else
+        IFS= read -r key || true
+    fi
+    printf '%s' "$key"
+}
 
-if [ $# -lt 2 ]; then
+# Write the auth key to the boot partition (label=boot) of the flashed device.
+inject_tailscale_key() {
+    local device="$1"
+    local key bootname bootpart mnt own=false
+
+    key=$(get_authkey)
+    key=$(printf '%s' "$key" | tr -d '[:space:]')
+    if [ -z "$key" ]; then
+        echo "==> No auth key entered; skipping Tailscale injection."
+        return 0
+    fi
+
+    # Wait for the freshly-written partition table / 'boot' label to appear.
+    bootname=""
+    for _ in 1 2 3 4 5; do
+        bootname=$(lsblk -rno NAME,LABEL "$device" 2>/dev/null | awk '$2=="boot"{print $1; exit}')
+        [ -n "$bootname" ] && break
+        partprobe "$device" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
+        sleep 1
+    done
+    if [ -z "$bootname" ]; then
+        echo "WARN: no 'boot' partition found on $device; auth key NOT written." >&2
+        return 0
+    fi
+    bootpart="/dev/$bootname"
+
+    mnt=$(findmnt -nro TARGET "$bootpart" 2>/dev/null | head -1 || true)
+    if [ -z "$mnt" ]; then
+        mnt=$(mktemp -d); own=true
+        mount "$bootpart" "$mnt"
+    fi
+    printf '%s\n' "$key" > "$mnt/tailscale.authkey"
+    sync
+    if [ "$own" = true ]; then
+        umount "$mnt" 2>/dev/null || true
+        rmdir "$mnt" 2>/dev/null || true
+    fi
+    echo "==> Tailscale auth key written to $bootpart (first boot connects, then deletes it)."
+}
+
+AUTO_YES=false
+IMAGE_TYPE=""
+DEVICE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -y)          AUTO_YES=true ;;
+        -sdcard)     IMAGE_TYPE="sdcard" ;;
+        -nvme)       IMAGE_TYPE="nvme" ;;
+        -h|--help)   usage ;;
+        -*)          echo "ERROR: unknown option: $1"; echo ""; usage ;;
+        *)           if [ -z "$DEVICE" ]; then DEVICE="$1"; else echo "ERROR: unexpected argument: $1"; echo ""; usage; fi ;;
+    esac
+    shift
+done
+
+if [ -z "$IMAGE_TYPE" ] || [ -z "$DEVICE" ]; then
     usage
 fi
-
-case "$1" in
-    -sdcard) IMAGE_TYPE="sdcard" ;;
-    -nvme)   IMAGE_TYPE="nvme" ;;
-    *)       echo "ERROR: First argument must be -sdcard or -nvme (got '$1')"; echo ""; usage ;;
-esac
-
-DEVICE="$2"
 IMAGE_DIR="${IMAGE_DIR:-build/tmp/deploy/images/raspberrypi5}"
 
 # Safety check — allow /dev/sdX, /dev/mmcblkN, /dev/nvmeXnY
@@ -124,6 +190,11 @@ fi
 sync
 echo ""
 echo "==> Done! Image written to $DEVICE"
+
+# Always prompt for a Tailscale auth key (Enter to skip) and write it to the
+# boot partition for first-boot auto-connect.
+echo ""
+inject_tailscale_key "$DEVICE"
 
 # Show device-specific next steps
 if [[ "$DEVICE" =~ ^/dev/nvme ]]; then
