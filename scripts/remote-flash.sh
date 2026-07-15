@@ -52,28 +52,32 @@ usage() {
 AUTO_YES=false
 AUTHKEY_FILE=""
 NO_AUTHKEY=false
+POSITIONAL=()
 while [ $# -gt 0 ]; do
-    case "${1:-}" in
+    case "$1" in
         -y)               AUTO_YES=true; shift ;;
         --authkey-file)   [ $# -ge 2 ] || { echo "ERROR: --authkey-file requires a path"; echo ""; usage; }; AUTHKEY_FILE="$2"; shift 2 ;;
         --authkey-file=*) AUTHKEY_FILE="${1#*=}"; shift ;;
         --no-authkey)     NO_AUTHKEY=true; shift ;;
-        *)                break ;;
+        -sdcard|-nvme)    POSITIONAL+=("$1"); shift ;;
+        -h|--help)        usage ;;
+        -*)               echo "ERROR: unknown option: $1"; echo ""; usage ;;
+        *)                POSITIONAL+=("$1"); shift ;;
     esac
 done
 
-if [ $# -lt 3 ]; then
+if [ ${#POSITIONAL[@]} -lt 3 ]; then
     usage
 fi
 
-case "$1" in
+case "${POSITIONAL[0]}" in
     -sdcard) IMAGE_TYPE="sdcard" ;;
     -nvme)   IMAGE_TYPE="nvme" ;;
-    *)       echo "ERROR: First argument must be -sdcard or -nvme (got '$1')"; echo ""; usage ;;
+    *)       echo "ERROR: First argument must be -sdcard or -nvme (got '${POSITIONAL[0]}')"; echo ""; usage ;;
 esac
 
-SSH_HOST="$2"
-DEVICE="$3"
+SSH_HOST="${POSITIONAL[1]}"
+DEVICE="${POSITIONAL[2]}"
 
 if [ -n "$AUTHKEY_FILE" ] && [ ! -f "$AUTHKEY_FILE" ]; then
     echo "ERROR: auth key file not found: $AUTHKEY_FILE" >&2
