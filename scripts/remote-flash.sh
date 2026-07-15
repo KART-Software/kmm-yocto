@@ -8,12 +8,14 @@
 #   ./scripts/remote-flash.sh -y -sdcard user@remote-pc /dev/sdX
 #
 # Options:
-#   -y          Skip all confirmation prompts
+#   -y                    Skip all confirmation prompts
+#   --authkey-file <path> Read the Tailscale auth key from a local file
+#   --no-authkey          Do not inject an auth key (skip the prompt)
 #
-# After flashing, you are always prompted (hidden input, shown locally over the
-# ssh -t session) for a Tailscale auth key which is written to the remote
-# device's boot partition. Press Enter with no input to skip. The key is never
-# passed as a command-line argument.
+# After flashing, a Tailscale auth key is written to the remote device's boot
+# partition. By default you are prompted (hidden input, shown locally over the
+# ssh -t session; Enter to skip). --authkey-file copies a local key file to the
+# remote and uses it; --no-authkey skips. The key is never passed as an argument.
 #
 # The -sdcard or -nvme flag is required to select the correct image.
 #
@@ -33,23 +35,32 @@ usage() {
     echo "Usage: $0 [-y] <-sdcard|-nvme> <user@remote-host> <device>"
     echo ""
     echo "Options:"
-    echo "  -y          Skip all confirmation prompts"
+    echo "  -y                    Skip all confirmation prompts"
+    echo "  --authkey-file <path> Read the Tailscale auth key from a local file"
+    echo "  --no-authkey          Skip Tailscale auth key injection (no prompt)"
     echo ""
-    echo "After flashing, prompts for a Tailscale auth key (Enter to skip)."
+    echo "Auth key: default prompts (Enter to skip); --authkey-file reads a file;"
+    echo "          --no-authkey skips entirely."
     echo ""
     echo "Examples:"
-    echo "  $0 -sdcard user@192.168.0.10 /dev/sdb"
-    echo "  $0 -sdcard user@laptop /dev/mmcblk0"
     echo "  $0 -nvme user@laptop /dev/nvme0n1"
-    echo "  $0 -y -sdcard user@laptop /dev/sdb"
+    echo "  $0 --authkey-file key.txt -nvme user@laptop /dev/nvme0n1"
+    echo "  $0 --no-authkey -nvme user@laptop /dev/nvme0n1"
     exit 1
 }
 
 AUTO_YES=false
-if [ "${1:-}" = "-y" ]; then
-    AUTO_YES=true
-    shift
-fi
+AUTHKEY_FILE=""
+NO_AUTHKEY=false
+while [ $# -gt 0 ]; do
+    case "${1:-}" in
+        -y)               AUTO_YES=true; shift ;;
+        --authkey-file)   [ $# -ge 2 ] || { echo "ERROR: --authkey-file requires a path"; echo ""; usage; }; AUTHKEY_FILE="$2"; shift 2 ;;
+        --authkey-file=*) AUTHKEY_FILE="${1#*=}"; shift ;;
+        --no-authkey)     NO_AUTHKEY=true; shift ;;
+        *)                break ;;
+    esac
+done
 
 if [ $# -lt 3 ]; then
     usage
@@ -63,6 +74,11 @@ esac
 
 SSH_HOST="$2"
 DEVICE="$3"
+
+if [ -n "$AUTHKEY_FILE" ] && [ ! -f "$AUTHKEY_FILE" ]; then
+    echo "ERROR: auth key file not found: $AUTHKEY_FILE" >&2
+    exit 1
+fi
 
 # --- Find image ---
 IMAGE_PATH=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5-${IMAGE_TYPE}.wic.bz2" 2>/dev/null | head -1)
@@ -107,7 +123,9 @@ echo ""
 # --- Check remote prerequisites ---
 echo "==> Checking remote prerequisites on ${SSH_HOST}..."
 MISSING=""
-for cmd in dd sudo wipefs lsblk findmnt; do
+REQ_CMDS="dd sudo wipefs"
+[ "$NO_AUTHKEY" = false ] && REQ_CMDS="$REQ_CMDS lsblk findmnt"
+for cmd in $REQ_CMDS; do
     if ! ssh "$SSH_HOST" "command -v $cmd" &>/dev/null; then
         MISSING="$MISSING $cmd"
     fi
@@ -151,13 +169,24 @@ echo "==> Copying flash.sh..."
 scp "$FLASH_SCRIPT" "${SSH_HOST}:${REMOTE_DIR}/"
 ssh "$SSH_HOST" "chmod +x ${REMOTE_DIR}/flash.sh"
 
+if [ -n "$AUTHKEY_FILE" ]; then
+    echo "==> Copying auth key file..."
+    scp "$AUTHKEY_FILE" "${SSH_HOST}:${REMOTE_DIR}/authkey"
+fi
+
 # --- Flash on remote ---
 echo ""
 echo "==> Running flash on ${SSH_HOST}..."
+AK_ARG=""
+if [ "$NO_AUTHKEY" = true ]; then
+    AK_ARG="--no-authkey"
+elif [ -n "$AUTHKEY_FILE" ]; then
+    AK_ARG="--authkey-file ${REMOTE_DIR}/authkey"
+fi
 if [ "$AUTO_YES" = true ]; then
-    ssh -t "$SSH_HOST" "cd ${REMOTE_DIR} && IMAGE_DIR=${REMOTE_DIR} sudo -E ./flash.sh -y -${IMAGE_TYPE} '${DEVICE}'"
+    ssh -t "$SSH_HOST" "cd ${REMOTE_DIR} && IMAGE_DIR=${REMOTE_DIR} sudo -E ./flash.sh -y ${AK_ARG} -${IMAGE_TYPE} '${DEVICE}'"
 else
-    ssh -t "$SSH_HOST" "cd ${REMOTE_DIR} && IMAGE_DIR=${REMOTE_DIR} sudo -E ./flash.sh -${IMAGE_TYPE} '${DEVICE}'"
+    ssh -t "$SSH_HOST" "cd ${REMOTE_DIR} && IMAGE_DIR=${REMOTE_DIR} sudo -E ./flash.sh ${AK_ARG} -${IMAGE_TYPE} '${DEVICE}'"
 fi
 
 # --- Cleanup ---

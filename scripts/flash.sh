@@ -8,12 +8,14 @@
 #   sudo ./scripts/flash.sh -y -sdcard /dev/sdX
 #
 # Options:
-#   -y          Skip confirmation prompt
+#   -y                    Skip confirmation prompt
+#   --authkey-file <path> Read the Tailscale auth key from <path> (no prompt)
+#   --no-authkey          Do not inject an auth key (skip the prompt)
 #
-# After flashing, you are always prompted (hidden input) for a Tailscale auth
-# key which is written to the boot partition for first-boot auto-connect.
-# Press Enter with no input to skip. The key can also be supplied via the
-# TS_AUTHKEY env var.
+# After flashing, a Tailscale auth key is written to the boot partition for
+# first-boot auto-connect. By default you are prompted (hidden input; Enter to
+# skip); use --authkey-file to read it from a file, or --no-authkey to skip.
+# The key can also be supplied via the TS_AUTHKEY env var.
 #
 # The -sdcard or -nvme flag is required to select the correct image.
 
@@ -23,15 +25,17 @@ usage() {
     echo "Usage: $0 [-y] <-sdcard|-nvme> <device>"
     echo ""
     echo "Options:"
-    echo "  -y          Skip confirmation prompt"
+    echo "  -y                    Skip confirmation prompt"
+    echo "  --authkey-file <path> Read the Tailscale auth key from a file (no prompt)"
+    echo "  --no-authkey          Skip Tailscale auth key injection (no prompt)"
     echo ""
-    echo "After flashing, prompts for a Tailscale auth key (Enter to skip)."
+    echo "Auth key: default prompts (Enter to skip); --authkey-file reads a file;"
+    echo "          --no-authkey skips entirely."
     echo ""
     echo "Examples:"
     echo "  sudo $0 -sdcard /dev/sdb"
-    echo "  sudo $0 -sdcard /dev/mmcblk0"
-    echo "  sudo $0 -nvme /dev/nvme0n1"
-    echo "  sudo $0 -y -sdcard /dev/sdb"
+    echo "  sudo $0 --authkey-file key.txt -nvme /dev/nvme0n1"
+    echo "  sudo $0 --no-authkey -nvme /dev/nvme0n1"
     exit 1
 }
 
@@ -60,8 +64,16 @@ read_masked() {
 }
 
 # Read a Tailscale auth key without exposing it on the command line.
-# Priority: $TS_AUTHKEY env > masked interactive prompt (tty) > piped stdin.
+# Priority: --authkey-file > $TS_AUTHKEY env > masked interactive prompt > stdin.
 get_authkey() {
+    if [ -n "${AUTHKEY_FILE:-}" ]; then
+        if [ ! -f "$AUTHKEY_FILE" ]; then
+            echo "ERROR: auth key file not found: $AUTHKEY_FILE" >&2
+            exit 1
+        fi
+        cat "$AUTHKEY_FILE"
+        return 0
+    fi
     if [ -n "${TS_AUTHKEY:-}" ]; then
         printf '%s' "$TS_AUTHKEY"
         return 0
@@ -119,14 +131,19 @@ inject_tailscale_key() {
 AUTO_YES=false
 IMAGE_TYPE=""
 DEVICE=""
+AUTHKEY_FILE=""
+NO_AUTHKEY=false
 while [ $# -gt 0 ]; do
     case "$1" in
-        -y)          AUTO_YES=true ;;
-        -sdcard)     IMAGE_TYPE="sdcard" ;;
-        -nvme)       IMAGE_TYPE="nvme" ;;
-        -h|--help)   usage ;;
-        -*)          echo "ERROR: unknown option: $1"; echo ""; usage ;;
-        *)           if [ -z "$DEVICE" ]; then DEVICE="$1"; else echo "ERROR: unexpected argument: $1"; echo ""; usage; fi ;;
+        -y)               AUTO_YES=true ;;
+        --authkey-file)   AUTHKEY_FILE="${2:-}"; [ -n "$AUTHKEY_FILE" ] || { echo "ERROR: --authkey-file requires a path"; echo ""; usage; }; shift ;;
+        --authkey-file=*) AUTHKEY_FILE="${1#*=}" ;;
+        --no-authkey)     NO_AUTHKEY=true ;;
+        -sdcard)          IMAGE_TYPE="sdcard" ;;
+        -nvme)            IMAGE_TYPE="nvme" ;;
+        -h|--help)        usage ;;
+        -*)               echo "ERROR: unknown option: $1"; echo ""; usage ;;
+        *)                if [ -z "$DEVICE" ]; then DEVICE="$1"; else echo "ERROR: unexpected argument: $1"; echo ""; usage; fi ;;
     esac
     shift
 done
@@ -214,10 +231,15 @@ sync
 echo ""
 echo "==> Done! Image written to $DEVICE"
 
-# Always prompt for a Tailscale auth key (Enter to skip) and write it to the
-# boot partition for first-boot auto-connect.
-echo ""
-inject_tailscale_key "$DEVICE"
+# Inject a Tailscale auth key onto the boot partition for first-boot auto-connect.
+# Default: prompt (Enter to skip). --authkey-file: from file. --no-authkey: skip.
+if [ "$NO_AUTHKEY" = true ]; then
+    echo ""
+    echo "==> Skipping Tailscale auth key injection (--no-authkey)."
+else
+    echo ""
+    inject_tailscale_key "$DEVICE"
+fi
 
 # Show device-specific next steps
 if [[ "$DEVICE" =~ ^/dev/nvme ]]; then
