@@ -1,8 +1,11 @@
 [Unit]
 Description=Tailscale node agent
 Documentation=https://tailscale.com/kb/
-Wants=network-online.target
-After=network-online.target NetworkManager.service data.mount
+# Start early (upstream default): tailscaled has an internal netlink-based
+# network monitor and retries connecting as interfaces come up, so it must NOT
+# wait for network-online.target (that made it block on the wait-online timeout).
+Wants=network-pre.target
+After=network-pre.target data.mount
 Requires=data.mount
 
 [Service]

@@ -1,7 +1,7 @@
 [Unit]
 Description=Tailscale first-boot auto-connect (injected auth key)
 Documentation=https://tailscale.com/kb/
-After=tailscaled.service network-online.target
+After=tailscaled.service
 Wants=tailscaled.service
 # Only runs when an auth key has been injected onto the boot partition.
 ConditionPathExists=/boot/tailscale.authkey
