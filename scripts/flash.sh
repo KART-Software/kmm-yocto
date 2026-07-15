@@ -35,8 +35,32 @@ usage() {
     exit 1
 }
 
+# Read a line from the terminal, echoing '*' for each character so the user can
+# see that input is being received (backspace supported). The prompt and mask
+# are written to stderr; the typed value is written to stdout (for $(...) capture).
+read_masked() {
+    local prompt="$1" char value=""
+    printf '%s' "$prompt" >&2
+    while IFS= read -rsn1 char; do
+        case "$char" in
+            "")                 # Enter -> end of input
+                break ;;
+            $'\x7f'|$'\x08')    # Backspace / Delete
+                if [ -n "$value" ]; then
+                    value="${value%?}"
+                    printf '\b \b' >&2
+                fi ;;
+            *)
+                value="$value$char"
+                printf '*' >&2 ;;
+        esac
+    done
+    printf '\n' >&2
+    printf '%s' "$value"
+}
+
 # Read a Tailscale auth key without exposing it on the command line.
-# Priority: $TS_AUTHKEY env > hidden interactive prompt (tty) > piped stdin.
+# Priority: $TS_AUTHKEY env > masked interactive prompt (tty) > piped stdin.
 get_authkey() {
     if [ -n "${TS_AUTHKEY:-}" ]; then
         printf '%s' "$TS_AUTHKEY"
@@ -44,8 +68,7 @@ get_authkey() {
     fi
     local key=""
     if [ -t 0 ]; then
-        read -rsp "Tailscale auth key (empty to skip): " key
-        echo >&2
+        key=$(read_masked "Tailscale auth key (empty to skip): ")
     else
         IFS= read -r key || true
     fi
