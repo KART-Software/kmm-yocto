@@ -7,8 +7,9 @@ Wants=tailscaled.service
 ConditionPathExists=/boot/tailscale.authkey
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+# Type=simple: 'tailscale up' blocks until connected, so run it in the
+# background — do NOT delay multi-user.target / boot completion.
+Type=simple
 ExecStart=/usr/sbin/tailscale-autoconnect.sh
 
 [Install]

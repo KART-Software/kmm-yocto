@@ -1,11 +1,11 @@
 [Unit]
 Description=Tailscale node agent
 Documentation=https://tailscale.com/kb/
-# Start early (upstream default): tailscaled has an internal netlink-based
-# network monitor and retries connecting as interfaces come up, so it must NOT
-# wait for network-online.target (that made it block on the wait-online timeout).
-Wants=network-pre.target
-After=network-pre.target data.mount
+# Start once the network is actually up, so the first connection attempt
+# succeeds instead of failing "network unreachable" and backing off ~40s.
+# network-online is fast here because wait-online runs with --any (kart-image.bb).
+Wants=network-online.target
+After=network-online.target data.mount
 Requires=data.mount
 
 [Service]
