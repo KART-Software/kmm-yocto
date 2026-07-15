@@ -62,7 +62,7 @@ IMAGE_INSTALL:append = " systemd-serialgetty"
 # ---------------------------------------------------------------------------
 # Precompile Python bytecode (.pyc) at image build time
 # ---------------------------------------------------------------------------
-ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;delay_timesyncd_start;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;"
+ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;delay_timesyncd_start;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;configure_wait_online_any;"
 
 # ---------------------------------------------------------------------------
 # Create /data mount point and fstab entry for persistent data partition
@@ -181,6 +181,21 @@ generate_ssh_host_keys() {
     # Mask the service so it doesn't even check at boot
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
     ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sshdgenkeys.service
+}
+
+# ---------------------------------------------------------------------------
+# Reach network-online.target as soon as ANY interface is online.
+# Default systemd-networkd-wait-online waits for ALL managed links; a
+# disconnected onboard eth0 (no carrier) then blocks boot for the full ~120s
+# timeout even when eth1/LTE is already up. --any returns once one link is up.
+# ---------------------------------------------------------------------------
+configure_wait_online_any() {
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-networkd-wait-online.service.d
+    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-networkd-wait-online.service.d/any.conf << 'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any
+EOF
 }
 
 # Weston/Wayland configuration
