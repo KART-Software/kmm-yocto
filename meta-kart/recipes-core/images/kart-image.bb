@@ -99,11 +99,24 @@ compile_python_bytecode() {
 # Clearing Before= also keeps timesyncd off the sysinit critical path.
 # ---------------------------------------------------------------------------
 order_timesyncd_after_network() {
+    # Move timesyncd's activation from sysinit.target (early, pre-network) to
+    # network-online.target so its first NTP query has connectivity and syncs in
+    # a few seconds. Just adding After=network-online.target while it stays
+    # WantedBy=sysinit.target forms an ordering cycle; systemd then drops
+    # timesyncd's job entirely (it never runs, the clock stays at the build epoch
+    # ~2025, and TLS/tailscale break until a manual sync). So we relocate the
+    # enable symlink and clear the early Before= ordering.
+    rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-timesyncd.service
+    rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-timesyncd.service
+
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/network-online.target.wants
+    ln -sf /usr/lib/systemd/system/systemd-timesyncd.service \
+        ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/network-online.target.wants/systemd-timesyncd.service
+
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-timesyncd.service.d
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-timesyncd.service.d/after-network.conf << 'EOF'
 [Unit]
 Before=
-Before=shutdown.target
 After=network-online.target
 Wants=network-online.target
 EOF
