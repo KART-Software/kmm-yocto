@@ -266,23 +266,21 @@ wsl --unmount \\.\PHYSICALDRIVE1
 
 ## Raspberry Pi 5 EEPROM 設定
 
-NVMe ブートには EEPROM の boot order 変更が必要。  
-**別の SD カードで Raspberry Pi OS を起動して設定する。**
+NVMe ブートには EEPROM の boot order 変更が必要。**本 Yocto イメージに `rpi-eeprom` / `raspi-utils`（`vcgencmd`）を含めているので、このイメージ上で直接設定できる**（Raspberry Pi OS の SD 起動は不要）。
 
 ```bash
-# EEPROM 設定を編集
+# 現在の EEPROM 設定を確認
+rpi-eeprom-config
+vcgencmd bootloader_config
+
+# boot order を編集 (6=NVMe, 4=USB, 1=SD, f=リトライループ)
 sudo rpi-eeprom-config --edit
-
-# 以下を設定 (6=NVMe, 4=USB, 1=SD, f=リトライループ)
-BOOT_ORDER=0xf416
-
-# PCIe Gen 3 を有効化する場合
-# /boot/firmware/config.txt に以下を追加
-# dtparam=pciex1
-# dtparam=pciex1_gen=3
+#   BOOT_ORDER=0xf416  に編集して保存 → 次回リブートで適用
 ```
 
-設定後、NVMe を接続して再起動する。
+> ⚠️ EEPROM 書き込みは失敗すると起動不能になり得る（別 SD の recovery.bin で復旧）。まず `rpi-eeprom-config`（読み取り）で現状を確認してから編集する。RPi OS とは boot パスが異なる（`/boot` vs `/boot/firmware`）ため、apply の実挙動は実機で一度確認するのが安全。
+
+PCIe Gen 3 は `config.txt` 側で設定（`kas/rpi5.yml` の `RPI_EXTRA_CONFIG` に `dtparam=pciex1_gen=3` 設定済み）。設定後、NVMe を接続して再起動する。
 
 ## 初回起動確認
 

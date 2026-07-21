@@ -41,6 +41,8 @@ IMAGE_INSTALL:append:raspberrypi5 = " \
     can-utils \
     can-setup \
     kernel-modules \
+    rpi-eeprom \
+    raspi-utils \
 "
 
 # ---------------------------------------------------------------------------
