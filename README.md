@@ -217,6 +217,18 @@ sudo ./scripts/flash.sh -y -sdcard /dev/sdb
 
 > Imager の Wi-Fi / SSH 設定オプションは Yocto イメージには効かないため無視してよい。
 
+**Tailscale 自動接続を使う場合（Imager では authkey を書けないので手動で）:**
+
+書き込み後、**boot パーティション（FAT32・ボリュームラベル `boot`）が Windows のドライブとして見える**ので、その直下に `tailscale.authkey` というファイルを作って auth key を書くだけ（`flash.sh --authkey-file` と同じ仕組み）。
+
+- メモ帳の場合: 「ファイルの種類」を **すべてのファイル** にし、ファイル名を **`tailscale.authkey`**（`.txt` を付けない）で保存。中身は auth key を1行だけ（前後の空白・改行は初回起動時に自動除去される）。
+- PowerShell の場合（`E:` が boot ドライブなら）:
+  ```powershell
+  Set-Content -Path E:\tailscale.authkey -Value "tskey-auth-xxxxx" -NoNewline -Encoding ascii
+  ```
+
+初回起動で自動接続し、成功後にこのファイルは自動削除される。この方法は balenaEtcher など他の書き込みツールでも同じ（要は焼いた後に boot パーティションへ置くだけ）。
+
 #### WSL2 + flash.sh を使う場合
 
 WSL2 ではホスト側のディスクがデフォルトで見えないため、事前に `wsl --mount` でマウントが必要。

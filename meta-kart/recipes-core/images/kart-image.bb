@@ -62,7 +62,7 @@ IMAGE_INSTALL:append = " systemd-serialgetty"
 # ---------------------------------------------------------------------------
 # Precompile Python bytecode (.pyc) at image build time
 # ---------------------------------------------------------------------------
-ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;delay_timesyncd_start;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;"
+ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;configure_wait_online_any;"
 
 # ---------------------------------------------------------------------------
 # Create /data mount point and fstab entry for persistent data partition
@@ -90,39 +90,36 @@ compile_python_bytecode() {
         -c "import compileall; compileall.compile_dir('${IMAGE_ROOTFS}/usr/lib/python3.12/', quiet=2, force=True)"
 }
 
-delay_timesyncd_start() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timers.target.wants
-
-    # Prevent timesyncd from delaying sysinit (remove wants link only, no mask).
+# ---------------------------------------------------------------------------
+# RTC-less board: order systemd-timesyncd after network-online so its first NTP
+# query has connectivity. By default timesyncd starts very early
+# (Before=sysinit.target); with no network yet it fails and then waits a full
+# ~32s poll before retrying, leaving the clock at the build epoch (~2025) and
+# breaking TLS (e.g. tailscale control cert "not yet valid") for ~40s.
+# Clearing Before= also keeps timesyncd off the sysinit critical path.
+# ---------------------------------------------------------------------------
+order_timesyncd_after_network() {
+    # Move timesyncd's activation from sysinit.target (early, pre-network) to
+    # network-online.target so its first NTP query has connectivity and syncs in
+    # a few seconds. Just adding After=network-online.target while it stays
+    # WantedBy=sysinit.target forms an ordering cycle; systemd then drops
+    # timesyncd's job entirely (it never runs, the clock stays at the build epoch
+    # ~2025, and TLS/tailscale break until a manual sync). So we relocate the
+    # enable symlink and clear the early Before= ordering.
     rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-timesyncd.service
+    rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-timesyncd.service
 
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timesyncd-delayed-start.service << 'EOF'
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/network-online.target.wants
+    ln -sf /usr/lib/systemd/system/systemd-timesyncd.service \
+        ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/network-online.target.wants/systemd-timesyncd.service
+
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-timesyncd.service.d
+    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-timesyncd.service.d/after-network.conf << 'EOF'
 [Unit]
-Description=Delayed start of systemd-timesyncd
-
-[Service]
-Type=oneshot
-ExecStart=/bin/systemctl start systemd-timesyncd.service
+Before=
+After=network-online.target
+Wants=network-online.target
 EOF
-
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timesyncd-delayed-start.timer << 'EOF'
-[Unit]
-Description=Delay systemd-timesyncd start until after GUI
-After=kmm-start.service
-
-[Timer]
-OnActiveSec=500ms
-AccuracySec=1ms
-Unit=timesyncd-delayed-start.service
-
-[Install]
-WantedBy=timers.target
-EOF
-
-    ln -sf ../timesyncd-delayed-start.timer \
-        ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timers.target.wants/timesyncd-delayed-start.timer
 }
 
 mask_journal_catalog_update() {
@@ -181,6 +178,21 @@ generate_ssh_host_keys() {
     # Mask the service so it doesn't even check at boot
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
     ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sshdgenkeys.service
+}
+
+# ---------------------------------------------------------------------------
+# Reach network-online.target as soon as ANY interface is online.
+# Default systemd-networkd-wait-online waits for ALL managed links; a
+# disconnected onboard eth0 (no carrier) then blocks boot for the full ~120s
+# timeout even when eth1/LTE is already up. --any returns once one link is up.
+# ---------------------------------------------------------------------------
+configure_wait_online_any() {
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-networkd-wait-online.service.d
+    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-networkd-wait-online.service.d/any.conf << 'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any
+EOF
 }
 
 # Weston/Wayland configuration

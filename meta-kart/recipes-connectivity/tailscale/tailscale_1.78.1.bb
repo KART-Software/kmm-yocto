@@ -8,7 +8,7 @@ TAILSCALE_ARCH = "arm64"
 SRC_URI = "https://pkgs.tailscale.com/stable/tailscale_${PV}_${TAILSCALE_ARCH}.tgz;downloadfilename=tailscale_${PV}_${TAILSCALE_ARCH}.tgz"
 SRC_URI[sha256sum] = "8eb0ae11ac2f80beac379722b37651e6ef328d098fec0425ca2786c1c8f087e3"
 
-SRC_URI:append = " file://tailscaled.service"
+SRC_URI:append = " file://tailscaled.service file://tailscale-autoconnect.service file://tailscale-autoconnect.sh"
 
 inherit systemd
 
@@ -35,16 +35,22 @@ do_install() {
     # systemd service
     install -d ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/tailscaled.service ${D}${systemd_system_unitdir}/tailscaled.service
+
+    # First-boot auto-connect (auth key injected onto boot partition post-flash)
+    install -m 0755 ${WORKDIR}/tailscale-autoconnect.sh ${D}${sbindir}/tailscale-autoconnect.sh
+    install -m 0644 ${WORKDIR}/tailscale-autoconnect.service ${D}${systemd_system_unitdir}/tailscale-autoconnect.service
 }
 
-SYSTEMD_SERVICE:${PN} = "tailscaled.service"
+SYSTEMD_SERVICE:${PN} = "tailscaled.service tailscale-autoconnect.service"
 SYSTEMD_AUTO_ENABLE = "enable"
 
 FILES:${PN} = " \
     ${sbindir}/tailscaled \
+    ${sbindir}/tailscale-autoconnect.sh \
     ${bindir}/tailscale \
     ${localstatedir}/lib/tailscale \
     ${systemd_system_unitdir}/tailscaled.service \
+    ${systemd_system_unitdir}/tailscale-autoconnect.service \
 "
 
 COMPATIBLE_HOST = "aarch64.*-linux"
