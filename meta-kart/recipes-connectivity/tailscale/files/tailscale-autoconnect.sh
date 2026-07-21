@@ -26,7 +26,9 @@ if tailscale status --json 2>/dev/null | grep -q '"BackendState"[[:space:]]*:[[:
     exit 0
 fi
 
-if tailscale up --authkey="$(cat "$KEY_FILE")" --hostname="$(hostname)"; then
+# --ssh enables Tailscale SSH so the node is reachable over the tailnet even on
+# prod images that have no local login (the tailnet ACL must permit SSH).
+if tailscale up --authkey="$(cat "$KEY_FILE")" --hostname="$(hostname)" --ssh; then
     rm -f "$KEY_FILE"
     echo "tailscale-autoconnect: connected; auth key removed from boot partition"
 else
