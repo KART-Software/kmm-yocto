@@ -11,6 +11,8 @@
 #   -y                    Skip all confirmation prompts
 #   --authkey-file <path> Read the Tailscale auth key from a local file
 #   --no-authkey          Do not inject an auth key (skip the prompt)
+#   --keep-data           Preserve the remote device's data partition across the
+#                         flash (tailscale identity / logs survive; no ghost nodes)
 #
 # After flashing, a Tailscale auth key is written to the remote device's boot
 # partition. By default you are prompted (hidden input, shown locally over the
@@ -38,6 +40,7 @@ usage() {
     echo "  -y                    Skip all confirmation prompts"
     echo "  --authkey-file <path> Read the Tailscale auth key from a local file"
     echo "  --no-authkey          Skip Tailscale auth key injection (no prompt)"
+    echo "  --keep-data           Preserve the device's data partition (tailscale identity)"
     echo ""
     echo "Auth key: default prompts (Enter to skip); --authkey-file reads a file;"
     echo "          --no-authkey skips entirely."
@@ -52,6 +55,7 @@ usage() {
 AUTO_YES=false
 AUTHKEY_FILE=""
 NO_AUTHKEY=false
+KEEP_DATA=false
 POSITIONAL=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -59,6 +63,7 @@ while [ $# -gt 0 ]; do
         --authkey-file)   [ $# -ge 2 ] || { echo "ERROR: --authkey-file requires a path"; echo ""; usage; }; AUTHKEY_FILE="$2"; shift 2 ;;
         --authkey-file=*) AUTHKEY_FILE="${1#*=}"; shift ;;
         --no-authkey)     NO_AUTHKEY=true; shift ;;
+        --keep-data)      KEEP_DATA=true; shift ;;
         -sdcard|-nvme)    POSITIONAL+=("$1"); shift ;;
         -h|--help)        usage ;;
         -*)               echo "ERROR: unknown option: $1"; echo ""; usage ;;
@@ -187,10 +192,12 @@ if [ "$NO_AUTHKEY" = true ]; then
 elif [ -n "$AUTHKEY_FILE" ]; then
     AK_ARG="--authkey-file ${REMOTE_DIR}/authkey"
 fi
+KD_ARG=""
+[ "$KEEP_DATA" = true ] && KD_ARG="--keep-data"
 if [ "$AUTO_YES" = true ]; then
-    ssh -t "$SSH_HOST" "cd ${REMOTE_DIR} && IMAGE_DIR=${REMOTE_DIR} sudo -E ./flash.sh -y ${AK_ARG} -${IMAGE_TYPE} '${DEVICE}'"
+    ssh -t "$SSH_HOST" "cd ${REMOTE_DIR} && IMAGE_DIR=${REMOTE_DIR} sudo -E ./flash.sh -y ${AK_ARG} ${KD_ARG} -${IMAGE_TYPE} '${DEVICE}'"
 else
-    ssh -t "$SSH_HOST" "cd ${REMOTE_DIR} && IMAGE_DIR=${REMOTE_DIR} sudo -E ./flash.sh ${AK_ARG} -${IMAGE_TYPE} '${DEVICE}'"
+    ssh -t "$SSH_HOST" "cd ${REMOTE_DIR} && IMAGE_DIR=${REMOTE_DIR} sudo -E ./flash.sh ${AK_ARG} ${KD_ARG} -${IMAGE_TYPE} '${DEVICE}'"
 fi
 
 # --- Cleanup ---

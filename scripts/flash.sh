@@ -11,6 +11,10 @@
 #   -y                    Skip confirmation prompt
 #   --authkey-file <path> Read the Tailscale auth key from <path> (no prompt)
 #   --no-authkey          Do not inject an auth key (skip the prompt)
+#   --keep-data           Preserve the existing data partition (LABEL=data)
+#                         across the flash. Keeps /data/tailscale state, so the
+#                         device stays the SAME tailnet node (no ghost nodes,
+#                         no new auth key needed) and /data/log survives.
 #
 # After flashing, a Tailscale auth key is written to the boot partition for
 # first-boot auto-connect. By default you are prompted (hidden input; Enter to
@@ -28,6 +32,7 @@ usage() {
     echo "  -y                    Skip confirmation prompt"
     echo "  --authkey-file <path> Read the Tailscale auth key from a file (no prompt)"
     echo "  --no-authkey          Skip Tailscale auth key injection (no prompt)"
+    echo "  --keep-data           Preserve the data partition (tailscale identity/logs)"
     echo ""
     echo "Auth key: default prompts (Enter to skip); --authkey-file reads a file;"
     echo "          --no-authkey skips entirely."
@@ -133,12 +138,14 @@ IMAGE_TYPE=""
 DEVICE=""
 AUTHKEY_FILE=""
 NO_AUTHKEY=false
+KEEP_DATA=false
 while [ $# -gt 0 ]; do
     case "$1" in
         -y)               AUTO_YES=true ;;
         --authkey-file)   AUTHKEY_FILE="${2:-}"; [ -n "$AUTHKEY_FILE" ] || { echo "ERROR: --authkey-file requires a path"; echo ""; usage; }; shift ;;
         --authkey-file=*) AUTHKEY_FILE="${1#*=}" ;;
         --no-authkey)     NO_AUTHKEY=true ;;
+        --keep-data)      KEEP_DATA=true ;;
         -sdcard)          IMAGE_TYPE="sdcard" ;;
         -nvme)            IMAGE_TYPE="nvme" ;;
         -h|--help)        usage ;;
@@ -209,6 +216,20 @@ else
     done
 fi
 
+# --keep-data: back up the data partition (LABEL=data) before it is destroyed
+DATA_BACKUP=""
+if [ "$KEEP_DATA" = true ]; then
+    dataname=$(lsblk -rno NAME,LABEL "$DEVICE" 2>/dev/null | awk '$2=="data"{print $1; exit}')
+    if [ -n "$dataname" ]; then
+        DATA_BACKUP=$(mktemp /tmp/kart-data-backup.XXXXXX)
+        trap '[ -n "$DATA_BACKUP" ] && rm -f "$DATA_BACKUP"' EXIT
+        echo "==> Backing up data partition /dev/$dataname ($(lsblk -rno SIZE "/dev/$dataname" 2>/dev/null | head -1))..."
+        dd if="/dev/$dataname" of="$DATA_BACKUP" bs=4M status=none conv=fsync
+    else
+        echo "WARN: --keep-data specified but no 'data' partition found on $DEVICE; continuing without backup." >&2
+    fi
+fi
+
 # Wipe existing filesystem signatures and partition table
 echo "==> Wiping existing signatures on $DEVICE..."
 wipefs --all --force "$DEVICE" 2>/dev/null || true
@@ -231,6 +252,36 @@ sync
 echo ""
 echo "==> Done! Image written to $DEVICE"
 
+# --keep-data: restore the backed-up data partition onto the fresh layout
+DATA_RESTORED=false
+if [ -n "$DATA_BACKUP" ] && [ -s "$DATA_BACKUP" ]; then
+    echo ""
+    echo "==> Restoring data partition..."
+    dataname=""
+    for _ in 1 2 3 4 5; do
+        dataname=$(lsblk -rno NAME,LABEL "$DEVICE" 2>/dev/null | awk '$2=="data"{print $1; exit}')
+        [ -n "$dataname" ] && break
+        partprobe "$DEVICE" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
+        sleep 1
+    done
+    if [ -z "$dataname" ]; then
+        echo "WARN: no 'data' partition in new layout; backup NOT restored." >&2
+    else
+        newsize=$(blockdev --getsize64 "/dev/$dataname" 2>/dev/null || echo 0)
+        oldsize=$(stat -c %s "$DATA_BACKUP")
+        if [ "$newsize" = "$oldsize" ]; then
+            dd if="$DATA_BACKUP" of="/dev/$dataname" bs=4M status=none conv=fsync
+            sync
+            e2fsck -p "/dev/$dataname" >/dev/null 2>&1 || true
+            DATA_RESTORED=true
+            echo "==> Data partition restored (tailscale identity and /data/log preserved)."
+        else
+            echo "WARN: data partition size changed (old=$oldsize new=$newsize); backup NOT restored." >&2
+        fi
+    fi
+fi
+
 # Inject a Tailscale auth key onto the boot partition for first-boot auto-connect.
 # Default: prompt (Enter to skip). --authkey-file: from file. --no-authkey: skip.
 if [ "$NO_AUTHKEY" = true ]; then
@@ -238,6 +289,9 @@ if [ "$NO_AUTHKEY" = true ]; then
     echo "==> Skipping Tailscale auth key injection (--no-authkey)."
 else
     echo ""
+    if [ "$DATA_RESTORED" = true ]; then
+        echo "    (data partition preserved: tailscale state carried over, auth key usually NOT needed — press Enter to skip)"
+    fi
     inject_tailscale_key "$DEVICE"
 fi
 

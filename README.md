@@ -200,9 +200,14 @@ sudo ./scripts/flash.sh -nvme /dev/nvme0n1
 
 # 確認プロンプトをスキップ
 sudo ./scripts/flash.sh -y -sdcard /dev/sdb
+
+# data パーティションを保持して焼き直し（推奨: 2回目以降のフラッシュ）
+sudo ./scripts/flash.sh --keep-data -nvme /dev/nvme0n1
 ```
 
 `-sdcard` / `-nvme` は必須。ビルド時の IMAGE_LINK_NAME に対応するイメージを自動選択する。
+
+> **`--keep-data`（remote-flash.sh でも使用可）**: 既存の data パーティション（`LABEL=data`）をバックアップ → 焼き → 復元する。`/data/tailscale` の状態が引き継がれるため **tailnet 上で同一ノードのまま**（亡霊ノードが増えず、authkey の再注入も不要）。`/data/log` も残る。工場出荷状態にしたい場合はオプション無しで焼く（新ノード + authkey 注入）。
 
 <details>
 <summary>Windows での書き込み</summary>
