@@ -103,11 +103,17 @@ compile_python_bytecode() {
 order_timesyncd_after_network() {
     # Move timesyncd's activation from sysinit.target (early, pre-network) to
     # network-online.target so its first NTP query has connectivity and syncs in
-    # a few seconds. Just adding After=network-online.target while it stays
-    # WantedBy=sysinit.target forms an ordering cycle; systemd then drops
-    # timesyncd's job entirely (it never runs, the clock stays at the build epoch
-    # ~2025, and TLS/tailscale break until a manual sync). So we relocate the
-    # enable symlink and clear the early Before= ordering.
+    # a few seconds.
+    #
+    # The upstream unit has Before=sysinit.target; adding After=network-online
+    # on top of that creates an ordering cycle (sysinit -> ... -> network-pre ->
+    # iptables -> basic -> sysinit) and systemd deletes timesyncd's job to break
+    # it (verified via journal on target). systemd drop-ins CANNOT reset
+    # dependency lists ("Before=" empty assignment is a no-op — same lesson as
+    # weston-init.bbappend), so edit the shipped unit in place instead.
+    sed -i '/^Before=/s/ *sysinit\.target//' \
+        ${IMAGE_ROOTFS}/usr/lib/systemd/system/systemd-timesyncd.service
+
     rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-timesyncd.service
     rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-timesyncd.service
 
@@ -118,11 +124,24 @@ order_timesyncd_after_network() {
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-timesyncd.service.d
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-timesyncd.service.d/after-network.conf << 'EOF'
 [Unit]
-Before=
 After=network-online.target
 Wants=network-online.target
 EOF
 }
+
+# The sysinit.target.wants symlink removed above gets recreated by
+# systemd_preset_all, which image.bbclass :append's to IMAGE_PREPROCESS_COMMAND
+# (runs during do_image, after every ROOTFS_POSTPROCESS hook). The surviving
+# link forms an ordering cycle at boot:
+#   iptables -> basic -> sysinit -> timesyncd -> network-online -> networkd
+#   -> network-pre -> iptables  (systemd then skips units to break it)
+# Use :append here too: recipe appends are parsed after the class ones, so this
+# runs after systemd_preset_all and the removal finally sticks.
+remove_timesyncd_sysinit_pull() {
+    rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-timesyncd.service
+    rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-timesyncd.service
+}
+IMAGE_PREPROCESS_COMMAND:append = " remove_timesyncd_sysinit_pull;"
 
 mask_journal_catalog_update() {
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
