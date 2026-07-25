@@ -1,0 +1,83 @@
+#!/bin/sh
+# kart-eeprom-setup — apply the kart product's standard RPi5 EEPROM settings.
+#
+# Idempotent: shows a diff and only stages an update when something differs.
+# The update is applied by the bootloader self-update on the next reboot.
+# Note: --apply re-flashes the bootloader bundled in the image (rpi-eeprom
+# package), which also pins the fleet to a known bootloader version.
+#
+# Usage:
+#   kart-eeprom-setup            # diff + stage update (reboot required after)
+#   kart-eeprom-setup --check    # diff only, change nothing
+#   kart-eeprom-setup --reboot   # stage update and reboot immediately
+set -eu
+
+# Managed settings (validated on the kart RPi5, 2026-07):
+#   BOOT_ORDER=0xf16      NVMe -> SD fallback -> retry loop
+#   PSU_MAX_CURRENT=5000  skip USB-PD negotiation (GPIO 5V feed / dumb supplies)
+#   DISABLE_HDMI=1        skip bootloader display init (-0.25s; OS KMS unaffected)
+#   boot_partition=1      skip boot-partition scan (autoboot.txt probe)
+#   BOOT_UART=1           keep the debug UART lifeline (measured cost ~0ms)
+#   POWER_OFF_ON_HALT=0   kart cuts power via master switch anyway
+SETTINGS="
+BOOT_ORDER=0xf16
+PSU_MAX_CURRENT=5000
+DISABLE_HDMI=1
+boot_partition=1
+BOOT_UART=1
+POWER_OFF_ON_HALT=0
+"
+
+CHECK=false
+REBOOT=false
+for a in "$@"; do
+    case "$a" in
+        --check)  CHECK=true ;;
+        --reboot) REBOOT=true ;;
+        *) echo "Usage: $0 [--check] [--reboot]" >&2; exit 1 ;;
+    esac
+done
+
+if ! grep -q "Raspberry Pi 5" /proc/device-tree/model 2>/dev/null; then
+    echo "ERROR: not a Raspberry Pi 5" >&2
+    exit 1
+fi
+
+cur=$(mktemp)
+new=$(mktemp)
+trap 'rm -f "$cur" "$new"' EXIT
+
+rpi-eeprom-config > "$cur"
+cp "$cur" "$new"
+
+for kv in $SETTINGS; do
+    key=${kv%%=*}
+    if grep -q "^${key}=" "$new"; then
+        sed -i "s|^${key}=.*|${kv}|" "$new"
+    else
+        echo "$kv" >> "$new"
+    fi
+done
+
+if diff -u "$cur" "$new" >/dev/null 2>&1; then
+    echo "EEPROM already configured; nothing to do."
+    exit 0
+fi
+
+echo "=== EEPROM config changes ==="
+diff -u "$cur" "$new" || true
+echo ""
+
+if [ "$CHECK" = true ]; then
+    echo "(--check: no changes applied)"
+    exit 0
+fi
+
+rpi-eeprom-config --apply "$new"
+echo ""
+echo "Update staged. It is applied by the bootloader on the next reboot."
+if [ "$REBOOT" = true ]; then
+    reboot
+else
+    echo "Run 'reboot' to apply now."
+fi

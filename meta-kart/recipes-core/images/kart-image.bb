@@ -43,6 +43,7 @@ IMAGE_INSTALL:append:raspberrypi5 = " \
     kernel-modules \
     rpi-eeprom \
     raspi-utils \
+    kart-eeprom-setup \
 "
 
 # ---------------------------------------------------------------------------

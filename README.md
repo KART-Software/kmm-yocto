@@ -273,6 +273,18 @@ wsl --unmount \\.\PHYSICALDRIVE1
 
 NVMe ブートには EEPROM の boot order 変更が必要。**本 Yocto イメージに `rpi-eeprom` / `raspi-utils`（`vcgencmd`）を含めているので、このイメージ上で直接設定できる**（Raspberry Pi OS の SD 起動は不要）。
 
+### 標準設定の一括適用（新しいボードはこれだけで OK）
+
+検証済みの標準 EEPROM 設定（`BOOT_ORDER=0xf16` / `PSU_MAX_CURRENT=5000` / `DISABLE_HDMI=1` ほか）を冪等に適用するコマンドをイメージに同梱している:
+
+```bash
+kart-eeprom-setup --check    # 差分表示のみ（何も変更しない）
+sudo kart-eeprom-setup       # 差分があれば適用をステージ → 次回リブートで反映
+sudo kart-eeprom-setup --reboot   # 適用して即リブート
+```
+
+設定内容はスクリプト自体（`meta-kart/recipes-support/kart-eeprom-setup/`）がソースオブトゥルース。個別にいじる場合は従来通り:
+
 ```bash
 # 現在の EEPROM 設定を確認
 rpi-eeprom-config
@@ -280,7 +292,6 @@ vcgencmd bootloader_config
 
 # boot order を編集 (6=NVMe, 4=USB, 1=SD, f=リトライループ)
 sudo rpi-eeprom-config --edit
-#   BOOT_ORDER=0xf416  に編集して保存 → 次回リブートで適用
 ```
 
 > ⚠️ EEPROM 書き込みは失敗すると起動不能になり得る（別 SD の recovery.bin で復旧）。まず `rpi-eeprom-config`（読み取り）で現状を確認してから編集する。RPi OS とは boot パスが異なる（`/boot` vs `/boot/firmware`）ため、apply の実挙動は実機で一度確認するのが安全。
