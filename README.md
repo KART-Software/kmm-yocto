@@ -261,6 +261,8 @@ wsl --unmount \\.\PHYSICALDRIVE1
 
 > **ビルド環境は不要**: 必要なのはこのスクリプトと wic.bz2 だけ（ホスト側依存は `bzip2 fdisk gzip e2fsprogs ssh` の標準ツールのみ・sudo 不要）。Release からイメージを落とせばどの PC (Linux/WSL) からでも OTA できる。
 
+> ⚠️ **アプリなしイメージ（Release 標準）で OTA した場合**: アプリは rootfs 側（`/opt/kart`）にあるため、更新後の面にはアプリが入っていない。**OTA 後に `./scripts/sync-app.sh --host <host>` の実行が必要**（tailscale 識別は /data 共有なのでそのまま繋がる）。`--with-app` でビルドしたイメージなら不要。
+
 流れ: 非アクティブ面へ書込み → `reboot '0 tryboot'` で新面を**1回だけ**起動 → ヘルス確認 → **y で commit**（正式化）。**新面が起動に失敗した場合はファームウェアが自動で旧面に戻る**（commit しなければ何度リブートしても旧面のまま = 安全側）。
 
 デバイス側コマンド:
