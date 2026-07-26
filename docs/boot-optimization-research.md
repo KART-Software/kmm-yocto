@@ -1,7 +1,11 @@
-# Boot Time Optimization Research
+# Boot Time Optimization Research（起動時間最適化の研究ログ）
 
 対象: Yocto (scarthgap 5.0) + QEMU (aarch64) / RPi5  
 目的: 電源投入から GUI 表示（weston kiosk）までの時間短縮
+
+> **注意（2026-07-26）**: 本書は時系列の実験ログ。§1〜13 は 2026-04〜05 の記録で、
+> 一部はその後の作業で置き換えられている（該当箇所に「⚠️ その後」注記あり）。
+> **最終状態のまとめは末尾の §14** と [ab-ota.md](ab-ota.md) を参照。
 
 ---
 
@@ -191,6 +195,12 @@ vconsole を外したことで sysinit のクリティカルパスが変わり�
 ---
 
 ### 4. `systemd-timesyncd.service` の遅延起動
+
+> **⚠️ その後（2026-07）**: この「遅延起動」方式は廃止。RTC 無しの実機では
+> 時計がビルド時エポック(~2025)のままになり、NTP 同期が遅れると tailscale の
+> TLS が証明書エラーで失敗する問題が発覚。最終形は「**network-online.target
+> 後に起動**」（ネット確立直後に NTP → 数秒で同期）。移行時に ordering cycle
+> を2回踏んだ経緯と根治は git log `d524b17` と CLAUDE.md の Gotchas を参照。
 
 #### 問題
 vconsole 無効化後のクリティカルチェーン：
@@ -771,6 +781,9 @@ RPi5 は kernel ブートが SD カード読み込みで遅いが、weston/GUI �
 
 ### 10. 遅延タイマーの改善 (OnBootSec=10s → After=kmm-start + OnActiveSec=500ms)
 
+> **⚠️ その後（2026-07）**: timesyncd 側は §4 の注記どおり network-online 起動へ
+> 移行済み（タイマー廃止）。resolved の遅延タイマーは現在も有効。
+
 #### 目的
 固定 10 秒だった resolved / timesyncd の遅延起動を、GUI 起動完了に連動させる。
 
@@ -919,6 +932,11 @@ kmmd.service          +46ms   (basic.target から並列)
 
 すべて `basic.target @1.452s` から分岐。**`network-online.target` を経由しない**。
 
+> **⚠️ その後（2026-07）**: wait-online は削除ではなく **`--any`**（どれか1つの
+> リンクが online なら成立）に変更。オンボード eth0 にケーブルが無い構成で
+> 全リンク待ちの 120 秒タイムアウトが発生し、multi-user 到達と tailscale が
+> 2分遅れる事故が起きたため。kart-image.bb の `configure_wait_online_any` 参照。
+
 #### 結論: `systemd-networkd-wait-online` を削除しても GUI 表示時刻は変わらない
 
 | 指標 | Before | 仮に wait-online 削除後 |
@@ -931,3 +949,40 @@ GUI 起動時間の短縮目的では wait-online 削除は無効。ただし ta
 
 ---
 
+
+### 14. 【最終まとめ 2026-07】ファーム段の全解明と最適化の完了
+
+2026-07 の追加調査（UART キャプチャによるブートローダ実測含む）で最適化は一区切り。
+
+#### 最終的な起動時間の内訳（電源 → GUI ≈ 10.5s + モニタ同期）
+
+| 段階 | 時間 | 状態 |
+|------|------|------|
+| ファームウェア (電源→Starting OS) | **7.3s** | UART で全内訳解明。単独犯なし = Pi5 固有の積み上げ（EEPROM ロード 1.3s / SDRAM トレーニング 1.3s / RP1+PCIe 1.5s / XHCI+NVMe 0.6s / ファイル+EDID 1.1s / カーネル読込 0.8s）。**これ以上は削れない床** |
+| kernel | 0.9s | NVMe 化で 3.4s→0.9s（SD 時代から -2.5s） |
+| userspace → GUI 表示 | 2.0s | weston @0.5s、window @2.8s(モノトニック)。律速は PyQt6 の import ~1.6s |
+
+#### 2026-07 に実施・判明したこと
+
+- **時計問題の根治**: RTC 無し → 起動時刻が 2025 のまま → tailscale の TLS が証明書エラー。
+  timesyncd を network-online 後の起動に変更（§4 の遅延方式は廃止）。移行時に
+  「drop-in では Before= をリセットできない」systemd の仕様で ordering cycle を作り込み、
+  UART コンソールで発見 → unit 本体を sed する方式で根治
+- **wait-online --any 化**: eth0 未接続時の 120s タイムアウト事故を解消（§13 注記）
+- **EEPROM ノブ実測**: `DISABLE_HDMI=1` **-256ms**（採用）、`boot_partition=1` -29ms、
+  `BOOT_UART` は ±0（デバッグ用に 1 のまま）。`PSU_MAX_CURRENT=5000` は設定済みだった
+- **カーネル gzip 圧縮は棄却**: ブートローダの展開が ~8.5MB/s と遅く **+938ms 悪化**
+  （NVMe の読込 33MB/s に完敗。遅い SD なら勝つ可能性はある）
+- **socket-first 化は効果ゼロ**: 重い C 拡張 import が GIL を掴み、スレッド分離しても
+  socket bind が 2.4s まで進まない。旧設計でも import は weston と並行済みだった
+- **A/B レイアウト化で -380ms**（予想外のボーナス）: autoboot.txt 経由の
+  boot_partition 直行の方が旧レイアウトのスキャンより速い。Starting OS 7674→7293ms
+
+#### 残存する低 ROI 候補（未実施）
+
+1. ブートスプラッシュ — 実速度は不変だが「画面に反応が出るまで」を ~6s にできる体感対策
+2. python-can の pkg_resources 排除（import ~-0.2〜0.4s）
+3. カーネルスリム化（27.5MB → 読込 -0.2〜0.3s）
+
+これ以上の劇的短縮（例: 5 秒起動）は Pi5 のクローズドなブートローダ（VPU 上で動作、
+署名検証あり、置換不可）の制約により **SoC 変更なしには不可能**という結論。
