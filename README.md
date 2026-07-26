@@ -255,9 +255,11 @@ wsl --unmount \\.\PHYSICALDRIVE1
 # ビルド済み最新 nvme イメージで更新（転送 ~211MB gzip）
 ./scripts/ota-update.sh --host raspberrypi5
 
-# イメージ指定
+# イメージ指定（GitHub Release からダウンロードした wic.bz2 でも OK）
 ./scripts/ota-update.sh --host <IP> path/to/kart-image-….wic.bz2
 ```
+
+> **ビルド環境は不要**: 必要なのはこのスクリプトと wic.bz2 だけ（ホスト側依存は `bzip2 fdisk gzip e2fsprogs ssh` の標準ツールのみ・sudo 不要）。Release からイメージを落とせばどの PC (Linux/WSL) からでも OTA できる。
 
 流れ: 非アクティブ面へ書込み → `reboot '0 tryboot'` で新面を**1回だけ**起動 → ヘルス確認 → **y で commit**（正式化）。**新面が起動に失敗した場合はファームウェアが自動で旧面に戻る**（commit しなければ何度リブートしても旧面のまま = 安全側）。
 

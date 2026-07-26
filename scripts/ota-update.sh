@@ -25,6 +25,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 IMAGE_DIR="${PROJECT_DIR}/build/tmp/deploy/images/raspberrypi5"
 
+# Standalone-friendly: no Yocto/build environment and no local sudo needed.
+# Only these standard tools (e2label/tune2fs come from e2fsprogs):
+MISSING=""
+for cmd in bunzip2 fdisk gzip e2label tune2fs ssh; do
+    command -v "$cmd" >/dev/null 2>&1 || MISSING="$MISSING $cmd"
+done
+if [ -n "$MISSING" ]; then
+    echo "ERROR: required tools not found:$MISSING" >&2
+    echo "       (Debian/Ubuntu: sudo apt install bzip2 fdisk gzip e2fsprogs openssh-client)" >&2
+    exit 1
+fi
+
 HOST=""
 IMAGE=""
 while [ $# -gt 0 ]; do
