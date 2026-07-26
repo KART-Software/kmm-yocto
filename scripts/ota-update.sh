@@ -73,10 +73,13 @@ IN_LABEL=$([ "$IN_SLOT" = "A" ] && echo BOOTA || echo BOOTB)
 IN_RLABEL=$([ "$IN_SLOT" = "A" ] && echo roota || echo rootb)
 
 echo "==> [3/6] Writing INACTIVE slot $IN_SLOT (${BASE}p${IN_BOOT} + ${BASE}p${IN_ROOT})..."
+# Relabel + fresh UUID on the HOST before transfer (the device has no
+# e2fsprogs). Prevents roota/rootb label and UUID duplication between slots.
+echo "    prepare rootfs image: label=${IN_RLABEL}, new UUID..."
+e2label "$WORK/root.img" "$IN_RLABEL"
+tune2fs -U random "$WORK/root.img" >/dev/null 2>&1 || true
 echo "    rootfs -> ${BASE}p${IN_ROOT} (dd over ssh)..."
 gzip -c "$WORK/root.img" | "${SSH[@]}" "gzip -dc | dd of=${BASE}p${IN_ROOT} bs=4M conv=fsync status=none && sync"
-echo "    relabel ${IN_RLABEL} + new UUID..."
-"${SSH[@]}" "e2label ${BASE}p${IN_ROOT} ${IN_RLABEL} && tune2fs -U random ${BASE}p${IN_ROOT} >/dev/null 2>&1 || true"
 echo "    boot files -> ${BASE}p${IN_BOOT} (file copy, label preserved)..."
 gzip -c "$WORK/boot.img" | "${SSH[@]}" "
 set -e
