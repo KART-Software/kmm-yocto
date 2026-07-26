@@ -44,6 +44,7 @@ IMAGE_INSTALL:append:raspberrypi5 = " \
     rpi-eeprom \
     raspi-utils \
     kart-eeprom-setup \
+    kart-ab-tools \
 "
 
 # ---------------------------------------------------------------------------
@@ -74,10 +75,9 @@ create_data_mount() {
     install -d ${IMAGE_ROOTFS}/data
     echo "LABEL=data  /data  ext4  defaults,nofail  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
 
-    # /boot is required by systemd local-fs.target; use LABEL for portability
-    # across SD (mmcblk0p1) and NVMe (nvme0n1p1).
+    # /boot is mounted by kart-boot-mount.service (A/B: the active slot's boot
+    # partition BOOTA/BOOTB is chosen from the kernel cmdline), not by fstab.
     install -d ${IMAGE_ROOTFS}/boot
-    echo "LABEL=boot  /boot  vfat  defaults,nofail  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
 
     # Ensure /data and /data/log are world-writable at every boot
     install -d ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d
@@ -216,6 +216,64 @@ ExecStart=
 ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any
 EOF
 }
+
+# ---------------------------------------------------------------------------
+# A/B (tryboot) support
+# ---------------------------------------------------------------------------
+# Slot selector: a tiny FAT image holding only autoboot.txt; the *-ab.wks
+# layouts rawcopy it into partition 1. boot_partition 2 = slot A (BOOTA),
+# 3 = slot B (BOOTB). `reboot '0 tryboot'` boots the [tryboot] section once;
+# kart-ab-commit makes it permanent by swapping the two sections.
+do_image_wic[depends] += "dosfstools-native:do_populate_sysroot mtools-native:do_populate_sysroot"
+
+generate_autoboot_image() {
+    cat > ${WORKDIR}/autoboot.txt << 'EOF'
+[all]
+tryboot_a_b=1
+boot_partition=2
+[tryboot]
+boot_partition=3
+EOF
+    rm -f ${DEPLOY_DIR_IMAGE}/autoboot.vfat
+    dd if=/dev/zero of=${DEPLOY_DIR_IMAGE}/autoboot.vfat bs=1024 count=1024
+    mkfs.vfat -n AUTOBOOT ${DEPLOY_DIR_IMAGE}/autoboot.vfat
+    mcopy -i ${DEPLOY_DIR_IMAGE}/autoboot.vfat ${WORKDIR}/autoboot.txt ::autoboot.txt
+}
+do_image_wic[prefuncs] += "generate_autoboot_image"
+
+# Mount the ACTIVE slot's boot partition on /boot (cmdline root=...p5 -> BOOTA,
+# p6 -> BOOTB). fstab cannot express "the active slot", hence a oneshot unit.
+# Also enable the hardware watchdog so a hung tryboot kernel resets the board
+# and the firmware falls back to the previous slot.
+install_ab_boot_support() {
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
+    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service << 'EOF'
+[Unit]
+Description=Mount active A/B boot partition on /boot
+# tailscale-autoconnect reads /boot/tailscale.authkey
+Before=tailscale-autoconnect.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'if grep -q "root=[^ ]*p6" /proc/cmdline; then L=BOOTB; else L=BOOTA; fi; mount LABEL=$L /boot'
+ExecStop=/bin/umount /boot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/multi-user.target.wants
+    ln -sf ../kart-boot-mount.service \
+        ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/multi-user.target.wants/kart-boot-mount.service
+
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system.conf.d
+    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system.conf.d/10-watchdog.conf << 'EOF'
+[Manager]
+RuntimeWatchdogSec=15
+RebootWatchdogSec=60
+EOF
+}
+ROOTFS_POSTPROCESS_COMMAND += "install_ab_boot_support;"
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"

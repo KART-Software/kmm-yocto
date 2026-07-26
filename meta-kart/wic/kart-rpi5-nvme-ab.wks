@@ -1,0 +1,21 @@
+# Kart product - Raspberry Pi 5 NVMe A/B (tryboot) image layout
+#
+#  p1 AUTOBOOT  vfat  4M    autoboot.txt only (slot selector, see kart-image.bb)
+#  p2 BOOTA     vfat  256M  firmware + kernel, slot A
+#  p3 BOOTB     vfat  256M  slot B (empty until first OTA)
+#  p4 (extended)
+#  p5 roota     ext4        rootfs slot A  <- CMDLINE_ROOT_PARTITION
+#  p6 rootb     ext4        rootfs slot B (empty until first OTA)
+#  p7 data      ext4  128M  shared persistent data (fstab managed by kart-image.bb)
+#
+# The firmware reads autoboot.txt from partition 1 and boots BOOTA (2) or
+# BOOTB (3); OTA writes the inactive slot and flips via `reboot '0 tryboot'`
+# (see scripts/ota-update.sh and kart-ab-commit).
+# Slot partitions use --fixed-size so dd-based OTA between slots always fits.
+
+part --source rawcopy --sourceparams="file=autoboot.vfat" --ondisk nvme0n1 --fstype=vfat --label AUTOBOOT --active --align 4096 --fixed-size 4M
+part --source bootimg-partition --ondisk nvme0n1 --fstype=vfat --label BOOTA --align 4096 --fixed-size 256M --use-uuid
+part --ondisk nvme0n1 --fstype=vfat --label BOOTB --align 4096 --fixed-size 256M --use-uuid
+part / --source rootfs --ondisk nvme0n1 --fstype=ext4 --label roota --align 4096 --fixed-size 1536M --use-uuid
+part --ondisk nvme0n1 --fstype=ext4 --label rootb --align 4096 --fixed-size 1536M --use-uuid
+part --ondisk nvme0n1 --fstype=ext4 --label data --align 4096 --fixed-size 128M

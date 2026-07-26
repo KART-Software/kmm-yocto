@@ -1,0 +1,37 @@
+#!/bin/sh
+# kart-ab-commit — make the currently running slot the permanent boot slot.
+#
+# Run this after a successful tryboot into the updated slot: it rewrites
+# autoboot.txt (partition 1) so [all] points at the running slot and
+# [tryboot] at the other one. Idempotent: exits 0 if already committed.
+set -eu
+
+case "$(cat /proc/cmdline)" in
+    *root=*p6*) RUN_BOOT=3; OTHER_BOOT=2; SLOT=B ;;
+    *root=*p5*) RUN_BOOT=2; OTHER_BOOT=3; SLOT=A ;;
+    *) echo "ERROR: cmdline root= is not an A/B slot (p5/p6)" >&2; exit 1 ;;
+esac
+ROOTDEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
+
+MNT=$(mktemp -d)
+trap 'umount "$MNT" 2>/dev/null || true; rmdir "$MNT" 2>/dev/null || true' EXIT
+mount "${ROOTDEV}p1" "$MNT"
+
+current=$(sed -n "/^\[all\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p" "$MNT/autoboot.txt" | head -1)
+if [ "$current" = "$RUN_BOOT" ]; then
+    echo "Already committed to slot $SLOT (boot_partition=$RUN_BOOT); nothing to do."
+    exit 0
+fi
+
+# Write new selector atomically-ish: write temp file then rename (FAT rename
+# replaces the directory entry in one step).
+cat > "$MNT/autoboot.txt.new" << EOF
+[all]
+tryboot_a_b=1
+boot_partition=$RUN_BOOT
+[tryboot]
+boot_partition=$OTHER_BOOT
+EOF
+mv "$MNT/autoboot.txt.new" "$MNT/autoboot.txt"
+sync
+echo "Committed: slot $SLOT is now the permanent boot slot (boot_partition=$RUN_BOOT)."

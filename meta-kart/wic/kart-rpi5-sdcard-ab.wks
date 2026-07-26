@@ -1,0 +1,9 @@
+# Kart product - Raspberry Pi 5 SD card A/B (tryboot) image layout
+# Same layout as kart-rpi5-nvme-ab.wks; see that file for documentation.
+
+part --source rawcopy --sourceparams="file=autoboot.vfat" --ondisk mmcblk0 --fstype=vfat --label AUTOBOOT --active --align 4096 --fixed-size 4M
+part --source bootimg-partition --ondisk mmcblk0 --fstype=vfat --label BOOTA --align 4096 --fixed-size 256M --use-uuid
+part --ondisk mmcblk0 --fstype=vfat --label BOOTB --align 4096 --fixed-size 256M --use-uuid
+part / --source rootfs --ondisk mmcblk0 --fstype=ext4 --label roota --align 4096 --fixed-size 1536M --use-uuid
+part --ondisk mmcblk0 --fstype=ext4 --label rootb --align 4096 --fixed-size 1536M --use-uuid
+part --ondisk mmcblk0 --fstype=ext4 --label data --align 4096 --fixed-size 128M

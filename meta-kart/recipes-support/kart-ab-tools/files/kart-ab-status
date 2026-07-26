@@ -1,0 +1,39 @@
+#!/bin/sh
+# kart-ab-status — show A/B slot state (active slot, inactive slot, autoboot.txt).
+# Machine-readable: prints KEY=VALUE lines; used by scripts/ota-update.sh.
+set -eu
+
+case "$(cat /proc/cmdline)" in
+    *root=*p6*) ACTIVE=B; ACTIVE_BOOT=3; ACTIVE_ROOT=6; INACTIVE=A; INACTIVE_BOOT=2; INACTIVE_ROOT=5 ;;
+    *root=*p5*) ACTIVE=A; ACTIVE_BOOT=2; ACTIVE_ROOT=5; INACTIVE=B; INACTIVE_BOOT=3; INACTIVE_ROOT=6 ;;
+    *) echo "ERROR: cmdline root= is not an A/B slot (p5/p6)" >&2; exit 1 ;;
+esac
+
+# Base block device (nvme0n1pN vs mmcblk0pN)
+ROOTDEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
+
+echo "ACTIVE_SLOT=$ACTIVE"
+echo "ACTIVE_BOOT_PART=$ACTIVE_BOOT"
+echo "ACTIVE_ROOT_PART=$ACTIVE_ROOT"
+echo "INACTIVE_SLOT=$INACTIVE"
+echo "INACTIVE_BOOT_PART=$INACTIVE_BOOT"
+echo "INACTIVE_ROOT_PART=$INACTIVE_ROOT"
+echo "BASE_DEV=$ROOTDEV"
+
+# tryboot 状態 (PM_RSTS 由来): /proc/device-tree/chosen/bootloader/tryboot
+TRYBOOT=0
+if [ -e /proc/device-tree/chosen/bootloader/tryboot ]; then
+    TRYBOOT=$(od -An -tu1 /proc/device-tree/chosen/bootloader/tryboot 2>/dev/null | tr -d " \n" || echo 0)
+fi
+echo "TRYBOOT=$TRYBOOT"
+
+# autoboot.txt (partition 1)
+MNT=$(mktemp -d)
+trap 'umount "$MNT" 2>/dev/null || true; rmdir "$MNT" 2>/dev/null || true' EXIT
+if mount -o ro "${ROOTDEV}p1" "$MNT" 2>/dev/null && [ -f "$MNT/autoboot.txt" ]; then
+    echo "AUTOBOOT_TXT<<"
+    cat "$MNT/autoboot.txt"
+    echo ">>"
+else
+    echo "AUTOBOOT_TXT=missing"
+fi
