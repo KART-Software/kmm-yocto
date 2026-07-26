@@ -212,27 +212,12 @@ sudo ./scripts/flash.sh --keep-data -nvme /dev/nvme0n1
 <details>
 <summary>Windows での書き込み</summary>
 
-#### Raspberry Pi Imager を使う場合
+#### そもそも物理書き込みが必要か（Windows ユーザー向けの推奨順）
 
-`.wic.bz2` を事前に展開して `.wic` ファイルにしておく必要がある（bz2 のままでは書き込めない）。
+1. **通常の更新は OTA**: WSL 内で `./scripts/ota-update.sh --host <host>`。`/data`（tailscale 識別・ログ）はそもそも触らないので保持は自動。物理アクセス不要
+2. **物理フラッシュが必要な場合**（初回移行・復旧・新品）: 下の **WSL2 + flash.sh** で。`--keep-data` も authkey 注入もそのまま使える
 
-1. `kart-image-raspberrypi5-<sdcard|nvme>.wic.bz2` を展開
-2. Raspberry Pi Imager を起動 → 「Use custom」で `.wic` ファイルを選択
-3. 書き込み先のデバイスを選択して書き込み
-
-> Imager の Wi-Fi / SSH 設定オプションは Yocto イメージには効かないため無視してよい。
-
-**Tailscale 自動接続を使う場合（Imager では authkey を書けないので手動で）:**
-
-書き込み後、**boot パーティション（FAT32・ボリュームラベル `boot`）が Windows のドライブとして見える**ので、その直下に `tailscale.authkey` というファイルを作って auth key を書くだけ（`flash.sh --authkey-file` と同じ仕組み）。
-
-- メモ帳の場合: 「ファイルの種類」を **すべてのファイル** にし、ファイル名を **`tailscale.authkey`**（`.txt` を付けない）で保存。中身は auth key を1行だけ（前後の空白・改行は初回起動時に自動除去される）。
-- PowerShell の場合（`E:` が boot ドライブなら）:
-  ```powershell
-  Set-Content -Path E:\tailscale.authkey -Value "tskey-auth-xxxxx" -NoNewline -Encoding ascii
-  ```
-
-初回起動で自動接続し、成功後にこのファイルは自動削除される。この方法は balenaEtcher など他の書き込みツールでも同じ（要は焼いた後に boot パーティションへ置くだけ）。
+> Raspberry Pi Imager 等の GUI 書き込みツールは使わない（ディスク全体上書きで `/data` 保持不可、authkey 注入も不可。すべて WSL2 + flash.sh で完結する）。
 
 #### WSL2 + flash.sh を使う場合
 
@@ -250,6 +235,9 @@ wsl --mount \\.\PHYSICALDRIVE1 --bare
 # WSL2 内 — デバイスが見えることを確認してからフラッシュ
 lsblk
 sudo ./scripts/flash.sh -sdcard /dev/sdb
+
+# /data (tailscale 識別・ログ) を保持して焼き直す場合
+sudo ./scripts/flash.sh --keep-data -sdcard /dev/sdb
 ```
 
 ```powershell
