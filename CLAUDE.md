@@ -67,8 +67,8 @@ Priority 10 (above meta-openembedded), depends on `core qt6-layer`, compatible w
 - `recipes-graphics/weston/` — Weston kiosk config (`weston.ini`). The bbappend **replaces `weston.service` wholesale and masks `weston.socket`** to disable socket-activation, then wires weston into `multi-user.target` directly.
 - `recipes-kernel/linux/` — config fragments `can.cfg`, `nvme.cfg`, `usb-net.cfg`, `slim.cfg` for the RPi kernel.
 - `recipes-support/can-setup/` — `can0-up.service` brings up SocketCAN; bitrate configured via `/etc/default/can0`.
-- `recipes-connectivity/tailscale/` — prebuilt Tailscale binary recipe.
-- `wic/*.wks` — disk partition layouts (separate SD vs NVMe).
+- `recipes-connectivity/tailscale/` — prebuilt Tailscale binary recipe (plus first-boot auto-connect via an auth key injected onto the boot partition).
+- `wic/*-ab.wks` — **A/B (tryboot) disk layouts**: p1 AUTOBOOT (slot selector, generated at build), p2/p3 BOOTA/B, p5/p6 rootA/B, p7 shared data. OS updates go over SSH via `scripts/ota-update.sh` (writes the inactive slot, one-shot tryboot, interactive commit via `kart-ab-commit`; firmware auto-falls-back on boot failure). Slot roots are `--fixed-size` so dd between slots always fits; boot slots are updated by file copy (not dd) to preserve the BOOTA/BOOTB labels.
 
 **`BBFILES_DYNAMIC` (in `conf/layer.conf`):** `recipes-kernel/` is excluded from the normal `BBFILES` glob and loaded only when `meta-raspberrypi` is present. This keeps RPi kernel bbappends out of QEMU builds.
 

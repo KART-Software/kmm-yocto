@@ -259,6 +259,28 @@ wsl --unmount \\.\PHYSICALDRIVE1
 
 </details>
 
+### OTA アップデート（A/B・SSD 抜き差し不要）
+
+イメージは A/B (tryboot) レイアウト。稼働中のデバイスへ SSH（Tailscale 可）経由で OS ごと更新できる:
+
+```bash
+# ビルド済み最新 nvme イメージで更新（転送 ~211MB gzip）
+./scripts/ota-update.sh --host raspberrypi5
+
+# イメージ指定
+./scripts/ota-update.sh --host <IP> path/to/kart-image-….wic.bz2
+```
+
+流れ: 非アクティブ面へ書込み → `reboot '0 tryboot'` で新面を**1回だけ**起動 → ヘルス確認 → **y で commit**（正式化）。**新面が起動に失敗した場合はファームウェアが自動で旧面に戻る**（commit しなければ何度リブートしても旧面のまま = 安全側）。
+
+デバイス側コマンド:
+```bash
+kart-ab-status   # 現用面・autoboot.txt の確認
+kart-ab-commit   # tryboot 起動した面の手動 commit
+```
+
+パーティション: p1=AUTOBOOT(面セレクタ) / p2,p3=BOOTA,B / p5,p6=rootA,B / p7=data(共有・OTA で消えない)。旧レイアウトからの移行時のみ物理フラッシュが必要（`--keep-data` で tailscale 識別ごと引き継ぎ可）。
+
 ### リモートマシンでの書き込み
 
 ```bash
