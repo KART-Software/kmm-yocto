@@ -27,10 +27,13 @@ inherit systemd
 
 DEPENDS += "${@'python3-native' if d.getVar('KART_APP_SRC') else ''}"
 
+# python3-can removed: the app ships its own socketcan implementation
+# (src/canbus, stdlib socket.AF_CAN). python3-netclient provides the socket
+# module it uses.
 RDEPENDS:${PN} = " \
     python3-core \
     python3-pyqt6 \
-    python3-can \
+    python3-netclient \
     python3-dotenv \
     python3-requests \
     python3-json \
