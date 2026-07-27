@@ -27,7 +27,7 @@ Use the `scripts/build.sh` wrapper — it maps a target to the right kas YAML co
 
 - `prod`/`dev` **require** `--sdcard` or `--nvme` (no default boot layout).
 - `--with-app` embeds the GUI app into the image; **without it, `/opt/kart` ships empty** and you deploy later with `scripts/sync-app.sh`.
-- `--with-app` requires `meta-kart/recipes-app/kart-machine-manager/files/.env` to exist (obtain from the team) or the build fails.
+- Secrets are NOT baked into images: kmmd reads `/data/kmm.env` (persistent partition, survives OTA). Provision once per device (`scp .env root@<host>:/data/kmm.env`). App-embedded images are therefore safe to publish as releases.
 
 Direct kas invocation (the `:` operator merges YAMLs left-to-right):
 

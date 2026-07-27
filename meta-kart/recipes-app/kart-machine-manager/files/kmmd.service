@@ -9,7 +9,9 @@ User=kart
 Group=kart
 WorkingDirectory=/opt/kart/kart-machine-manager/app
 EnvironmentFile=-/run/kmm-env
-EnvironmentFile=-/opt/kart/kart-machine-manager/app/.env
+# Secrets/config live on the shared data partition (survives OTA, never baked
+# into release images). Provision once: scp .env root@<host>:/data/kmm.env
+EnvironmentFile=-/data/kmm.env
 Environment=KMM_LOG_DIR=/data/log/kmm/
 Environment=WAYLAND_DISPLAY=wayland-1
 Environment=QT_QPA_PLATFORM=wayland

@@ -3,10 +3,11 @@ DESCRIPTION = "PyQt6-based kiosk GUI for kart machine management with CAN bus su
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
+# NOTE: .env is NOT part of the image. kmmd.service reads /data/kmm.env from
+# the persistent data partition, so app-embedded images are safe to publish.
 SRC_URI = " \
     file://kmmd.service \
     file://kmm-start.service \
-    ${@'file://.env' if d.getVar('KART_APP_SRC') else ''} \
 "
 
 # QEMU has no CAN hardware; ship a drop-in that runs the app in mock (DEBUG) mode.
@@ -54,8 +55,8 @@ do_install() {
         # Precompile .pyc
         ${STAGING_BINDIR_NATIVE}/python3-native/python3 \
             -c "import compileall; compileall.compile_dir('${D}/opt/kart/kart-machine-manager/', quiet=2, force=True)"
-        # Install .env
-        install -m 0644 ${WORKDIR}/.env ${D}/opt/kart/kart-machine-manager/app/.env
+        # Strip any .env that came with the app checkout (secrets stay on /data)
+        rm -f ${D}/opt/kart/kart-machine-manager/app/.env
     fi
 
     # systemd services

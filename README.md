@@ -86,11 +86,14 @@ qemu-system-aarch64 --version
 - `--with-app` を指定すると、kas が GitHub から kart-machine-manager をクローンしてイメージに埋め込む
 - 未指定の場合は `/opt/kart` が空で作成され、`sync-app.sh` で後からデプロイできる
 
-> **`--with-app` の前に `.env` の配置が必要:**
+> **`.env`（秘密設定）はイメージに焼き込まれない**: kmmd は `/data/kmm.env` を読む。ビルドに `.env` は不要になり、**`--with-app` イメージも Release に公開してよい**。
 >
-> `meta-kart/recipes-app/kart-machine-manager/files/.env` を配置する（チームメンバーから取得してください）。
->
-> `.env` がないとビルドが失敗します。
+> デバイスごとに1回だけ配置する（/data 上なので OTA・再フラッシュ(--keep-data) を跨いで永続）:
+> ```bash
+> scp meta-kart/recipes-app/kart-machine-manager/files/.env root@<host>:/data/kmm.env
+> ssh root@<host> systemctl restart kmmd   # 反映
+> ```
+> （`.env` 自体はチームメンバーから取得。リポジトリには含まれない）
 
 ### kas-container 直接実行
 
@@ -261,7 +264,7 @@ wsl --unmount \\.\PHYSICALDRIVE1
 
 > **ビルド環境は不要**: 必要なのはこのスクリプトと wic.bz2 だけ（ホスト側依存は `bzip2 fdisk gzip e2fsprogs ssh` の標準ツールのみ・sudo 不要）。Release からイメージを落とせばどの PC (Linux/WSL) からでも OTA できる。
 
-> ⚠️ **アプリなしイメージ（Release 標準）で OTA した場合**: アプリは rootfs 側（`/opt/kart`）にあるため、更新後の面にはアプリが入っていない。**OTA 後に `./scripts/sync-app.sh --host <host>` の実行が必要**（tailscale 識別は /data 共有なのでそのまま繋がる）。`--with-app` でビルドしたイメージなら不要。
+> ⚠️ **アプリなしイメージで OTA した場合**: アプリは rootfs 側（`/opt/kart`）にあるため、更新後の面にはアプリが入っていない。**OTA 後に `./scripts/sync-app.sh --host <host>` の実行が必要**。`--with-app` イメージなら不要（`.env` は `/data/kmm.env` に分離されたため、**Release にもアプリ入りイメージを置ける**ようになった — `./scripts/release.sh --with-app`）。
 
 流れ: 非アクティブ面へ書込み → `reboot '0 tryboot'` で新面を**1回だけ**起動 → ヘルス確認 → **y で commit**（正式化）。**新面が起動に失敗した場合はファームウェアが自動で旧面に戻る**（commit しなければ何度リブートしても旧面のまま = 安全側）。
 
