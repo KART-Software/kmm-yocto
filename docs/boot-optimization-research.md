@@ -1009,3 +1009,18 @@ SDRAM トレーニングや PCIe リンクトレーニングの収束時間の�
 **最終結論**: 設定レベルの削減は完全に枯渇。ファーム段 = 7.3±0.3s が床。
 残る唯一の実レバーはカーネルスリム化（読込 0.8s の圧縮、-0.2〜0.3s、ビルド側）。
 また DISABLE_HDMI は診断画面のみ抑止で EDID 読取りは走る（UART で確認）。
+
+#### カーネルスリム化 実施（2026-07-27）: Image -36%、初の Starting OS 7秒切り
+
+slim-aggressive.cfg で未使用ビルトインを一掃（KVM/NFS/F2FS/SUSPEND+HIBERNATION/
+USB_GADGET/PROFILING+KPROBES/FTRACE/TOUCHSCREEN）:
+
+- **Image: 27.5MB → 17.4MB（-36%）** — FTRACE 無効化が全関数のトレース用
+  スタブを消すため、単純な機能削除の合計より大きく効いた
+- **Starting OS: 7.3s 帯 → 6.97s**（読込セグメント短縮。自然変動 ±0.3s は
+  あるが、読込バイト数の物理的減少なので効果は確実）
+- **kernel init: 913ms → 726ms（-187ms）**
+- CAN/GUI/tailscale 全て正常動作を OTA 経由で実機確認
+
+これにより 電源→GUI ≈ **9.6s + モニタ同期**（初の 10 秒圏内）。
+デバッグカーネルが必要になったら slim-aggressive.cfg の行を外して OTA で差し替え。

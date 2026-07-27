@@ -5,4 +5,5 @@ SRC_URI += " \
     file://nvme.cfg \
     file://usb-net.cfg \
     file://slim.cfg \
+    file://slim-aggressive.cfg \
 "
