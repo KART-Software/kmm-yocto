@@ -34,4 +34,16 @@ boot_partition=$OTHER_BOOT
 EOF
 mv "$MNT/autoboot.txt.new" "$MNT/autoboot.txt"
 sync
-echo "Committed: slot $SLOT is now the permanent boot slot (boot_partition=$RUN_BOOT)."
+
+# Read-back verification through a FRESH mount: unmount, remount read-only and
+# confirm the on-disk content. Guards against silent write loss (seen once in
+# the field: status showed the new content while the disk had the old one).
+umount "$MNT"
+mount -o ro "${ROOTDEV}p1" "$MNT"
+verify=$(sed -n "/^\[all\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p" "$MNT/autoboot.txt" | head -1)
+if [ "$verify" != "$RUN_BOOT" ]; then
+    echo "ERROR: read-back verification FAILED: [all] boot_partition=$verify (expected $RUN_BOOT)." >&2
+    echo "       The commit did NOT persist to disk. Re-run kart-ab-commit." >&2
+    exit 1
+fi
+echo "Committed: slot $SLOT is now the permanent boot slot (boot_partition=$RUN_BOOT). (read-back verified)"

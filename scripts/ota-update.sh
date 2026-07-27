@@ -109,6 +109,16 @@ rm -f /tmp/ota-boot.img
 "
 
 echo "==> [4/6] Rebooting into slot $IN_SLOT via tryboot (one-shot)..."
+# Pre-flight: the [tryboot] section must point at the slot we just wrote,
+# otherwise tryboot would boot the WRONG slot (seen once when a commit did not
+# persist). Read the selector fresh from disk via kart-ab-status.
+TB_TARGET=$("${SSH[@]}" kart-ab-status | sed -n '/^\[tryboot\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p' | head -1)
+if [ "$TB_TARGET" != "$IN_BOOT" ]; then
+    echo "ERROR: autoboot.txt [tryboot] points at partition '$TB_TARGET' but we wrote partition $IN_BOOT." >&2
+    echo "       Selector state is inconsistent — run 'kart-ab-status' on the device and fix" >&2
+    echo "       (usually: run 'kart-ab-commit' on the device to resync, then re-run this update)." >&2
+    exit 1
+fi
 "${SSH[@]}" "reboot '0 tryboot'" || true
 
 echo "==> [5/6] Waiting for the device to come back..."
