@@ -10,6 +10,8 @@
 #   ./scripts/release.sh                  # SD + NVMe 両方、タグ自動
 #
 # アプリ (C++ 版) は常にイメージに含まれる（旧 --with-app は廃止）。
+# Qt SDK インストーラ (アプリ開発者向けクロスビルド環境) も自動で
+# ビルドして Release に含める。--no-sdk でスキップ可。
 #
 # Environment:
 #   GITHUB_TOKEN  GitHub Personal Access Token (required)
@@ -25,7 +27,7 @@ API="https://api.github.com"
 
 # --- Parse arguments ---
 usage() {
-    echo "Usage: $0 [-sdcard] [-nvme] [TAG]"
+    echo "Usage: $0 [-sdcard] [-nvme] [--no-sdk] [TAG]"
     echo ""
     echo "  省略時は -sdcard -nvme 両方をビルド"
     echo ""
@@ -36,12 +38,14 @@ usage() {
 
 BUILD_SDCARD=false
 BUILD_NVME=false
+WITH_SDK=true
 TAG=""
 
 for arg in "$@"; do
     case "$arg" in
         -sdcard)    BUILD_SDCARD=true ;;
         -nvme)      BUILD_NVME=true ;;
+        --no-sdk)   WITH_SDK=false ;;
         -h|--help)  usage ;;
         *)          TAG="$arg" ;;
     esac
@@ -114,7 +118,7 @@ for IMAGE_TYPE in "${IMAGE_TYPES[@]}"; do
         UPLOAD_URL=$(echo "$RELEASE_JSON" | grep '"upload_url"' | sed 's/.*"upload_url": *"//;s/{.*//')
     else
         echo "==> Creating release ${TAG}..."
-        BODY="- App embedded: yes (C++)\\n- Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        BODY="- App embedded: yes (C++)\\n- SDK: see poky-*-toolchain-*.sh asset (source environment-setup, then plain cmake cross-builds app-cpp)\\n- Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
         RELEASE_JSON=$(curl -sf -X POST -H "$AUTH" \
             -H "Content-Type: application/json" \
@@ -141,6 +145,31 @@ for IMAGE_TYPE in "${IMAGE_TYPES[@]}"; do
 
     echo "==> [${IMAGE_TYPE}] Done"
 done
+
+# --- Build + upload the Qt SDK installer (boot-layout independent) ---
+if [ "$WITH_SDK" = true ]; then
+    echo ""
+    echo "============================================"
+    echo "==> [sdk] Building Qt SDK installer..."
+    echo "============================================"
+    kas-container shell kas/rpi5-prod.yml:kas/boot-nvme.yml:kas/sdk.yml \
+        -c "bitbake meta-toolchain-qt6"
+
+    SDK_PATH=$(find "${PROJECT_DIR}/build/tmp/deploy/sdk" -name "poky-*-toolchain-*.sh" -type f 2>/dev/null | sort | tail -n 1)
+    if [ -z "$SDK_PATH" ]; then
+        echo "ERROR: SDK installer not found in build/tmp/deploy/sdk" >&2
+        exit 1
+    fi
+    SDK_NAME=$(basename "$SDK_PATH")
+    echo "==> Uploading ${SDK_NAME} ($(du -h "$SDK_PATH" | cut -f1))..."
+    curl -f --progress-bar \
+        -H "$AUTH" \
+        -H "Content-Type: application/octet-stream" \
+        --data-binary "@${SDK_PATH}" \
+        "${UPLOAD_URL}?name=${SDK_NAME}&label=${SDK_NAME}" \
+        -o /dev/null
+    echo "==> [sdk] Done"
+fi
 
 echo ""
 echo "==> Release complete: ${TAG}"

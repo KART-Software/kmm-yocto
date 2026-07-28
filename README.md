@@ -119,6 +119,7 @@ kas-container build kas/qemu-dev.yml
 | `qemu.yml` | マシン | QEMU 固有 (qemuarm64, virtio-gpu) |
 | `boot-sdcard.yml` | フラグメント | SD カードブート (WKS 指定) |
 | `boot-nvme.yml` | フラグメント | NVMe ブート (WKS 指定) |
+| `sdk.yml` | フラグメント | Qt SDK ビルド用 (qtbase のみに絞る) |
 | `rpi5-prod.yml` | 組み合わせ | base + rpi5 (本番) |
 | `local-dev.yml` | 組み合わせ | base + rpi5 + debug-tweaks (開発) |
 | `qemu-dev.yml` | 組み合わせ | base + qemu + debug-tweaks (QEMU 開発) |
@@ -397,7 +398,14 @@ ip addr
 
 **正式な更新**: kart-machine-manager を push → `meta-kart/recipes-app/kart-machine-manager/kart-machine-manager_2.0.bb` の `SRCREV` をそのコミットに更新 → イメージ再ビルド → OTA。
 
-**開発イテレーション（再ビルド・再フラッシュ不要）**: Yocto SDK（`bitbake meta-toolchain-qt6` で生成）でクロスビルドしてバイナリだけ差し替える:
+**開発イテレーション（再ビルド・再フラッシュ不要）**: Yocto SDK でクロスビルドしてバイナリだけ差し替える。SDK インストーラは **GitHub Release に同梱**（`poky-*-toolchain-*.sh`、release.sh が自動でビルド・アップロード）。手元で生成する場合:
+
+```bash
+kas-container shell kas/rpi5-prod.yml:kas/boot-nvme.yml:kas/sdk.yml -c "bitbake meta-toolchain-qt6"
+# -> build/tmp/deploy/sdk/poky-*-toolchain-*.sh (自己完結インストーラ)
+```
+
+使い方（kas / bitbake / Docker 不要）:
 
 ```bash
 source <SDK>/environment-setup-cortexa76-poky-linux

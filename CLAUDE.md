@@ -49,6 +49,7 @@ There is no single monolithic config — configs are composed from fragments. Un
 | `rpi5.yml` | machine `raspberrypi5`, BSP repo, SPI/CAN/GPU/PCIe/UART, kernel cmdline |
 | `qemu.yml` | machine `qemuarm64`, ext4 fstype, virtio-gpu |
 | `boot-sdcard.yml` / `boot-nvme.yml` | **WKS selection only** (which `.wks` partition layout) |
+| `sdk.yml` | overlay for `bitbake meta-toolchain-qt6` — trims the Qt SDK to qtbase only (the app needs Widgets/Gui/Network/Core) |
 | `rpi5-prod.yml` | `includes: base + rpi5`, `target: kart-image` |
 | `local-dev.yml` | `includes: base + rpi5` + `debug-tweaks` + dev tools |
 | `qemu-dev.yml` | `includes: base + qemu` + debug-tweaks |
@@ -82,7 +83,7 @@ sudo ./scripts/flash.sh -sdcard /dev/sdX   # bmaptool-preferred write (-sdcard/-
 sudo ./scripts/flash.sh -nvme /dev/nvme0n1
 ./scripts/remote-flash.sh -sdcard user@host /dev/sdX  # writer attached to another machine
 
-./scripts/release.sh -nvme v1.0.0    # build + upload image to GitHub Release (needs GITHUB_TOKEN)
+./scripts/release.sh -nvme v1.0.0    # build + upload images AND the Qt SDK installer to GitHub Release (needs GITHUB_TOKEN; --no-sdk to skip)
 # sync-app.sh is legacy (Python-era images); C++ app updates go via SRCREV bump + OTA,
 # or scp a cross-built binary to /usr/bin/kmm for quick iteration
 ```
