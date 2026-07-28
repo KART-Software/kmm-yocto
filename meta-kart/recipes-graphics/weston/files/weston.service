@@ -11,10 +11,13 @@ ConditionPathExists=/dev/tty0
 [Service]
 Type=notify
 EnvironmentFile=/etc/default/weston
-ExecStartPre=+/bin/sh -c 'uid=$(id -u kart) && mkdir -p /run/user/$uid && chmod 0700 /run/user/$uid && chown kart:kart /run/user/$uid && echo "XDG_RUNTIME_DIR=/run/user/$uid" > /run/weston-env'
 ExecStart=/usr/bin/weston --modules=systemd-notify.so
-EnvironmentFile=-/run/weston-env
+# Fixed runtime dir (systemd-managed, kart-owned): keeps uid out of unit
+# files entirely (kart's uid is dynamically assigned at build time).
+Environment=XDG_RUNTIME_DIR=/run/wayland
 Environment=SEATD_SOCK=/run/seatd.sock
+RuntimeDirectory=wayland
+RuntimeDirectoryMode=0700
 User=kart
 Group=kart
 WorkingDirectory=/home/kart

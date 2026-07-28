@@ -12,16 +12,14 @@ Wants=can0-up.service
 Type=notify
 User=kart
 Group=kart
-# kart's uid is assigned at build time; resolve it at runtime for XDG_RUNTIME_DIR
-# (unit files cannot expand variables). /run/user/<uid> itself is created by
-# weston.service, which is ordered before us.
-EnvironmentFile=-/run/kmm-env
 # Secrets/config live on the shared data partition (survives OTA, never baked
 # into release images). Provision once: scp .env root@<host>:/data/kmm.env
 EnvironmentFile=-/data/kmm.env
+# The wayland socket lives in weston.service's fixed RuntimeDirectory
+# (/run/wayland) — no uid anywhere.
+Environment=XDG_RUNTIME_DIR=/run/wayland
 Environment=WAYLAND_DISPLAY=wayland-1
 Environment=QT_QPA_PLATFORM=wayland
-ExecStartPre=+/bin/sh -c 'uid=$(id -u kart); echo "XDG_RUNTIME_DIR=/run/user/$uid" > /run/kmm-env'
 ExecStart=/usr/bin/kmm
 Restart=on-failure
 RestartSec=3

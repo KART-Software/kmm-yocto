@@ -91,7 +91,7 @@ sudo ./scripts/flash.sh -nvme /dev/nvme0n1
 
 ## Gotchas
 
-- **The `kart` user is created by `weston-init.bbappend`** (the app recipe only references it via `User=kart`). Its uid is assigned at build time, so `kmm.service` resolves `XDG_RUNTIME_DIR` at runtime via an `ExecStartPre` writing `/run/kmm-env`.
+- **The `kart` user is created by `weston-init.bbappend`** (the app recipe only references it via `User=kart`). Its uid is dynamically assigned at build time — and deliberately irrelevant: the wayland socket lives in weston.service's fixed `RuntimeDirectory` (`/run/wayland`), so no unit file ever needs the uid.
 - QEMU images are `ext4`; real-hardware images are `.wic`/`.wic.bz2` — they are not interchangeable.
 - First build needs ~50GB free.
 - `read-only-rootfs` is enabled — anything that must persist at runtime goes on the `/data` partition (label `data`), not the rootfs.
