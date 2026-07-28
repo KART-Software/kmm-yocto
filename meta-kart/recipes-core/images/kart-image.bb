@@ -9,7 +9,6 @@ inherit core-image
 # Common packages (all machines)
 # ---------------------------------------------------------------------------
 IMAGE_INSTALL:append = " \
-    python3 \
     qtbase \
     qtwayland \
     weston \
@@ -61,10 +60,7 @@ IMAGE_ROOTFS_EXTRA_SPACE = "0"
 # Ensure systemd is used
 IMAGE_INSTALL:append = " systemd-serialgetty"
 
-# ---------------------------------------------------------------------------
-# Precompile Python bytecode (.pyc) at image build time
-# ---------------------------------------------------------------------------
-ROOTFS_POSTPROCESS_COMMAND += "compile_python_bytecode;create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;configure_wait_online_any;"
+ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;configure_wait_online_any;"
 
 # ---------------------------------------------------------------------------
 # Create /data mount point and fstab entry for persistent data partition
@@ -84,11 +80,6 @@ d /data           0777 root root -
 d /data/log       0777 root root -
 d /data/tailscale 0700 root root -
 EOF
-}
-
-compile_python_bytecode() {
-    ${STAGING_BINDIR_NATIVE}/python3-native/python3 \
-        -c "import compileall; compileall.compile_dir('${IMAGE_ROOTFS}/usr/lib/python3.12/', quiet=2, force=True)"
 }
 
 # ---------------------------------------------------------------------------
