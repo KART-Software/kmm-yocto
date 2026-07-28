@@ -1024,3 +1024,36 @@ USB_GADGET/PROFILING+KPROBES/FTRACE/TOUCHSCREEN）:
 
 これにより 電源→GUI ≈ **9.6s + モニタ同期**（初の 10 秒圏内）。
 デバッグカーネルが必要になったら slim-aggressive.cfg の行を外して OTA で差し替え。
+
+#### PID1 mountinfo レートリミッタ問題の解明と修正（2026-07-28）: 二峰性消滅、8.65s へ
+
+C++ 版アプリ（kmm.service 直接起動）でブートを計測すると、電源→UI が
+9.06s ↔ 9.42s の**二峰性**（発生率 ~50%）を示した。区間分解の結果、
+/data の fsck 完了 → `Mounting /data...` の間に **0.6〜0.95s の journal
+完全沈黙**があり、デバイス無関係の tmpfs マウントまで巻き添えになることから
+ストレージではなく PID 1 自体の停止と特定。
+
+`systemd.log_level=debug` ブートで原因確定:
+
+```
+[1.015] Event source (mount-monitor-dispatch) entered rate limit state.
+[1.922] Event source (mount-monitor-dispatch) left rate limit state.
+```
+
+**systemd の mountinfo 監視イベントにはレートリミッタ（デフォルト 5 回/秒）
+があり**、起動初期の sandbox 付きサービス群（userdbd/resolved 等）が作る
+名前空間マウントのストームで発動 → 発動中はマウントユニット処理が凍結 →
+fsck が終わっても data.mount のジョブが配れず、local-fs → basic → weston の
+チェーン全体が ~0.9s 遅延していた。二峰性はストームがリミットを超えるか
+どうかのタイミング運。upstream も承知の問題で、mount.c に
+「as it stalls the boot sequence on busy systems」というコメントと共に
+環境変数の逃げ道が用意されている。
+
+**修正**: kernel cmdline に `SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST=100`
+を追加（カーネルが解釈しない KEY=VALUE は PID1 の環境変数になる）。
+
+**結果（6 ブート連続）**: ギャップ全回 <10ms、shown 1.63〜1.69s（幅 66ms）、
+電源→UI ≈ **8.65s**。副次効果として、以前観測していた「weston 完了→kmm
+配送の 0.45s 遅延」も消滅 — burst=5 では起動ラッシュ中ずっとリミットの
+出入りを繰り返し、通常優先度より高い mount-monitor がジョブ配送を妨げて
+いたと考えられる。二峰性・配送遅延の両方がこの 1 行で解決した。

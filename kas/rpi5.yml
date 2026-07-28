@@ -39,3 +39,8 @@ local_conf_header:
   rpi5-cmdline: |
     CMDLINE:append = " quiet loglevel=3"
     DISABLE_RPI_BOOT_LOGO = "1"
+    # PID1 の mountinfo レートリミッタ (デフォルト 5/s) が起動初期の sandbox
+    # マウントストームで発動し、マウントユニット処理が ~1s 凍結して boot が
+    # 二峰性 (+0.9s) になっていた。カーネル未解釈の KEY=VALUE は init (PID1)
+    # の環境変数として渡される。実測: 電源→UI 9.06-9.42s → 8.65s ±0.03s。
+    CMDLINE:append = " SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST=100"
