@@ -6,12 +6,11 @@ LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
 # App updates: bump SRCREV (single pin; the old app-embed.yml dual pin is gone).
-# NOTE: branch is the app-cpp PR branch until it merges; then switch to develop.
 SRC_URI = " \
-    git://github.com/KART-Software/kart-machine-manager.git;protocol=https;branch=feature/app-cpp \
+    git://github.com/KART-Software/kart-machine-manager.git;protocol=https;branch=develop \
     file://kmm.service \
 "
-SRCREV = "00f5bf1b89b0eda52348a8b7d12bdd52be376481"
+SRCREV = "499e5957ef259173481a8587640941c41036866c"
 
 S = "${WORKDIR}/git/app-cpp"
 
