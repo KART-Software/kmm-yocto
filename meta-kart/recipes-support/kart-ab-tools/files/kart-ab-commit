@@ -17,7 +17,7 @@ MNT=$(mktemp -d)
 trap 'umount "$MNT" 2>/dev/null || true; rmdir "$MNT" 2>/dev/null || true' EXIT
 mount "${ROOTDEV}p1" "$MNT"
 
-current=$(sed -n "/^\[all\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p" "$MNT/autoboot.txt" | head -1)
+current=$(sed -n "/^\[all\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p" "$MNT/autoboot.txt" | head -n 1)
 if [ "$current" = "$RUN_BOOT" ]; then
     echo "Already committed to slot $SLOT (boot_partition=$RUN_BOOT); nothing to do."
     exit 0
@@ -40,7 +40,7 @@ sync
 # the field: status showed the new content while the disk had the old one).
 umount "$MNT"
 mount -o ro "${ROOTDEV}p1" "$MNT"
-verify=$(sed -n "/^\[all\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p" "$MNT/autoboot.txt" | head -1)
+verify=$(sed -n "/^\[all\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p" "$MNT/autoboot.txt" | head -n 1)
 if [ "$verify" != "$RUN_BOOT" ]; then
     echo "ERROR: read-back verification FAILED: [all] boot_partition=$verify (expected $RUN_BOOT)." >&2
     echo "       The commit did NOT persist to disk. Re-run kart-ab-commit." >&2

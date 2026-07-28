@@ -91,7 +91,7 @@ echo "    prepare rootfs image: label=${IN_RLABEL}, new UUID..."
 e2label "$WORK/root.img" "$IN_RLABEL"
 tune2fs -U random "$WORK/root.img" >/dev/null 2>&1 || true
 echo "    rootfs -> ${BASE}p${IN_ROOT} (dd over ssh)..."
-gzip -c "$WORK/root.img" | "${SSH[@]}" "gzip -dc | dd of=${BASE}p${IN_ROOT} bs=4M conv=fsync status=none && sync"
+gzip -c "$WORK/root.img" | "${SSH[@]}" "gzip -dc | dd of=${BASE}p${IN_ROOT} bs=4M && sync"
 echo "    boot files -> ${BASE}p${IN_BOOT} (file copy, label preserved)..."
 gzip -c "$WORK/boot.img" | "${SSH[@]}" "
 set -e
@@ -112,7 +112,7 @@ echo "==> [4/6] Rebooting into slot $IN_SLOT via tryboot (one-shot)..."
 # Pre-flight: the [tryboot] section must point at the slot we just wrote,
 # otherwise tryboot would boot the WRONG slot (seen once when a commit did not
 # persist). Read the selector fresh from disk via kart-ab-status.
-TB_TARGET=$("${SSH[@]}" kart-ab-status | sed -n '/^\[tryboot\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p' | head -1)
+TB_TARGET=$("${SSH[@]}" kart-ab-status | sed -n '/^\[tryboot\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p' | head -n 1)
 if [ "$TB_TARGET" != "$IN_BOOT" ]; then
     echo "ERROR: autoboot.txt [tryboot] points at partition '$TB_TARGET' but we wrote partition $IN_BOOT." >&2
     echo "       Selector state is inconsistent — run 'kart-ab-status' on the device and fix" >&2

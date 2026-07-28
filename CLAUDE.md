@@ -94,6 +94,7 @@ sudo ./scripts/flash.sh -nvme /dev/nvme0n1
 - **The `kart` user is created by `weston-init.bbappend`** (the app recipe only references it via `User=kart`). Its uid is dynamically assigned at build time — and deliberately irrelevant: the wayland socket lives in weston.service's fixed `RuntimeDirectory` (`/run/wayland`), so no unit file ever needs the uid.
 - QEMU images are `ext4`; real-hardware images are `.wic`/`.wic.bz2` — they are not interchangeable.
 - First build needs ~50GB free.
+- **Don't assume GNU coreutils in device-side script snippets** — stick to POSIX/busybox syntax (`head -n 1` not `head -1`; plain `dd of=... bs=...` without `conv=`/`status=`). coreutils is only present as a side effect of rpi-eeprom's RDEPENDS, and both patterns broke when it briefly disappeared.
 - `read-only-rootfs` is enabled — anything that must persist at runtime goes on the `/data` partition (label `data`), not the rootfs.
 - BitBake variables are `UPPERCASE_SNAKE_CASE`; bbappends use `%` for version-independence and `FILESEXTRAPATHS:prepend := "${THISDIR}/files:"` to add files.
 - **systemd drop-ins cannot reset dependency lists** (`Before=`/`After=`/`Requires=` — an empty assignment is a no-op). To remove an ordering edge, replace the unit wholesale (weston-init.bbappend) or `sed` the shipped unit in image postprocess (timesyncd in `kart-image.bb`). Getting this wrong causes silent ordering cycles — check `journalctl -b | grep -i "ordering cycle"` after unit changes.
