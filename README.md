@@ -9,7 +9,7 @@ Raspberry Pi 5 向け組み込み Linux イメージを Yocto (scarthgap) + kas-
 | ターゲット | Raspberry Pi 5 (NVMe ブート) |
 | Yocto リリース | scarthgap (5.0) |
 | ビルドツール | kas-container (Docker) |
-| GUI | Wayland + Weston (kiosk) + PyQt6 |
+| GUI | Wayland + Weston (kiosk) + C++/Qt6 Widgets |
 | init | systemd |
 | ネットワーク | systemd-networkd |
 | CAN | MCP2515 (SocketCAN) |
@@ -60,38 +60,31 @@ qemu-system-aarch64 --version
 # RPi5 本番 (NVMe)
 ./scripts/build.sh prod --nvme
 
-# RPi5 本番 (SD カード) + アプリ埋め込み
-./scripts/build.sh prod --sdcard --with-app
-
-# RPi5 本番 (NVMe) + アプリ埋め込み
-./scripts/build.sh prod --nvme --with-app
+# RPi5 本番 (SD カード)
+./scripts/build.sh prod --sdcard
 
 # RPi5 開発 (SD カード, debug-tweaks)
 ./scripts/build.sh dev --sdcard
 
-# RPi5 開発 (SD カード) + アプリ埋め込み
-./scripts/build.sh dev --sdcard --with-app 
-
-# RPi5 開発 (NVMe) + アプリ埋め込み
-./scripts/build.sh dev --nvme --with-app
+# RPi5 開発 (NVMe)
+./scripts/build.sh dev --nvme
 
 # QEMU 開発
 ./scripts/build.sh qemu
-
-# QEMU 開発 + アプリ埋め込み
-./scripts/build.sh qemu --with-app
 ```
 
 - `prod` / `dev` は `--sdcard` または `--nvme` の指定が必須
-- `--with-app` を指定すると、kas が GitHub から kart-machine-manager をクローンしてイメージに埋め込む
-- 未指定の場合は `/opt/kart` が空で作成され、`sync-app.sh` で後からデプロイできる
+- アプリ (C++ 版 kart-machine-manager) は**常にイメージに含まれる**。レシピ
+  (`meta-kart/recipes-app/kart-machine-manager/`) が GitHub から `SRCREV` 固定で
+  取得してクロスビルドする。アプリ更新 = レシピの `SRCREV` を上げて再ビルド
+  （旧 `--with-app` / `kas/app-embed.yml` は廃止）
 
-> **`.env`（秘密設定）はイメージに焼き込まれない**: kmmd は `/data/kmm.env` を読む。ビルドに `.env` は不要になり、**`--with-app` イメージも Release に公開してよい**。
+> **`.env`（秘密設定）はイメージに焼き込まれない**: kmm.service は `/data/kmm.env` を読む。ビルドに `.env` は不要で、**イメージは Release に公開してよい**。
 >
 > デバイスごとに1回だけ配置する（/data 上なので OTA・再フラッシュ(--keep-data) を跨いで永続）:
 > ```bash
 > scp meta-kart/recipes-app/kart-machine-manager/files/.env root@<host>:/data/kmm.env
-> ssh root@<host> systemctl restart kmmd   # 反映
+> ssh root@<host> systemctl restart kmm   # 反映
 > ```
 > （`.env` 自体はチームメンバーから取得。リポジトリには含まれない）
 
@@ -126,7 +119,6 @@ kas-container build kas/qemu-dev.yml
 | `qemu.yml` | マシン | QEMU 固有 (qemuarm64, virtio-gpu) |
 | `boot-sdcard.yml` | フラグメント | SD カードブート (WKS 指定) |
 | `boot-nvme.yml` | フラグメント | NVMe ブート (WKS 指定) |
-| `app-embed.yml` | フラグメント | アプリ埋め込み (KART_APP_SRC 設定) |
 | `rpi5-prod.yml` | 組み合わせ | base + rpi5 (本番) |
 | `local-dev.yml` | 組み合わせ | base + rpi5 + debug-tweaks (開発) |
 | `qemu-dev.yml` | 組み合わせ | base + qemu + debug-tweaks (QEMU 開発) |
@@ -264,7 +256,7 @@ wsl --unmount \\.\PHYSICALDRIVE1
 
 > **ビルド環境は不要**: 必要なのはこのスクリプトと wic.bz2 だけ（ホスト側依存は `bzip2 fdisk gzip e2fsprogs ssh` の標準ツールのみ・sudo 不要）。Release からイメージを落とせばどの PC (Linux/WSL) からでも OTA できる。
 
-> ⚠️ **アプリなしイメージで OTA した場合**: アプリは rootfs 側（`/opt/kart`）にあるため、更新後の面にはアプリが入っていない。**OTA 後に `./scripts/sync-app.sh --host <host>` の実行が必要**。`--with-app` イメージなら不要（`.env` は `/data/kmm.env` に分離されたため、**Release にもアプリ入りイメージを置ける**ようになった — `./scripts/release.sh --with-app`）。
+> アプリ (C++ 版) は常にイメージに含まれるため、OTA だけでアプリも一緒に更新される（旧 Python イメージ時代の「アプリなしイメージ + sync-app」運用は廃止）。
 
 流れ: 非アクティブ面へ書込み → `reboot '0 tryboot'` で新面を**1回だけ**起動 → ヘルス確認 → **y で commit**（正式化）。**新面が起動に失敗した場合はファームウェアが自動で旧面に戻る**（commit しなければ何度リブートしても旧面のまま = 安全側）。
 
@@ -399,33 +391,25 @@ ip addr
 # http://192.168.0.1
 ```
 
-## アプリのデプロイ（再ビルド不要）
+## アプリの更新
 
-`kart-machine-manager` の**アプリコードだけ**を更新する場合は、再ビルド・再フラッシュせず `sync-app.sh` で rsync デプロイできる。
+アプリ (C++ 版 kart-machine-manager) はレシピが `SRCREV` 固定で GitHub から取得してビルドする。
 
-```bash
-# 実機 (直 IP / Tailscale IP)
-./scripts/sync-app.sh --target <IP>
+**正式な更新**: kart-machine-manager を push → `meta-kart/recipes-app/kart-machine-manager/kart-machine-manager_2.0.bb` の `SRCREV` をそのコミットに更新 → イメージ再ビルド → OTA。
 
-# ~/.ssh/config のホスト名を使う
-./scripts/sync-app.sh --host <ssh-config-host>
-
-# QEMU (デフォルト: root@192.168.7.2)
-./scripts/sync-app.sh --qemu
-
-# デプロイ元を明示 (デフォルトは ../kart-machine-manager)
-./scripts/sync-app.sh --target <IP> /path/to/kart-machine-manager
-```
-
-配置先は `/opt/kart/kart-machine-manager/`（`.pyc` プリコンパイル → rsync → `chown kart:kart`）。`.git` `.venv` `log/` `uv.lock` などは除外。`--no-restart` で配置のみ。
-
-デプロイ後にコードを反映するには daemon を再起動する。systemd ユニットは `kmmd.service`（デーモン）と `kmm-start.service`（GUI 起動通知）:
+**開発イテレーション（再ビルド・再フラッシュ不要）**: Yocto SDK（`bitbake meta-toolchain-qt6` で生成）でクロスビルドしてバイナリだけ差し替える:
 
 ```bash
-ssh root@<IP> 'systemctl restart kmmd && systemctl start kmm-start'
+source <SDK>/environment-setup-cortexa76-poky-linux
+cmake -B build-rpi5 kart-machine-manager/app-cpp && cmake --build build-rpi5 -j
+ssh root@<host> 'mount -o remount,rw /'
+scp build-rpi5/kmm root@<host>:/usr/bin/kmm
+ssh root@<host> 'mount -o remount,ro / ; systemctl restart kmm'
 ```
 
-> **注意:** `sync-app.sh` は**アプリコードのみ**を配る。OS 側の設定（CAN bitrate / オシレータ、systemd ユニット、カーネル config など）は反映されないため、それらの変更は再ビルド + 再フラッシュが必要。
+または kmm-yocto 内で `devtool`（`devtool add kmm-cpp <src>` → `devtool build`）でも同じバイナリが得られる。
+
+> 旧 Python イメージ（`/opt/kart` + `kmm-start.service` 構成）への rsync デプロイは `sync-app.sh`（レガシー）を参照。
 
 ## 設定変更
 

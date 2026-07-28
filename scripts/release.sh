@@ -2,12 +2,14 @@
 # release.sh — Build image and upload to GitHub Release
 #
 # Usage:
-#   ./scripts/release.sh [-sdcard] [-nvme] [--with-app] [TAG]
+#   ./scripts/release.sh [-sdcard] [-nvme] [TAG]
 #
 # Examples:
-#   ./scripts/release.sh -sdcard --with-app          # SD カードのみ、タグ自動
-#   ./scripts/release.sh -nvme --with-app v1.0.0     # NVMe のみ、タグ指定
-#   ./scripts/release.sh --with-app                   # SD + NVMe 両方、タグ自動
+#   ./scripts/release.sh -sdcard          # SD カードのみ、タグ自動
+#   ./scripts/release.sh -nvme v1.0.0     # NVMe のみ、タグ指定
+#   ./scripts/release.sh                  # SD + NVMe 両方、タグ自動
+#
+# アプリ (C++ 版) は常にイメージに含まれる（旧 --with-app は廃止）。
 #
 # Environment:
 #   GITHUB_TOKEN  GitHub Personal Access Token (required)
@@ -23,7 +25,7 @@ API="https://api.github.com"
 
 # --- Parse arguments ---
 usage() {
-    echo "Usage: $0 [-sdcard] [-nvme] [--with-app] [TAG]"
+    echo "Usage: $0 [-sdcard] [-nvme] [TAG]"
     echo ""
     echo "  省略時は -sdcard -nvme 両方をビルド"
     echo ""
@@ -34,14 +36,12 @@ usage() {
 
 BUILD_SDCARD=false
 BUILD_NVME=false
-WITH_APP=""
 TAG=""
 
 for arg in "$@"; do
     case "$arg" in
         -sdcard)    BUILD_SDCARD=true ;;
         -nvme)      BUILD_NVME=true ;;
-        --with-app) WITH_APP="--with-app" ;;
         -h|--help)  usage ;;
         *)          TAG="$arg" ;;
     esac
@@ -76,9 +76,9 @@ AUTH="Authorization: Bearer ${GITHUB_TOKEN}"
 for IMAGE_TYPE in "${IMAGE_TYPES[@]}"; do
     echo ""
     echo "============================================"
-    echo "==> [${IMAGE_TYPE}] Building prod ${WITH_APP}..."
+    echo "==> [${IMAGE_TYPE}] Building prod..."
     echo "============================================"
-    "${SCRIPT_DIR}/build.sh" prod "--${IMAGE_TYPE}" $WITH_APP
+    "${SCRIPT_DIR}/build.sh" prod "--${IMAGE_TYPE}"
 
     # --- Find image (resolve symlink to actual file) ---
     SYMLINK_PATH=$(find "$IMAGE_DIR" -name "kart-image-raspberrypi5-${IMAGE_TYPE}.wic.bz2" 2>/dev/null | head -1)
@@ -114,7 +114,7 @@ for IMAGE_TYPE in "${IMAGE_TYPES[@]}"; do
         UPLOAD_URL=$(echo "$RELEASE_JSON" | grep '"upload_url"' | sed 's/.*"upload_url": *"//;s/{.*//')
     else
         echo "==> Creating release ${TAG}..."
-        BODY="- App embedded: $([ -n "$WITH_APP" ] && echo yes || echo no)\\n- Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        BODY="- App embedded: yes (C++)\\n- Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
         RELEASE_JSON=$(curl -sf -X POST -H "$AUTH" \
             -H "Content-Type: application/json" \

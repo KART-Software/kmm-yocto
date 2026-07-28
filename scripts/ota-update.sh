@@ -136,7 +136,7 @@ if [ "$NEW_ACTIVE" != "$IN_SLOT" ]; then
     exit 1
 fi
 echo "    health:"
-"${SSH[@]}" 'systemctl is-active weston kmmd can0-up 2>/dev/null | tr "\n" " "; echo; systemctl --failed --no-legend | wc -l | xargs echo "    failed units:"'
+"${SSH[@]}" 'systemctl is-active weston kmm can0-up 2>/dev/null | tr "\n" " "; echo; systemctl --failed --no-legend | wc -l | xargs echo "    failed units:"'
 
 echo "==> [6/6] Commit?"
 read -rp "    Make slot $IN_SLOT permanent? [y/N] " ok

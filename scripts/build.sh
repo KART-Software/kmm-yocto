@@ -12,8 +12,8 @@
 # Options:
 #   --sdcard     SD カードブート (dev 用)
 #   --nvme       NVMe ブート (dev 用)
-#   --with-app   kart-machine-manager をイメージに埋め込む
-#                (kas/app-embed.yml で GitHub からクローン)
+#
+# アプリ (C++ 版) は常にイメージに含まれる（レシピが SRCREV 固定で取得）。
 
 set -euo pipefail
 
@@ -22,25 +22,23 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Parse arguments ---
 TARGET=""
-WITH_APP=false
 BOOT=""
 
 for arg in "$@"; do
     case "$arg" in
         prod|dev|qemu) TARGET="$arg" ;;
-        --with-app)    WITH_APP=true ;;
         --sdcard)      BOOT="sdcard" ;;
         --nvme)        BOOT="nvme" ;;
         *)
             echo "Unknown argument: $arg" >&2
-            echo "Usage: $0 <prod|dev|qemu> [--sdcard|--nvme] [--with-app]" >&2
+            echo "Usage: $0 <prod|dev|qemu> [--sdcard|--nvme]" >&2
             exit 1
             ;;
     esac
 done
 
 if [ -z "$TARGET" ]; then
-    echo "Usage: $0 <prod|dev|qemu> [--sdcard|--nvme] [--with-app]" >&2
+    echo "Usage: $0 <prod|dev|qemu> [--sdcard|--nvme]" >&2
     exit 1
 fi
 
@@ -62,11 +60,6 @@ case "$TARGET" in
         ;;
     qemu) KAS_CONFIG="kas/qemu-dev.yml" ;;
 esac
-
-# --- App embedding ---
-if [ "$WITH_APP" = true ]; then
-    KAS_CONFIG="$KAS_CONFIG:kas/app-embed.yml"
-fi
 
 # --- Build ---
 echo "==> Building: kas-container build $KAS_CONFIG"

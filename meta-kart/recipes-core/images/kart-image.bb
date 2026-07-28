@@ -1,5 +1,5 @@
 SUMMARY = "Kart product image for Raspberry Pi 5 / QEMU"
-DESCRIPTION = "Custom Linux image with Wayland/Weston kiosk, PyQt6 GUI, \
+DESCRIPTION = "Custom Linux image with Wayland/Weston kiosk, C++/Qt6 GUI, \
 CAN bus, GPIO, Tailscale, and NVMe boot support."
 LICENSE = "MIT"
 
@@ -10,10 +10,8 @@ inherit core-image
 # ---------------------------------------------------------------------------
 IMAGE_INSTALL:append = " \
     python3 \
-    python3-pyqt6 \
     qtbase \
     qtwayland \
-    qtdeclarative \
     weston \
     weston-init \
     seatd \
@@ -169,7 +167,9 @@ EOF
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/resolved-delayed-start.timer << 'EOF'
 [Unit]
 Description=Delay systemd-resolved start until after GUI
-After=kmm-start.service
+# kmm.service is Type=notify and reports READY on first window expose,
+# so "kmm active" really means the GUI is on screen.
+After=kmm.service
 
 [Timer]
 OnActiveSec=500ms
