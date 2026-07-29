@@ -61,6 +61,14 @@ done
 
 if diff -u "$cur" "$new" >/dev/null 2>&1; then
     echo "EEPROM already configured; nothing to do."
+    # An applied update leaves pieeprom.upd/.sig/recovery.bin on /boot and the
+    # bootloader re-verifies them every boot (+~0.27s measured). Clean up once
+    # the config matches (= the update has been applied).
+    if [ -e /boot/pieeprom.upd ] || [ -e /boot/recovery.bin ]; then
+        rm -f /boot/pieeprom.upd /boot/pieeprom.sig /boot/recovery.bin
+        sync
+        echo "Removed applied EEPROM update files from /boot (saves ~0.3s/boot)."
+    fi
     exit 0
 fi
 
