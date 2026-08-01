@@ -576,39 +576,96 @@ cat build/tmp/deploy/images/raspberrypi5/kart-image-raspberrypi5-nvme.wic.bz2 \
   | ssh root@<pi> 'bzcat | dd of=/dev/nvme0n1 bs=4M conv=fsync status=progress'
 ```
 
-書き込み後、パーティションが見えることを確認する。
+実測では 3.9GB の展開・書き込みに 33 秒（117 MB/s）。律速はネットワークではなく busybox の `bzcat`。
+
+`dd` が報告したバイト数が `.wic` の実サイズと一致することを確認する。
 
 ```bash
-ssh root@<pi> 'grep nvme /proc/partitions'   # nvme0n1p1 〜 p7 が出れば成功
+ls -lL build/tmp/deploy/images/raspberrypi5/kart-image-raspberrypi5-nvme.wic
 ```
 
-> イメージには `lsblk` / `wipefs` / `partprobe` が入っていないため `/proc/partitions` を使う。`bzcat` は busybox、`dd` は coreutils なので `conv=fsync` と `status=progress` はどちらも使える。
+パーティションとラベルを確認する。
+
+```bash
+ssh root@<pi> 'grep nvme /proc/partitions'
+ssh root@<pi> 'blkid /dev/nvme0n1p1 /dev/nvme0n1p2 /dev/nvme0n1p5 /dev/nvme0n1p7'
+```
+
+`p1 AUTOBOOT` / `p2 BOOTA` / `p3 BOOTB` / `p5 roota` / `p6 rootb` / `p7 data` が出れば成功。
+
+> イメージには `lsblk` / `wipefs` / `partprobe` / `sudo` が入っていない（`blkid` は `/usr/sbin` にある）。`bzcat` は busybox、`dd` は coreutils なので `conv=fsync` と `status=progress` はどちらも使える。`dd` がデバイスを閉じた時点でカーネルがパーティションテーブルを読み直すため、`partprobe` がなくても p1〜p7 は現れる。
+
+書き込んだ内容を read-only でマウントして確認しておくと安心。
+
+```bash
+# rootfs にアプリ本体が入っているか
+ssh root@<pi> 'mkdir -p /run/chk && mount -o ro /dev/nvme0n1p5 /run/chk \
+  && ls -l /run/chk/usr/bin/kmm && grep VERSION_ID /run/chk/etc/os-release \
+  && umount /run/chk'
+
+# BOOTA の cmdline が NVMe を指しているか
+ssh root@<pi> 'mkdir -p /run/chk && mount -o ro /dev/nvme0n1p2 /run/chk \
+  && cat /run/chk/cmdline.txt && umount /run/chk && rmdir /run/chk'
+```
+
+cmdline が `root=/dev/nvme0n1p5` になっていること。ここが `mmcblk0p5` なら SD 用イメージを焼いてしまっている。
 
 ### NVMe 側の初期設定
 
-**Tailscale 認証キーの注入は必須。** これを飛ばすと NVMe 起動後にアクセス手段を失う。tailscaled の状態は `/data/tailscale` に保存されるが、NVMe の `/data` は新規作成されるため引き継がれない。prod イメージは root のパスワードが無効なので、通常の SSH でも入れない。
+**この作業を飛ばすと NVMe 起動後にアクセス手段を失う。** tailscaled の状態は `/data/tailscale` に保存されるが、NVMe の `/data` は新規作成されるため引き継がれない。prod イメージは root のパスワードが無効なので、tailnet に入れないと通常の SSH でも入れない。
+
+> **rootfs は read-only なので `/mnt` にマウントポイントを作れない**（`mkdir: cannot create directory: Read-only file system`）。tmpfs の `/run` 配下を使う。
+
+**方法 A: SD 側の tailscaled 状態を移す（推奨）**
+
+すでに tailnet に参加している SD から移行する場合はこちらが確実。認証キーの使い回しに失敗するリスクがなく、同一ノード ID を引き継ぐので ghost node も出ない（`flash.sh --keep-data` と同じ考え方）。
+
+```bash
+ssh root@<pi> 'set -e
+mkdir -p /run/nvmedata
+mount /dev/nvme0n1p7 /run/nvmedata
+cp -a /data/tailscale /run/nvmedata/
+sync
+umount /run/nvmedata && rmdir /run/nvmedata'
+```
+
+**方法 B: 認証キーを注入する**
+
+新規デバイスなど、移せる状態がない場合。`p2`（`BOOTA`）に置くと初回起動時に `tailscale-autoconnect.service` が拾う。
 
 ```bash
 scp /path/to/tskey root@<pi>:/tmp/tskey
-ssh root@<pi> 'mkdir -p /mnt/b && mount /dev/nvme0n1p2 /mnt/b \
-  && cp /tmp/tskey /mnt/b/tailscale.authkey && sync && umount /mnt/b'
+ssh root@<pi> 'set -e
+mkdir -p /run/nvmeboot
+mount /dev/nvme0n1p2 /run/nvmeboot
+cp /tmp/tskey /run/nvmeboot/tailscale.authkey
+sync
+umount /run/nvmeboot && rmdir /run/nvmeboot'
 ```
 
-`p2` が `BOOTA`（起動スロット A）。SD 側の `/boot/tailscale.authkey` は接続成功時に削除される仕様なので残っていない。
+SD 側の `/boot/tailscale.authkey` は接続成功時に削除される仕様なので残っていない。**使い捨て（single-use）のキーは既に消費済みで失敗する**ため、再利用可能なキーを使うか新規発行すること。
 
-アプリの環境変数も同様に `/data`（`p7`）へ配置する。
+**アプリの環境変数**
+
+`kmm.service` は `/data/kmm.env`（`p7`）を読む。NVMe 起動後も tailnet 経由で配置できるので、この時点では必須ではない。
 
 ```bash
 scp .env root@<pi>:/tmp/kmm.env
-ssh root@<pi> 'mkdir -p /mnt/d && mount /dev/nvme0n1p7 /mnt/d \
-  && cp /tmp/kmm.env /mnt/d/kmm.env && sync && umount /mnt/d'
+ssh root@<pi> 'set -e
+mkdir -p /run/nvmedata
+mount /dev/nvme0n1p7 /run/nvmedata
+cp /tmp/kmm.env /run/nvmedata/kmm.env
+sync
+umount /run/nvmedata && rmdir /run/nvmedata'
 ```
 
-EEPROM の起動順を確認する。`BOOT_ORDER=0xf16` は NVMe → SD フォールバックの順。
+**EEPROM**
 
 ```bash
 ssh root@<pi> 'kart-eeprom-setup --check'
 ```
+
+`EEPROM already configured; nothing to do.` と出れば `BOOT_ORDER=0xf16`（NVMe → SD フォールバック）が入っている。差分が表示された場合は `--check` を外して実行し、再起動で適用する。
 
 ### 起動切り替え
 
