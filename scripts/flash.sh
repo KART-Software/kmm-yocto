@@ -92,7 +92,10 @@ get_authkey() {
     printf '%s' "$key"
 }
 
-# Write the auth key to the boot partition (label=boot) of the flashed device.
+# Write the auth key to the active slot's boot partition (label=BOOTA) of the
+# flashed device. autoboot.txt ships with boot_partition=2, so a freshly
+# flashed card always boots slot A; kart-boot-mount.service then mounts BOOTA
+# on /boot, where tailscale-autoconnect.sh looks for the key.
 inject_tailscale_key() {
     local device="$1"
     local key bootname bootpart mnt own=false
@@ -104,17 +107,20 @@ inject_tailscale_key() {
         return 0
     fi
 
-    # Wait for the freshly-written partition table / 'boot' label to appear.
+    # Wait for the freshly-written partition table / 'BOOTA' label to appear.
     bootname=""
     for _ in 1 2 3 4 5; do
-        bootname=$(lsblk -rno NAME,LABEL "$device" 2>/dev/null | awk '$2=="boot"{print $1; exit}')
+        bootname=$(lsblk -rno NAME,LABEL "$device" 2>/dev/null | awk '$2=="BOOTA"{print $1; exit}')
         [ -n "$bootname" ] && break
         partprobe "$device" 2>/dev/null || true
         udevadm settle 2>/dev/null || true
         sleep 1
     done
     if [ -z "$bootname" ]; then
-        echo "WARN: no 'boot' partition found on $device; auth key NOT written." >&2
+        echo "WARN: no 'BOOTA' partition found on $device; auth key NOT written." >&2
+        echo "      The device will boot but will NOT join the tailnet." >&2
+        echo "      Fix by mounting the BOOTA partition and writing the key to" >&2
+        echo "      tailscale.authkey on it, then reboot the device." >&2
         return 0
     fi
     bootpart="/dev/$bootname"
