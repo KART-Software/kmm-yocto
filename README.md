@@ -90,6 +90,14 @@ qemu-system-aarch64 --version
 
 ### kas-container 直接実行
 
+`build.sh` を経由せず直接叩く場合は、先にキャッシュ用の環境変数を export してください:
+
+```bash
+export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
+```
+
+kas-container がこれらをコンテナ内の `/downloads`・`/sstate` にバインドマウントします。未設定だと `base.yml` の弱いデフォルト (`${TOPDIR}/../...`) がコンテナ内の `TOPDIR=/build` を基準に解決され、書き込めないコンテナルート直下を指すため、bitbake の sanity check が `Failed to create a file in SSTATE_DIR: Permission denied` で停止します。
+
 ```bash
 # 本番イメージ (RPi5, NVMe ブート)
 kas-container build kas/rpi5-prod.yml:kas/boot-nvme.yml
@@ -417,8 +425,6 @@ ssh root@<host> 'mount -o remount,ro / ; systemctl restart kmm'
 
 または kmm-yocto 内で `devtool`（`devtool add kmm-cpp <src>` → `devtool build`）でも同じバイナリが得られる。
 
-> 旧 Python イメージ（`/opt/kart` + `kmm-start.service` 構成）への rsync デプロイは `sync-app.sh`（レガシー）を参照。
-
 ## 設定変更
 
 ### CAN bitrate 変更
@@ -488,7 +494,7 @@ kmm-yocto/
 │   ├── conf/layer.conf
 │   ├── recipes-core/images/kart-image.bb
 │   ├── recipes-graphics/weston/          # Kiosk 設定
-│   ├── recipes-app/kart-machine-manager/  # PyQt6 GUI アプリ
+│   ├── recipes-app/kart-machine-manager/  # C++/Qt6 GUI アプリ
 │   ├── recipes-support/can-setup/        # CAN 初期化
 │   ├── recipes-connectivity/tailscale/   # Tailscale VPN
 │   ├── recipes-kernel/linux/             # カーネル config fragments
@@ -498,7 +504,8 @@ kmm-yocto/
 │   ├── run-qemu.sh       # QEMU 起動 (ホストの qemu-system-aarch64 を使用)
 │   ├── flash.sh          # SD/NVMe 書き込み (-sdcard/-nvme 指定)
 │   ├── remote-flash.sh   # リモート書き込み
-│   └── sync-app.sh       # アプリデプロイ (rsync)
+│   ├── ota-update.sh     # A/B OTA 更新
+│   └── release.sh        # GitHub Release 作成
 ├── .gitignore
 └── README.md
 ```
@@ -527,3 +534,90 @@ kmm-yocto/
 meta-kart レイヤ内の独自コード: MIT  
 各 upstream レイヤは元のライセンスに従う。  
 PyQt6: GPL v3 — 製品配布時に確認が必要。
+
+## SD カードから NVMe へ書き込む
+
+SSD を M.2 HAT に載せたままでは PC から直接書けない。USB-M.2 変換アダプタが手元にない場合は、**SD カードで起動したラズパイ自身に NVMe を書かせる**方法が使える。
+
+### 準備
+
+SD 版と NVMe 版の両方のイメージが必要になる。ただし両者は同じ `kart-image` レシピなので、片方をビルドするともう片方のデプロイ成果物が消える（下の注意を参照）。先にビルドした方を退避しておく。
+
+```bash
+./scripts/build.sh prod --sdcard
+mkdir -p build/images-archive
+cp -L build/tmp/deploy/images/raspberrypi5/kart-image-raspberrypi5-sdcard.wic.bz2 \
+      build/tmp/deploy/images/raspberrypi5/kart-image-raspberrypi5-sdcard.wic.bmap \
+      build/images-archive/
+
+./scripts/build.sh prod --nvme
+```
+
+SD カードを焼く。`IMAGE_DIR` で退避先を指定する。
+
+```bash
+sudo IMAGE_DIR=$PWD/build/images-archive ./scripts/flash.sh -sdcard /dev/sdX --authkey-file /path/to/tskey
+```
+
+SD と SSD の両方を装着して起動し、tailnet 経由で SSH できることを確認する。
+
+```bash
+ssh root@<pi> 'cat /proc/cmdline; grep nvme /proc/partitions'
+```
+
+`root=/dev/mmcblk0p5` なら SD から起動できている。`nvme0n1` が見えていれば SSD も認識されている。
+
+### 書き込み
+
+圧縮したまま転送し、ラズパイ側で展開する（転送量は 160MB 程度で済む）。
+
+```bash
+cat build/tmp/deploy/images/raspberrypi5/kart-image-raspberrypi5-nvme.wic.bz2 \
+  | ssh root@<pi> 'bzcat | dd of=/dev/nvme0n1 bs=4M conv=fsync status=progress'
+```
+
+書き込み後、パーティションが見えることを確認する。
+
+```bash
+ssh root@<pi> 'grep nvme /proc/partitions'   # nvme0n1p1 〜 p7 が出れば成功
+```
+
+> イメージには `lsblk` / `wipefs` / `partprobe` が入っていないため `/proc/partitions` を使う。`bzcat` は busybox、`dd` は coreutils なので `conv=fsync` と `status=progress` はどちらも使える。
+
+### NVMe 側の初期設定
+
+**Tailscale 認証キーの注入は必須。** これを飛ばすと NVMe 起動後にアクセス手段を失う。tailscaled の状態は `/data/tailscale` に保存されるが、NVMe の `/data` は新規作成されるため引き継がれない。prod イメージは root のパスワードが無効なので、通常の SSH でも入れない。
+
+```bash
+scp /path/to/tskey root@<pi>:/tmp/tskey
+ssh root@<pi> 'mkdir -p /mnt/b && mount /dev/nvme0n1p2 /mnt/b \
+  && cp /tmp/tskey /mnt/b/tailscale.authkey && sync && umount /mnt/b'
+```
+
+`p2` が `BOOTA`（起動スロット A）。SD 側の `/boot/tailscale.authkey` は接続成功時に削除される仕様なので残っていない。
+
+アプリの環境変数も同様に `/data`（`p7`）へ配置する。
+
+```bash
+scp .env root@<pi>:/tmp/kmm.env
+ssh root@<pi> 'mkdir -p /mnt/d && mount /dev/nvme0n1p7 /mnt/d \
+  && cp /tmp/kmm.env /mnt/d/kmm.env && sync && umount /mnt/d'
+```
+
+EEPROM の起動順を確認する。`BOOT_ORDER=0xf16` は NVMe → SD フォールバックの順。
+
+```bash
+ssh root@<pi> 'kart-eeprom-setup --check'
+```
+
+### 起動切り替え
+
+```bash
+ssh root@<pi> 'poweroff'
+```
+
+電源が落ちてから **SD カードを抜いて** 電源を入れる。
+
+> **SD を挿したまま NVMe 起動しないこと。** 両ディスクに `AUTOBOOT` / `BOOTA` / `BOOTB` / `roota` / `rootb` / `data` という同一のラベルが付くため、`/boot`（`kart-boot-mount.service` が `LABEL=BOOTA` でマウント）と `/data`（fstab の `LABEL=data`）がどちらのディスクを掴むか非決定的になる。root はカーネル cmdline が `/dev/nvme0n1p5` と実デバイス指定なので影響を受けない。
+
+> **注意: 一方をビルドすると他方のイメージが消える。** `boot-nvme.yml` と `boot-sdcard.yml` は同じ `kart-image` レシピを同じ TMPDIR で作り直すだけなので、bitbake が前回のデプロイ成果物を削除する。`IMAGE_LINK_NAME` はリンク名を分けるだけで実体は保護されない。両方を手元に置きたい場合は上記のように退避する。`release.sh` は「ビルド → 即アップロード → 次のビルド」の順で回るため影響を受けない。

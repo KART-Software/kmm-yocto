@@ -37,6 +37,14 @@ kas-container build kas/local-dev.yml:kas/boot-sdcard.yml
 kas-container build kas/qemu-dev.yml
 ```
 
+**Export `DL_DIR`/`SSTATE_DIR` when invoking `kas-container` directly** (`build.sh` and `release.sh` do it for you):
+
+```bash
+export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
+```
+
+kas-container bind-mounts these to `/downloads` and `/sstate` inside the container. Without them, `base.yml`'s weak defaults (`${TOPDIR}/../...`) resolve against `TOPDIR=/build` — the container root, not the project — and bitbake's sanity checker aborts with `Failed to create a file in SSTATE_DIR: Permission denied`. The caches are deliberately siblings of `build/`, not inside it, so `rm -rf build` doesn't discard them.
+
 Outputs land in `build/tmp/deploy/images/{raspberrypi5,qemuarm64}/`.
 
 ## kas composition model
@@ -84,8 +92,8 @@ sudo ./scripts/flash.sh -nvme /dev/nvme0n1
 ./scripts/remote-flash.sh -sdcard user@host /dev/sdX  # writer attached to another machine
 
 ./scripts/release.sh -nvme v1.0.0    # build + upload images AND the Qt SDK installer to GitHub Release (needs GITHUB_TOKEN; --no-sdk to skip)
-# sync-app.sh is legacy (Python-era images); C++ app updates go via SRCREV bump + OTA,
-# or scp a cross-built binary to /usr/bin/kmm for quick iteration
+# C++ app updates go via SRCREV bump + OTA, or scp a cross-built binary to
+# /usr/bin/kmm for quick iteration
 ```
 
 `run-qemu.sh` calls the **host's** `qemu-system-aarch64`, not the one inside the build tree.
