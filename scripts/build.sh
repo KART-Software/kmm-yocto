@@ -62,6 +62,13 @@ case "$TARGET" in
 esac
 
 # --- Build ---
+# kas-container bind-mounts these into the container (/downloads, /sstate) and
+# exports DL_DIR/SSTATE_DIR inside it. Without them, base.yml's weak defaults
+# (${TOPDIR}/../...) resolve against TOPDIR=/build — i.e. the container root,
+# which is not writable — and bitbake's sanity checker aborts the build.
+export DL_DIR="${DL_DIR:-$PROJECT_DIR/downloads}"
+export SSTATE_DIR="${SSTATE_DIR:-$PROJECT_DIR/sstate-cache}"
+
 echo "==> Building: kas-container build $KAS_CONFIG"
 cd "$PROJECT_DIR"
 kas-container build "$KAS_CONFIG"

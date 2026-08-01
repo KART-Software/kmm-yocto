@@ -25,6 +25,12 @@ IMAGE_DIR="${PROJECT_DIR}/build/tmp/deploy/images/raspberrypi5"
 REPO="KART-Software/kmm-yocto"
 API="https://api.github.com"
 
+# Needed by the direct `kas-container shell` call for the SDK below; see the
+# same exports in build.sh for why (unset -> container-root paths -> sanity
+# check failure). Image builds go through build.sh and inherit these.
+export DL_DIR="${DL_DIR:-$PROJECT_DIR/downloads}"
+export SSTATE_DIR="${SSTATE_DIR:-$PROJECT_DIR/sstate-cache}"
+
 # --- Parse arguments ---
 usage() {
     echo "Usage: $0 [-sdcard] [-nvme] [--no-sdk] [TAG]"
