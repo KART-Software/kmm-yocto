@@ -188,6 +188,61 @@ build/tmp/deploy/images/qemuarm64/
 └── kart-image-qemuarm64.qcow2        # QEMU 用 (qcow2)
 ```
 
+## Tailscale について
+
+**本番イメージでは Tailscale が唯一のリモートアクセス手段。** ここを理解せずに進めるとデバイスに入れなくなるので、先に読んでおくこと。
+
+Tailscale は WireGuard ベースの VPN。参加した機器同士が NAT やファイアウォールを越えて直接通信でき、各機器は tailnet 内の固定 IP（`100.x.y.z`）を持つ。インターネット側にポートを開けずに SSH できるのが利点。
+
+> ⚠️ **prod イメージの root パスワードはロックされている。** `kas/rpi5-prod.yml` は `debug-tweaks` を含まないため（含むのは `local-dev.yml` / `qemu-dev.yml` のみ）、パスワード認証が全経路で無効になる。**SSH だけでなく HDMI コンソールもシリアルコンソールもログインできない。** 入る手段は Tailscale SSH のみ。
+
+### 自動接続の仕組み
+
+初回起動時に auth key を使って自動で tailnet に参加する。
+
+1. ブートパーティション（`BOOTA`）に `tailscale.authkey` を置く。`flash.sh --authkey-file` が焼くときに書き込む
+2. 起動時、`tailscale-autoconnect.service` がキーの存在を条件に起動する（`ConditionPathExists=/boot/tailscale.authkey`）
+3. `tailscale up --authkey=... --ssh` を実行。`--ssh` により **Tailscale SSH** が有効になり、ローカルにログイン手段がなくても tailnet 経由で入れる
+4. 成功するとキーをブートパーティションから削除する（イメージに残さない）
+5. 以降の認証状態は `/data/tailscale` に永続化されるので、OTA でも再認証は不要
+
+auth key は [Tailscale 管理画面](https://login.tailscale.com/admin/settings/keys) で発行する。**再利用可能（reusable）なキーを推奨** — 使い捨てキーは 1 台で消費され、焼き直しや別デバイスで使い回すと失敗する。tailnet の ACL が SSH を許可している必要もある。
+
+### 繋がらなくなったときの復旧
+
+パスワード認証が無い以上、**起動中のデバイスに入る手段は無い**。ストレージを physically 外して対処する。
+
+1. SD / SSD を別マシンに接続する
+2. `BOOTA` ラベルのパーティションをマウントし、`tailscale.authkey` に新しいキーを書く
+3. 戻して起動すると `tailscale-autoconnect.service` が拾って再参加する
+
+焼き直しは不要。`/data` も保持される。**シリアルコンソール（`BOOT_UART=1`）はログインには使えないが**、起動ログやカーネルパニックが見えるので原因究明には有用（ordering cycle の発見もこれで行われた）。
+
+## 新規デバイスのセットアップ
+
+新品の Raspberry Pi 5 + SSD を製品状態にするまでの通し手順。各ステップの詳細はリンク先を参照。
+
+| # | 手順 | 詳細 |
+|---|------|------|
+| 1 | SD 用と NVMe 用のイメージを両方ビルドし、片方を退避する | [準備](#準備) |
+| 2 | SD カードを焼く（auth key 注入込み） | [flash.sh](#flashsh-推奨) |
+| 3 | SD と SSD を装着して起動し、tailnet 経由で SSH できることを確認 | [Tailscale について](#tailscale-について) |
+| 4 | **SD で起動している間に** EEPROM を設定する（2 回実行が必要） | [EEPROM 設定](#raspberry-pi-5-eeprom-設定) |
+| 5 | NVMe にイメージを書き込む | [書き込み](#書き込み) |
+| 6 | NVMe 側の初期設定（tailscale の引き継ぎ、`/data/kmm.env`） | [NVMe 側の初期設定](#nvme-側の初期設定) |
+| 7 | 電源を落とし、**SD カードを抜いてから** 起動する | [起動切り替え](#起動切り替え) |
+| 8 | root / `/boot` / `/data` が全て NVMe を指しているか検証する | [初回起動確認](#初回起動確認) |
+
+順序で特に注意すべき点:
+
+- **EEPROM は SD 起動中（ステップ 4）に設定する。** `BOOT_ORDER=0xf16` が入っていないと、NVMe に書き込んでも NVMe から起動しない
+- **`/data/kmm.env` の配置は SD を抜いた後（ステップ 7 の後）に行う。** SD が挿さっている間は `/data` が SD 側を指す可能性があり、NVMe 側に書いたつもりが SD に書かれる
+- **auth key は再利用可能なものを用意する。** ステップ 2 と 6 で 2 回必要になる場合がある
+
+> **アプリの設定ファイル `/data/kmm.env` は必ず配置すること。** `kmm.service` はここから設定を読む。置かないとアプリが起動に失敗し、`Restart=on-failure` により 3 秒ごとに再起動を繰り返す。内容はチームから受け取る（リポジトリには含まれない）。
+
+SSD が既に M.2 HAT に載っていて PC から直接書けない場合は、上記の SD 経由が標準ルート。USB-M.2 変換アダプタがあるなら、SSD を外して PC から直接焼く方が手数は少ない（[flash.sh](#flashsh-推奨) の `-nvme`）。
+
 ## SD カード / NVMe への書き込み
 
 > **M.2 SSD (NVMe) に焼く場合は USB⇔M.2 (NVMe) 変換アダプタが必要。** SSD は [M.2 HAT](#使用ハードウェア) 経由で Pi の PCIe に載るため書き込み時は取り外し、USB-M.2 変換で書き込み機に接続してから `-nvme` で焼く。
@@ -291,15 +346,37 @@ kart-ab-commit   # tryboot 起動した面の手動 commit
 
 NVMe ブートには EEPROM の boot order 変更が必要。**本 Yocto イメージに `rpi-eeprom` / `raspi-utils`（`vcgencmd`）を含めているので、このイメージ上で直接設定できる**（Raspberry Pi OS の SD 起動は不要）。
 
-### 標準設定の一括適用（新しいボードはこれだけで OK）
+### 標準設定の一括適用（新しいボード）
 
-検証済みの標準 EEPROM 設定（`BOOT_ORDER=0xf16` / `PSU_MAX_CURRENT=5000` / `DISABLE_HDMI=1` ほか）を冪等に適用するコマンドをイメージに同梱している:
+検証済みの標準 EEPROM 設定を冪等に適用するコマンドをイメージに同梱している。管理対象は 6 項目:
+
+| 設定 | 値 | 意図 |
+|------|-----|------|
+| `BOOT_ORDER` | `0xf16` | NVMe → SD フォールバック → リトライ |
+| `PSU_MAX_CURRENT` | `5000` | USB-PD ネゴをスキップ（GPIO 5V 給電 / 非対応電源向け） |
+| `DISABLE_HDMI` | `1` | ブートローダの表示初期化をスキップ |
+| `boot_partition` | `1` | ブートパーティション走査をスキップ |
+| `BOOT_UART` | `1` | デバッグ用 UART を維持（コスト実測 ~0ms） |
+| `POWER_OFF_ON_HALT` | `0` | カートはマスタースイッチで電源を切るため |
+
+**新しいボードでは 2 回実行する必要がある。**
 
 ```bash
 kart-eeprom-setup --check    # 差分表示のみ（何も変更しない）
-sudo kart-eeprom-setup       # 差分があれば適用をステージ → 次回リブートで反映
-sudo kart-eeprom-setup --reboot   # 適用して即リブート
+kart-eeprom-setup            # 差分があれば適用をステージ
+reboot                       # ここで初めてブートローダが適用する
+kart-eeprom-setup            # 2 回目: 一致確認 + 残骸の掃除
 ```
+
+`kart-eeprom-setup --reboot` なら 2〜3 行目をまとめられる。
+
+1 回目は「差分あり → `--apply` → `/boot` に `pieeprom.upd` / `.sig` / `recovery.bin` が残る」で終わる。ブートローダはこの残骸を毎ブート timestamp 照合しており **+0.27s/boot** かかる。掃除処理は「設定が既に一致している」分岐でのみ走るため、再起動後にもう一度実行しないと残り続ける。
+
+> **`sudo` を付けないこと。** 本イメージに `sudo` は入っておらず（root でログインする前提）、`command not found` になる。
+
+> **自動実行はされない。** レシピは `/usr/sbin/kart-eeprom-setup` を置くだけで systemd ユニットは無く、ボードごとに手動で一度だけ行う運用。
+
+> **SD → NVMe の初期構築では SD で起動している段階で実行する。** `BOOT_ORDER=0xf16` が入っていないと、NVMe に書き込んでも NVMe から起動しない。工場出荷状態の値は `--check` で確認すること。
 
 設定内容はスクリプト自体（`meta-kart/recipes-support/kart-eeprom-setup/`）がソースオブトゥルース。個別にいじる場合は従来通り:
 
@@ -309,7 +386,7 @@ rpi-eeprom-config
 vcgencmd bootloader_config
 
 # boot order を編集 (6=NVMe, 4=USB, 1=SD, f=リトライループ)
-sudo rpi-eeprom-config --edit
+rpi-eeprom-config --edit
 ```
 
 > ⚠️ EEPROM 書き込みは失敗すると起動不能になり得る（別 SD の recovery.bin で復旧）。まず `rpi-eeprom-config`（読み取り）で現状を確認してから編集する。RPi OS とは boot パスが異なる（`/boot` vs `/boot/firmware`）ため、apply の実挙動は実機で一度確認するのが安全。
@@ -329,6 +406,17 @@ ip addr
 networkctl status
 ping -c 3 8.8.8.8
 ```
+
+### NVMe から起動できているかの確認
+
+SD 経由でセットアップした場合は必ず確認する。
+
+```bash
+grep -o 'root=[^ ]*' /proc/cmdline          # root=/dev/nvme0n1p5 であること
+grep -E ' /boot | /data ' /proc/mounts      # 両方 /dev/nvme0n1p* であること
+```
+
+> ⚠️ **`/boot` や `/data` が `mmcblk0p*` になっていたら SD カードが挿さったまま。** 両ディスクに `AUTOBOOT` / `BOOTA` / `BOOTB` / `roota` / `rootb` / `data` という同一ラベルが付くため、`/boot`（`kart-boot-mount.service` が `LABEL=BOOTA` でマウント）と `/data`（fstab の `LABEL=data`）がどちらのディスクを掴むかは非決定的になる。root はカーネル cmdline が実デバイスを指定しているので影響を受けず、**root だけ NVMe で `/boot` と `/data` は SD という混在状態**になる。電源を落として SD を抜くこと。
 
 ### GUI 確認
 
@@ -373,12 +461,15 @@ gpioset gpiochip0 27=1
 
 ### Tailscale 確認
 
+auth key を注入していれば初回起動時に自動で参加している（[仕組み](#自動接続の仕組み)）。手動で `tailscale up` を叩く必要は通常ない。
+
 ```bash
 # tailscaled 起動確認
 systemctl status tailscaled
 
-# 初回認証 (ブラウザで表示される URL にアクセス)
-tailscale up
+# 自動接続の結果を確認（キーを注入した初回のみ動く）
+systemctl status tailscale-autoconnect
+journalctl -u tailscale-autoconnect
 
 # 接続状態確認
 tailscale status
@@ -386,6 +477,8 @@ tailscale status
 # tailnet 経由 SSH (別マシンから)
 ssh root@<tailscale-ip>
 ```
+
+参加できていない場合、`/boot/tailscale.authkey` が残っていればキーが弾かれている（使い捨てキーの消費済みなど）。キーが消えていれば接続に成功している。復旧手順は [Tailscale について](#繋がらなくなったときの復旧) を参照。
 
 ### PIX-MT100 (USB LTE) 確認
 
@@ -525,19 +618,33 @@ kmm-yocto/
 - [ ] PIX-MT100 が Raspberry Pi 側で具体的にどの USB class / NIC 名で見えるか
 - [ ] MCP2515 HAT の実際の配線 (SPI バス, CS, INT GPIO, 発振周波数)
 - [ ] 使用ディスプレイの接続方式 (HDMI / DSI)
-- [ ] Tailscale の認証方法 (手動 / auth key)
-- [ ] PyQt6 のライセンス条件確認 (GPL v3)
-- [ ] Tailscale レシピの sha256sum (初回ビルド時に要更新)
+- [x] ~~Tailscale の認証方法~~ → auth key をブートパーティションに注入し、`tailscale-autoconnect.service` が初回起動時に `--ssh` 付きで接続する方式で確定（[詳細](#自動接続の仕組み)）
+- [x] ~~PyQt6 のライセンス条件確認~~ → C++/Qt6 Widgets への移行により PyQt6 はイメージから消滅（マニフェスト上 0 パッケージ）。Qt6 本体のライセンス条件は別途要確認
+- [x] ~~Tailscale レシピの sha256sum~~ → `8eb0ae11...` で確定済み
 
 ## ライセンス
 
 meta-kart レイヤ内の独自コード: MIT  
 各 upstream レイヤは元のライセンスに従う。  
-PyQt6: GPL v3 — 製品配布時に確認が必要。
+Qt6 (qtbase / qtwayland): LGPL v3 / GPL — 製品配布時に確認が必要。
 
 ## SD カードから NVMe へ書き込む
 
 SSD を M.2 HAT に載せたままでは PC から直接書けない。USB-M.2 変換アダプタが手元にない場合は、**SD カードで起動したラズパイ自身に NVMe を書かせる**方法が使える。
+
+起動用の SD は 2 通り選べる。**Raspberry Pi OS が既に入った SD が手元にあるなら、そちらの方が手数が少ない。**
+
+| | kart イメージの SD | Raspberry Pi OS の SD |
+|---|---|---|
+| SD 用イメージのビルド | 必要（NVMe 版と交互に消えるので退避も必要） | **不要** |
+| 書き込み | 手動で `dd` をパイプ | **`remote-flash.sh` がそのまま使える** |
+| `bmaptool` による高速化 | 不可（イメージに無い） | **可（`apt install bmap-tools`）** |
+| ラベル衝突 | **起きる**（SD を抜き忘れると事故） | 起きない（`bootfs`/`rootfs` で重複しない） |
+| EEPROM 設定 | `kart-eeprom-setup` が使える | `rpi-eeprom-config` で手動、または NVMe 起動後に実施 |
+| Tailscale | SD 側の状態を移送できる | auth key の注入のみ |
+
+以下はまず kart イメージの SD を使う手順。Raspberry Pi OS を使う場合は
+[Raspberry Pi OS の SD から書き込む場合](#raspberry-pi-os-の-sd-から書き込む場合) へ。
 
 ### 準備
 
@@ -610,6 +717,42 @@ ssh root@<pi> 'mkdir -p /run/chk && mount -o ro /dev/nvme0n1p2 /run/chk \
 
 cmdline が `root=/dev/nvme0n1p5` になっていること。ここが `mmcblk0p5` なら SD 用イメージを焼いてしまっている。
 
+### Raspberry Pi OS の SD から書き込む場合
+
+Raspberry Pi OS が入った SD で起動できるなら、上の「準備」「書き込み」の代わりにこちらを使う。**SD 用の kart イメージをビルドする必要がない。**
+
+`remote-flash.sh` は元々「書き込み機を別マシンに繋いで焼く」用途のスクリプトで、Raspberry Pi OS を載せたラズパイはその条件を満たす（`sudo` / `wipefs` / `lsblk` / `findmnt` / `bzcat` が全て揃っている。kart イメージにはこれらが無いため使えない）。
+
+```bash
+# 高速化したい場合は先に (任意)
+ssh pi@<pi> 'sudo apt install -y bmap-tools'
+
+./scripts/remote-flash.sh -nvme pi@<pi> /dev/nvme0n1 --authkey-file /path/to/tskey
+```
+
+イメージと `.bmap` と `flash.sh` を scp し、向こう側で `sudo ./flash.sh` を実行して、終わったら一時ファイルを片付けるところまで自動で行う。`bmaptool` があれば `.bmap` を使って空きブロックを飛ばすため `dd` より速い。`--keep-data` によるデータパーティション保全も本来の設計通り動く。
+
+書き込み後は下の「[NVMe 側の初期設定](#nvme-側の初期設定)」へ進む。ただし Raspberry Pi OS 特有の差分が 3 点ある。
+
+**1. PCIe の有効化が必要な場合がある**
+
+Pi 5 で M.2 HAT の NVMe を見せるには `/boot/firmware/config.txt` に以下が要る。kart 側は `kas/rpi5.yml` の `RPI_EXTRA_CONFIG` で設定済みだが、素の Raspberry Pi OS では既定で入っていないことがある。`lsblk` に `nvme0n1` が出なければここを疑う。
+
+```
+dtparam=pciex1
+dtparam=pciex1_gen=3
+```
+
+**2. EEPROM 設定は手動になる**
+
+`kart-eeprom-setup` は kart イメージにしか入っていない。`rpi-eeprom-config --edit` で `BOOT_ORDER=0xf16` を設定するか、NVMe から起動できるようになった後に kart イメージ側で `kart-eeprom-setup` を実行する（[EEPROM 設定](#raspberry-pi-5-eeprom-設定)）。
+
+**3. Tailscale は auth key の注入のみ**
+
+Raspberry Pi OS 側に kart の tailscaled 状態は存在しないため、[方法 A（状態の移送）](#nvme-側の初期設定)は使えない。`remote-flash.sh --authkey-file` による注入か、[方法 B](#nvme-側の初期設定) を使う。**再利用可能なキーを用意すること。**
+
+> **ラベル衝突は起きない。** Raspberry Pi OS のパーティションラベルは `bootfs` / `rootfs` で、kart 側の `AUTOBOOT` / `BOOTA` / `data` と重ならない。SD を挿したまま NVMe から起動しても誤マウントは発生しないため、抜き忘れによる事故がない点はこちらが有利。
+
 ### NVMe 側の初期設定
 
 **この作業を飛ばすと NVMe 起動後にアクセス手段を失う。** tailscaled の状態は `/data/tailscale` に保存されるが、NVMe の `/data` は新規作成されるため引き継がれない。prod イメージは root のパスワードが無効なので、tailnet に入れないと通常の SSH でも入れない。
@@ -665,7 +808,15 @@ umount /run/nvmedata && rmdir /run/nvmedata'
 ssh root@<pi> 'kart-eeprom-setup --check'
 ```
 
-`EEPROM already configured; nothing to do.` と出れば `BOOT_ORDER=0xf16`（NVMe → SD フォールバック）が入っている。差分が表示された場合は `--check` を外して実行し、再起動で適用する。
+`EEPROM already configured; nothing to do.` と出れば `BOOT_ORDER=0xf16`（NVMe → SD フォールバック）が入っている。この場合は何もしなくてよい。
+
+差分が表示された場合は新しいボードなので、SD で起動しているこの段階で適用しておく（NVMe に書き込んでも `BOOT_ORDER` が違えば NVMe から起動しない）。**適用後の再起動を挟んでもう一度実行する**必要がある — 詳細は「[Raspberry Pi 5 EEPROM 設定](#raspberry-pi-5-eeprom-設定)」を参照。
+
+```bash
+ssh root@<pi> 'kart-eeprom-setup --reboot'   # 適用して再起動
+# 起動を待って
+ssh root@<pi> 'kart-eeprom-setup'            # 一致確認 + /boot の残骸を掃除
+```
 
 ### 起動切り替え
 
