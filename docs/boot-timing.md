@@ -1,56 +1,102 @@
 # 起動時間分析
 
-2026-04-17 時点の計測結果。
+2026-08-04 時点の計測結果。**電源投入 → GUI 表示 = 8.59 秒**。
+
+最適化の経緯と個別施策の検証記録は [boot-optimization-research.md](boot-optimization-research.md) を参照。
+本ドキュメントは現行構成の実測サマリ。
 
 ## 環境
 
-- Raspberry Pi 5, SD カード (mmcblk0), HDMI 接続
-- Yocto scarthgap, `kas/local-dev.yml:kas/boot-sdcard.yml`
+- Raspberry Pi 5 / NVMe (UMIS RPETJ256MMQ1MDQ, M.2 HAT 経由) / HDMI 接続
+- Yocto scarthgap, `kas/rpi5-prod.yml:kas/boot-nvme.yml`（A/B レイアウト）
+- C++/Qt6 Widgets アプリ (`kmm.service`, `Type=notify`)
+- カーネル 17.4MB (`slim-aggressive.cfg` 適用済み)
 
-## タイムライン (SD カード, 改善後: 9.5秒)
+## 計測方法
 
-| 時刻 | 所要 | イベント |
-|------|------|---------|
-| 0s | | 電源ON |
-| 3.4s | 3.4s | カーネルブート完了 |
-| 5.9s | 2.5s | systemd 基本サービス (udev, fsck, mount 等) |
-| 6.3s | 0.4s | seatd 起動 |
-| 7.7s | 1.4s | weston 起動開始 (DRM/EGL 初期化) |
-| 8.3s | 0.6s | weston ready (systemd-notify) |
-| 8.3s | 0s | kart-machine-manager 起動 |
-| 9.5s | 1.2s | GUI 表示 (Python + PyQt6 初期化) |
+| 対象 | 方法 |
+|------|------|
+| ファームウェア段 | UART キャプチャ (115200, `console=ttyAMA10`)。ブートローダが出力する `Starting OS NNNN ms` を採取。カウンタは電源投入時起点 |
+| カーネル / userspace | `systemctl show -p UserspaceTimestampMonotonic`、`systemctl show kmm.service -p ActiveEnterTimestampMonotonic` |
 
-## 実施した改善 (12s → 9.5s)
+`kmm.service` は `Type=notify` で**初回ウィンドウ表示時に READY を返す**ため、
+`ActiveEnterTimestamp` = 画面にピクセルが出た時刻そのもの。
 
-`kart-machine-manager.service` を変更:
+## 全体（電源 → GUI 表示）
 
-- `Wants=weston.service` → `Requires=weston.service`
-  - weston 失敗時にアプリが無駄に起動・クラッシュするのを防止
-- `ExecStartPre=/bin/sleep 2` を削除
-  - weston 依存が正しく設定されたため不要に → **2.5秒短縮**
+| 段階 | 平均 | σ | n |
+|------|------|-----|---|
+| ファームウェア（電源 → Starting OS） | **7001ms** | 14.6 | 11 |
+| カーネル | **701ms** | 3.6 | 6 |
+| userspace → GUI 表示 | **886ms** | — | 6 |
+| **合計** | **8588ms (8.59s)** | 合成 ≈30ms | |
 
-## HDMI 未接続時の挙動
+ファームウェアが全体の **81.5%** を占める。
 
-HDMI が未接続だと weston が即終了し、kart-machine-manager も `Failed to create wl_display` で SIGABRT する。
-`Requires=` により weston 失敗時はアプリが起動しなくなったが、HDMI 接続が前提。
+## ファームウェア段の内訳（11 ブート平均）
 
-## NVMe SSD での予測 (~6秒)
+| 区間 | 所要 | σ | 内容 |
+|------|------|-----|------|
+| 電源 → 最初の UART 出力 | 1645ms | 2 | EEPROM ロード（UART 出力前のため中身は不可視） |
+| BOOTSYS → SDRAM 初期化開始 | 162ms | 2 | RP1 chip ID、PMIC、uSD 電圧 |
+| **SDRAM トレーニング** | **1830ms** | **14** | `rank 2 total-size: 64 Gbit 4267` |
+| OTP → RP1 ファームロード | 668ms | 2 | `RP1_BOOT: fw size 46888` |
+| RP1 → PCI2 init | 632ms | 2 | |
+| PCI2 → BOOTLOADER 段 | 57ms | 2 | |
+| BOOTLOADER → NVMe 認識 | 215ms | 3 | `VID 0x1cc4 MN UMIS RPETJ256MMQ1MDQ` |
+| NVMe → config.txt 読取 | 67ms | 2 | autoboot.txt → `boot_partition=2` へ直行 |
+| config.txt → カーネル読込開始 | 1113ms | 2 | DTB + overlay (vc4-kms-v3d-pi5, mcp2515-can0) + EDID 読取 |
+| **カーネル読込** | **498ms** | 2 | `kernel_2712.img` 17,377,792 バイト |
+| 後処理 → Starting OS | 113ms | 3 | PCI reset、USB-OTG 切断 |
 
-| 区間 | SD (実測) | NVMe (予測) |
-|------|----------|-------------|
-| カーネル | 3.4s | ~2.0s |
-| systemd 基本 | 2.5s | ~1.5s |
-| seatd + weston | 2.0s | ~1.8s |
-| Python + PyQt6 | 1.2s | ~0.6s |
-| **合計** | **9.5s** | **~6s** |
+**変動源は SDRAM トレーニング段のみ**（σ 14ms）。他の全区間は σ 2〜3ms で完全に決定論的。
 
-SD のシーケンシャルリードは約 88 MB/s。NVMe は 800+ MB/s。
-特にランダム 4K リード (SD: 1-5 MB/s, NVMe: 50-100 MB/s) が Python import で効く。
+## userspace の内訳
 
-## さらなる短縮案
+```
+kmm.service +97ms
+└─weston.service @531ms +203ms
+  └─basic.target @485ms
+```
 
-| 施策 | 短縮見込み | コスト |
-|------|-----------|--------|
-| `.pyc` プリコンパイル | 0.2-0.3s | 低 (レシピに `python3 -m compileall` 追加) |
-| `python3 -O` 最適化モード | 微量 | 低 |
-| C++/QML 書き換え | 1.2s → 0.2s | 高 (アプリ全面書き換え) |
+weston 完了が userspace 開始から約 734ms、kmm の READY が約 886ms。
+
+> **`systemd-analyze` の総時間（約 9.4s）は GUI 到達時間ではない。** `multi-user.target` 到達までを指し、
+> その大半は `systemd-networkd-wait-online`（5.6〜7.9s、eth0 の PHY オートネゴ + DHCP 待ち）。
+> `kmm.service` は `network-online.target` に依存しないため GUI 表示は影響を受けない。
+> 影響するのは `tailscaled.service`（`After=network-online.target`）で、
+> リブート後 tailnet に復帰するまで 6〜8 秒余計にかかる。
+
+## コールドブート vs ウォームリブート — 有意差なし
+
+| | n | 平均 | σ | 幅 |
+|---|---|------|-----|-----|
+| コールドブート（電源断からの投入） | 6 | 7003.2ms | 15.1 | 52ms |
+| ウォームリブート（`reboot`） | 5 | 6997.4ms | 13.2 | 34ms |
+
+差は 5.8ms で各々の σ より小さく、区別がつかない。SDRAM トレーニング段も
+コールド 1832ms / ウォーム 1827ms でほぼ同一（ウォームでトレーニングが短縮される、
+ということはない）。
+
+> ⚠️ **research ログ §14 の「ファーム段には ±0.3s の自然変動がある」という記述は、
+> 現行構成では再現しない。** 11 ブートで幅 57ms（σ 14.6ms）。詳細は
+> [research ログ §15](boot-optimization-research.md) を参照。
+
+## 経緯
+
+| 時期 | 電源→GUI | 主な変更 |
+|------|---------|---------|
+| 2026-04 | 12s | 初期状態（SD + PyQt6） |
+| 2026-04-17 | 9.5s | `ExecStartPre=/bin/sleep 2` 削除、weston 依存を `Requires=` 化（SD 実測） |
+| 2026-07 | 10.5s | NVMe 化 + 各種 systemd 最適化後の再計測（PyQt6 の import 1.6s が律速） |
+| 2026-07-27 | 9.6s | カーネルスリム化（Image 27.5MB → 17.4MB） |
+| 2026-07-28 | 8.65s | C++ 版アプリ + PID1 mountinfo レートリミッタ修正 |
+| **2026-08-04** | **8.59s** | EEPROM 残骸掃除後の全段実測（UART + systemd、11 ブート） |
+
+## 結論
+
+- ファーム段 7.0 秒は Pi5 のクローズドなブートローダ（VPU 上で動作、署名検証あり、置換不可）の
+  制約による床。設定レベルの削減は枯渇済み
+- OS 側の寄与は 1.59 秒（カーネル 0.70s + userspace 0.89s）で、揺れは σ 24ms
+- **起動時間はほぼ完全に決定論的**。全 11 ブートで幅 57ms
+- これ以上の劇的短縮は SoC 変更なしには不可能
