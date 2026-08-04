@@ -193,6 +193,47 @@ Pi5 より素直。ハードウェアウォッチドッグによる保険は現�
    SPI の CS/割り込み GPIO の番号と DTS 記述は作り直し。HAT の電気的互換性も要確認
 6. **供給・EOL・調達性** — 製品ライフサイクル、入手性、価格は未調査
 
+## 実装状況（2026-08-04）
+
+**フェーズ 1 の足場を実装済み**（このブランチ）。XPI の BSP が未入手のため、同一 SoC の
+公開マシン `imx8mm-lpddr4-evk`（meta-freescale scarthgap、mainline BSP =
+linux-fslc + etnaviv）をターゲットにしている。実機 BSP 入手後は
+`kas/imx8mm.yml` の machine とレイヤを差し替える。
+
+- `kas/imx8mm.yml` — machine + meta-freescale + `ACCEPT_FSL_EULA`
+- `kas/imx8mm-dev.yml` — base + imx8mm + debug-tweaks（`./scripts/build.sh imx8mm`）
+- `meta-kart/recipes-kernel-imx/` — linux-fslc / linux-fslc-imx 両対応の
+  can.cfg bbappend（`BBFILES_DYNAMIC` で meta-freescale 存在時のみロード）
+- `kart-image.bb` — `:mx8mm-generic-bsp` オーバーライドで can-utils / can-setup /
+  kernel-modules を追加。tryboot 専用機構（autoboot.vfat 生成、
+  kart-boot-mount）は `:raspberrypi5` にガードして他マシンから除外。
+  **落とし穴**: meta-freescale は machine-overrides-extender で MACHINEOVERRIDES
+  を BSP 種別付き（`mx8mm-generic-bsp` / `mx8mm-mainline-bsp` 等）に変換するため、
+  素の `:mx8mm` は OVERRIDES に存在せず append が黙って捨てられる（変数履歴には
+  載るのに値に反映されない）。実際にこれを踏んで wic 生成が失敗した
+- `imx8mm-evk-kart.dts` — MCP2515 + eMMC ノード入りの EVK バリアント DTB。
+  **eMMC (usdhc3) は mainline の EVK DT に存在しない**（microSD のみ）ため、
+  NXP ベンダツリー (lf-6.6.y) の usdhc3 ノードを移植した。/dev/mmcblk2 で見える。
+  RPi5 ではファームウェアオーバーレイ（`ENABLE_CAN=1` → mcp2515-can0）が
+  やっていたことを DTB に焼き込む。**ピン割り当ては暫定**
+  （ECSPI2 専用パッド + CS=GPIO5_IO13 + INT=GPIO1_IO08、発振子 12MHz）。
+  `IMAGE_BOOT_FILES` の rename 機能でストック名 `imx8mm-evk.dtb` として
+  ブートパーティションに置き、U-Boot の fdtfile デフォルトのまま選ばせる
+
+**ビルド検証済み（2026-08-04）**: 6418 タスク全成功。wic (p1 boot 256M + p2 rootfs
+678M、シングルスロット) がデプロイされ、DTB に mcp2515 / usdhc3 / can-osc ノードを
+確認。マニフェスト 1605 パッケージに kmm 2.0 / weston / qtbase / qtwayland /
+can-utils / kernel-module-mcp251x / tailscale を確認。U-Boot は extlinux 経由で
+`FDT ../imx8mm-evk.dtb` を読むため、IMAGE_BOOT_FILES の rename 方式が成立している。
+
+**未実装**: A/B ブート（U-Boot bootcount）、eMMC 用 wks
+（現状は machine デフォルトの wks を使用）、Falcon Mode。
+XPI 実機では DTS のピン参照（ECSPI インスタンス / INT GPIO）の差し替えが必要。
+
+**実機で要確認**: extlinux.conf の APPEND に `rw` が入る（RPi5 の cmdline には
+無かった）。read-only-rootfs 機能が systemd 側で ro を強制するかは EVK 実機の
+初回起動で `/proc/mounts` を確認すること。
+
 ## 進め方の提案
 
 移行判断の前に、**安く早く潰せる不確実性から潰す**。

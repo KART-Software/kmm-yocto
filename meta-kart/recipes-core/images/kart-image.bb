@@ -52,6 +52,21 @@ IMAGE_INSTALL:append:qemuarm64 = " \
 "
 
 # ---------------------------------------------------------------------------
+# i.MX8M Mini specific packages (imx8mm-lpddr4-evk scaffold)
+# CAN は SoC 非内蔵のため RPi5 と同じく MCP2515 (SPI) を使う。
+# rpi-eeprom / kart-ab-tools / kart-eeprom-setup は RPi 専用なので含めない。
+# オーバーライドは素の mx8mm ではなく mx8mm-generic-bsp であること
+# (meta-freescale の machine-overrides-extender が変換する。素の mx8mm は
+# OVERRIDES に無く、append が黙って捨てられる)。
+# 詳細は docs/imx8mm-migration-design.md。
+# ---------------------------------------------------------------------------
+IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
+    can-utils \
+    can-setup \
+    kernel-modules \
+"
+
+# ---------------------------------------------------------------------------
 # Image tweaks
 # ---------------------------------------------------------------------------
 IMAGE_FEATURES += "read-only-rootfs"
@@ -218,6 +233,11 @@ EOF
 do_image_wic[depends] += "dosfstools-native:do_populate_sysroot mtools-native:do_populate_sysroot"
 
 generate_autoboot_image() {
+    # RPi5 tryboot 専用のスロットセレクタ。他マシン (qemu / imx8mm) の wic は
+    # autoboot.vfat を参照しないので生成しない。
+    if [ "${MACHINE}" != "raspberrypi5" ]; then
+        return
+    fi
     cat > ${WORKDIR}/autoboot.txt << 'EOF'
 [all]
 tryboot_a_b=1
@@ -264,7 +284,9 @@ RuntimeWatchdogSec=15
 RebootWatchdogSec=60
 EOF
 }
-ROOTFS_POSTPROCESS_COMMAND += "install_ab_boot_support;"
+# tryboot ベースの A/B は RPi5 専用 (kart-boot-mount は BOOTA/BOOTB ラベルと
+# cmdline の p5/p6 判定に依存)。i.MX では U-Boot bootcount で作り直す予定。
+ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi5 = " install_ab_boot_support;"
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"

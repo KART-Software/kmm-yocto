@@ -1,0 +1,39 @@
+# i.MX8M Mini machine fragment (XPI-iMX8MM 移行の足場)
+#
+# XPI-iMX8MM のベンダ BSP が未入手のため、同一 SoC (LPDDR4 構成) の公開
+# マシン定義 imx8mm-lpddr4-evk (meta-freescale) をターゲットにする。
+# 実機 BSP が手に入ったら machine とレイヤをここで差し替える。
+# 背景は docs/imx8mm-migration-design.md を参照。
+header:
+  version: 14
+
+machine: imx8mm-lpddr4-evk
+
+repos:
+  meta-freescale:
+    url: https://github.com/Freescale/meta-freescale.git
+    branch: scarthgap
+    layers:
+      .:
+
+local_conf_header:
+  imx8mm-machine: |
+    # kart 製品は WiFi/BT を使わない (rpi5.yml と同方針)。EVK の machine 定義が
+    # 引き込む NXP out-of-tree WiFi ドライバ (kernel-module-nxp-wlan) は
+    # mainline 6.12 に追従しておらずビルドが失敗するため、機能ごと外す。
+    MACHINE_FEATURES:remove = "wifi bluetooth bcm43455 bcm4356 nxp8987-sdio"
+
+  imx8mm-eula: |
+    # imx-boot が使う DDR トレーニングファームウェア (firmware-imx) は
+    # NXP EULA 配布のため明示的な同意が必要
+    ACCEPT_FSL_EULA = "1"
+
+  imx8mm-image: |
+    IMAGE_FSTYPES = "wic wic.bz2 wic.bmap"
+
+  imx8mm-dtb: |
+    # MCP2515 入りの kart バリアント DTB をストック名 (imx8mm-evk.dtb) で
+    # ブートパーティションに配置する。U-Boot の fdtfile デフォルトが
+    # imx8mm-evk.dtb を指すため、環境変数をいじらずに kart DTB が選ばれる。
+    # DTB 自体は meta-kart/recipes-kernel-imx/ の bbappend がビルドする。
+    IMAGE_BOOT_FILES = "Image imx8mm-evk-kart.dtb;imx8mm-evk.dtb"
