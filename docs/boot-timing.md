@@ -1,6 +1,6 @@
 # 起動時間分析
 
-2026-08-04 時点の計測結果。**電源投入 → GUI 表示 = 8.59 秒**。
+2026-08-07 時点の計測結果。**電源投入 → GUI 表示 = 8.56 秒**。
 
 最適化の経緯と個別施策の検証記録は [boot-optimization-research.md](boot-optimization-research.md) を参照。
 本ドキュメントは現行構成の実測サマリ。
@@ -10,7 +10,7 @@
 - Raspberry Pi 5 / NVMe (UMIS RPETJ256MMQ1MDQ, M.2 HAT 経由) / HDMI 接続
 - Yocto scarthgap, `kas/rpi5-prod.yml:kas/boot-nvme.yml`（A/B レイアウト）
 - C++/Qt6 Widgets アプリ (`kmm.service`, `Type=notify`)
-- カーネル 17.4MB (`slim-aggressive.cfg` 適用済み)
+- カーネル 16.1MB (`slim.cfg` + `slim-aggressive.cfg` + `slim-modular.cfg` 適用済み)
 
 ## 計測方法
 
@@ -26,14 +26,20 @@
 
 | 段階 | 平均 | σ | n |
 |------|------|-----|---|
-| ファームウェア（電源 → Starting OS） | **7001ms** | 14.6 | 11 |
-| カーネル | **701ms** | 3.6 | 6 |
-| userspace → GUI 表示 | **886ms** | — | 6 |
-| **合計** | **8588ms (8.59s)** | 合成 ≈30ms | |
+| ファームウェア（電源 → Starting OS） | **6970ms** | 16.0 | 6 |
+| カーネル | **702ms** | — | 4 |
+| userspace → GUI 表示 | **891ms** | — | 4 |
+| **合計** | **8563ms (8.56s)** | 合成 ≈35ms | |
+
+カーネル Image は 16.1MB（slim-modular 適用後）。ファーム段の読込セグメントは
+466ms（旧 17.4MB で 498ms）。
 
 ファームウェアが全体の **81.5%** を占める。
 
-## ファームウェア段の内訳（11 ブート平均）
+## ファームウェア段の内訳（11 ブート平均・slim-modular 適用前）
+
+> 下表は 2026-08-04 の 17.4MB カーネルでの計測。slim-modular (-1.25MB) 適用後は
+> カーネル読込が 498→466ms になった以外、各区間に変化はない。
 
 | 区間 | 所要 | σ | 内容 |
 |------|------|-----|------|
@@ -91,7 +97,8 @@ weston 完了が userspace 開始から約 734ms、kmm の READY が約 886ms。
 | 2026-07 | 10.5s | NVMe 化 + 各種 systemd 最適化後の再計測（PyQt6 の import 1.6s が律速） |
 | 2026-07-27 | 9.6s | カーネルスリム化（Image 27.5MB → 17.4MB） |
 | 2026-07-28 | 8.65s | C++ 版アプリ + PID1 mountinfo レートリミッタ修正 |
-| **2026-08-04** | **8.59s** | EEPROM 残骸掃除後の全段実測（UART + systemd、11 ブート） |
+| 2026-08-04 | 8.59s | EEPROM 残骸掃除後の全段実測（UART + systemd、11 ブート） |
+| **2026-08-07** | **8.56s** | slim-modular.cfg（=y→=m 移動 + KALLSYMS_ALL/IPv6/swap 削除、Image 17.4→16.1MB） |
 
 ## 結論
 
