@@ -11,6 +11,7 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 SRC_URI += " \
     file://can.cfg \
     file://imx8mm-evk-kart.dts \
+    file://display.cfg \
 "
 
 # 注意: meta-freescale は machine-overrides-extender で MACHINEOVERRIDES を

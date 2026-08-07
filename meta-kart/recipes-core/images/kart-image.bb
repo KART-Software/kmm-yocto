@@ -64,7 +64,24 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
     can-utils \
     can-setup \
     kernel-modules \
+    kart-ab-tools \
+    libubootenv-bin \
 "
+
+# fw_printenv/fw_setenv が U-Boot env (eMMC 4MiB, kart-ab.cfg の
+# CONFIG_ENV_OFFSET/SIZE と一致) を読み書きできるようにする
+install_fw_env_config() {
+    cat > ${IMAGE_ROOTFS}${sysconfdir}/fw_env.config << 'EOF'
+# device        offset    size
+/dev/mmcblk2    0x400000  0x2000
+EOF
+}
+ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_fw_env_config;"
+
+# wic が rawcopy する seed 済み U-Boot env (A/B 変数入り)
+KART_WIC_EXTRA_DEPENDS = ""
+KART_WIC_EXTRA_DEPENDS:mx8mm-generic-bsp = "kart-uboot-env:do_deploy"
+do_image_wic[depends] += "${KART_WIC_EXTRA_DEPENDS}"
 
 # ---------------------------------------------------------------------------
 # Image tweaks
@@ -257,6 +274,13 @@ do_image_wic[prefuncs] += "generate_autoboot_image"
 # Also enable the hardware watchdog so a hung tryboot kernel resets the board
 # and the firmware falls back to the previous slot.
 install_ab_boot_support() {
+    # A/B レイアウト (…-ab.wks) のときだけ。シングルスロット構成
+    # (imx8mm の SD 持ち込みイメージ等) に入れると BOOTA ラベルが無く
+    # 起動時に必ず失敗ユニットになる。
+    case "${WKS_FILE}" in
+        *-ab.wks) ;;
+        *) return ;;
+    esac
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service << 'EOF'
 [Unit]
@@ -284,9 +308,11 @@ RuntimeWatchdogSec=15
 RebootWatchdogSec=60
 EOF
 }
-# tryboot ベースの A/B は RPi5 専用 (kart-boot-mount は BOOTA/BOOTB ラベルと
-# cmdline の p5/p6 判定に依存)。i.MX では U-Boot bootcount で作り直す予定。
+# kart-boot-mount (cmdline の p5/p6 で BOOTA/BOOTB ラベルを選んでマウント) と
+# watchdog 設定は RPi5 (tryboot) と i.MX (U-Boot bootcount) の両 A/B レイアウトで
+# 共通に機能する — root=p5/p6・ラベル名を両レイアウトで揃えてあるため。
 ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi5 = " install_ab_boot_support;"
+ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_ab_boot_support;"
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"

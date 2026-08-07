@@ -1,0 +1,46 @@
+#!/bin/sh
+# kart-ab-commit (i.MX / U-Boot bootcount 版) — 現在起動中のスロットを
+# 恒久ブートスロットにする。
+#
+# OTA 試行 (upgrade_available=1) で新スロットが正常起動した後に実行する:
+# kart_slot を現スロットへ、upgrade_available=0、bootcount=0 に戻す。
+# fw_setenv のバッチモード (-s) で 1 回の CRC 更新にまとめる。
+# 冪等: すでに確定済みなら 0 で抜ける。
+set -eu
+
+case "$(cat /proc/cmdline)" in
+    *root=*p6*) SLOT=b; SLOT_NAME=B ;;
+    *root=*p5*) SLOT=a; SLOT_NAME=A ;;
+    *) echo "ERROR: cmdline root= is not an A/B slot (p5/p6)" >&2; exit 1 ;;
+esac
+
+cur=$(fw_printenv -n kart_slot 2>/dev/null) || {
+    echo "ERROR: cannot read U-Boot environment (check /etc/fw_env.config)" >&2
+    exit 1
+}
+ua=$(fw_printenv -n upgrade_available 2>/dev/null) || ua=0
+
+if [ "$cur" = "$SLOT" ] && [ "$ua" = "0" ]; then
+    echo "Already committed to slot $SLOT_NAME (kart_slot=$cur); nothing to do."
+    exit 0
+fi
+
+# 1 バッチ = 1 CRC 更新。途中で電源断しても旧 env か新 env のどちらかに倒れる。
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+cat > "$TMP" << EOF
+kart_slot $SLOT
+kart_fallback_slot $SLOT
+upgrade_available 0
+bootcount 0
+EOF
+fw_setenv -s "$TMP"
+
+# 読み戻し検証 (RPi5 版の read-back verification と同じ思想)
+verify=$(fw_printenv -n kart_slot 2>/dev/null) || verify=""
+if [ "$verify" != "$SLOT" ]; then
+    echo "ERROR: read-back verification FAILED: kart_slot=$verify (expected $SLOT)." >&2
+    echo "       The commit did NOT persist. Re-run kart-ab-commit." >&2
+    exit 1
+fi
+echo "Committed: slot $SLOT_NAME is now the permanent boot slot (kart_slot=$SLOT). (read-back verified)"

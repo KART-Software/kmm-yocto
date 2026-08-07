@@ -1,0 +1,40 @@
+# Kart product - i.MX8M Mini eMMC A/B (U-Boot bootcount) image layout
+#
+#  (33KiB)  imx-boot      SPL + U-Boot (パーティション外, BootROM が固定オフセットを読む)
+#  (4MiB)   kart-env.bin  U-Boot 環境 (CONFIG_ENV_OFFSET=0x400000, seed 済み A/B 変数)
+#  p1 BOOTA   vfat 256M   Image + DTB + extlinux (slot A)
+#  p2 BOOTB   vfat 256M   slot B (初回 OTA まで空)
+#  p3 KARTRSV vfat   4M   予約 (p5/p6/p7 の番号を RPi5 レイアウトと揃えるための詰め物)
+#  p4 (extended)
+#  p5 roota   ext4        rootfs slot A  <- extlinux の root=
+#  p6 rootb   ext4        rootfs slot B
+#  p7 data    ext4 128M   共有永続データ (kart-image.bb の fstab が LABEL=data でマウント)
+#
+# スロット選択は U-Boot 環境変数 kart_slot (bootcmd=run kart_boot) が行い、
+# OTA の試行/確定/フォールバックは bootcount + upgrade_available + altbootcmd
+# (recipes-bsp-imx/kart-uboot-env/files/kart-ab-env.txt を参照)。
+# root パーティション番号 p5/p6 と data=p7 を RPi5 の A/B レイアウトと
+# 一致させてあるため、kart-boot-mount / kart-ab-* の cmdline 判定を共用できる。
+# スロットは --fixed-size なのでスロット間 dd が必ず収まるのも RPi5 と同じ。
+
+# U-Boot 自体も A/B: ROM の secondary image 機構を使う。
+#   sector 0x41 (32.5KiB) SIT — A copy 無効時に ROM が B へ自動フォールバック
+#   sector 0x42 (33KiB)   A copy (通常起動)
+#   sector 0x1042 (2081KiB) B copy (= SIT.firstSectorNumber 0x1000 + 0x42)
+# 電源断 (POR) で PERSIST_SECONDARY_BOOT がクリアされ必ず A に戻るため、
+# 「B で試して電源入れ直せば旧に復帰」という tryboot 相当の運用が成立する。
+# 操作は kart-uboot-try / kart-uboot-commit (kart-ab-tools)。
+# B copy 終端 (~3.2MiB) と env (4MiB) の間に ~840KiB の余裕。imx-boot が
+# 2015KiB を超えたら firstSectorNumber と env オフセットの再設計が必要。
+# SIT は sector 0x41 で --align (KiB 単位) では直接指せないため、
+# 32KiB 起点の 1KiB ブロブ (先頭 512B 零 + SIT) を --align 32 で置く。
+part sit --source rawcopy --sourceparams="file=kart-sit.bin" --ondisk mmcblk2 --no-table --align 32
+part u-boot-a --source rawcopy --sourceparams="file=imx-boot" --ondisk mmcblk2 --no-table --align 33
+part u-boot-b --source rawcopy --sourceparams="file=imx-boot" --ondisk mmcblk2 --no-table --align 2081
+part env --source rawcopy --sourceparams="file=kart-env.bin" --ondisk mmcblk2 --no-table --align 4096
+part /boot --source bootimg-partition --ondisk mmcblk2 --fstype=vfat --label BOOTA --align 8192 --fixed-size 256M --use-uuid
+part --ondisk mmcblk2 --fstype=vfat --label BOOTB --align 4096 --fixed-size 256M --use-uuid
+part --ondisk mmcblk2 --fstype=vfat --label KARTRSV --align 4096 --fixed-size 4M
+part / --source rootfs --ondisk mmcblk2 --fstype=ext4 --label roota --align 4096 --fixed-size 1536M --use-uuid
+part --ondisk mmcblk2 --fstype=ext4 --label rootb --align 4096 --fixed-size 1536M --use-uuid
+part --ondisk mmcblk2 --fstype=ext4 --label data --align 4096 --fixed-size 128M

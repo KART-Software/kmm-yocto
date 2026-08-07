@@ -226,9 +226,58 @@ linux-fslc + etnaviv）をターゲットにしている。実機 BSP 入手後�
 can-utils / kernel-module-mcp251x / tailscale を確認。U-Boot は extlinux 経由で
 `FDT ../imx8mm-evk.dtb` を読むため、IMAGE_BOOT_FILES の rename 方式が成立している。
 
-**未実装**: A/B ブート（U-Boot bootcount）、eMMC 用 wks
-（現状は machine デフォルトの wks を使用）、Falcon Mode。
+**A/B ブート実装済み（2026-08-04、実機未検証）**: RPi5 の tryboot 相当を
+U-Boot の bootcount + upgrade_available + altbootcmd で実装した。
+`./scripts/build.sh imx8mm --emmc` で eMMC A/B レイアウトをビルドする。
+
+- `kart-imx8mm-emmc-ab.wks` — imx-boot(33KiB) / seed 済み env(4MiB) /
+  BOOTA=p1 / BOOTB=p2 / KARTRSV=p3(詰め物) / roota=**p5** / rootb=**p6** /
+  data=**p7**。root と data の番号を RPi5 レイアウトと揃えたため、
+  kart-boot-mount と kart-ab-* の cmdline 判定 (p5/p6) を両機種で共用できる
+- `recipes-bsp-imx/u-boot/` — bootcount 有効化 + env を eMMC(mmc2) へ +
+  ENV_SIZE 0x2000 の cfg fragment
+- `recipes-bsp-imx/kart-uboot-env/` — ビルドした U-Boot の initial env に
+  A/B 変数 (kart_slot / kart_boot / altbootcmd / bootcmd 上書き) をマージし
+  mkenvimage でバイナリ化。wic が env オフセットへ rawcopy するので、
+  **初回起動から A/B bootcmd で立ち上がる**（手動の env 操作が不要）
+- セマンティクス: OTA が kart_slot=新 / kart_fallback_slot=旧 /
+  upgrade_available=1 / bootcount=0 を設定 → 新スロットで起動 →
+  成功したら `kart-ab-commit` (fw_setenv バッチ + 読み戻し検証) →
+  失敗すれば bootlimit 超過で altbootcmd が旧スロットへ恒久フォールバック。
+  upgrade_available=0 の通常運転では bootcount を保存しないため eMMC 摩耗なし
+- `kart-ab-tools` — i.MX 版 kart-ab-commit / kart-ab-status を
+  `files/mx8mm-generic-bsp/` に追加（FILESPATH のオーバーライド探索で
+  自動選択）。出力キーは RPi5 版と互換
+- extlinux の root= は slot A が p5 を指してビルドされる
+  (`UBOOT_EXTLINUX_ROOT`)。**OTA が BOOTB へコピーする際に p6 へ sed する**
+  (RPi5 と同じ方式) — ota-update.sh の i.MX 対応は未着手
+- display.cfg — 表示チェーン (lcdif/DSIM/ADV7511/etnaviv) を =m から =y へ。
+  weston 起動とモジュールロードの競合を排除し起動を決定論化
+
+**U-Boot 自体の A/B も実装済み（2026-08-04、実機未検証）**: U-Boot を自前管理して
+高速化していく以上、ブートローダ更新は通常の OTA 対象であり単一コピーでは
+文鎮リスクを踏む。i.MX8M ROM 内蔵の secondary image 機構を使う
+（[U-Boot docs: PSB](https://docs.u-boot.org/en/v2021.07/imx/misc/psb.html)）。
+
+- レイアウト: SIT (sector 0x41, magic 0x00112233, firstSectorNumber=0x1000) /
+  A copy (sector 0x42 = 33KiB) / B copy (sector 0x1042 = 2081KiB)。
+  imx-boot 実測 1177KiB、B 終端 ~3.2MiB、env (4MiB) まで ~840KiB の余裕。
+  **imx-boot が 2015KiB を超えたらレイアウト再設計が必要**
+- ROM の挙動: A が無効 → ROM が PERSIST_SECONDARY_BOOT (SRC_GPR10[30],
+  0x30390098) を立てて WARM reset → B を起動。**電源断 (POR) で PSB は
+  クリアされ必ず A に戻る** — カートはマスタースイッチで電源を切る運用
+  (POWER_OFF_ON_HALT=0 と同じ前提) なので、「B で試してダメなら電源
+  入れ直しで旧に復帰」という tryboot 相当のフローが ROM だけで成立する
+- ツール (kart-ab-tools, busybox 構文): `kart-uboot-try <flash.bin>`
+  (B へ書込 + 読み戻し検証 + PSB セット) → reboot → 動作確認 →
+  `kart-uboot-commit` (B→A 昇格 + 読み戻し検証 + PSB クリア)。
+  `kart-uboot-status` で PSB / A/B の md5 を表示。devmem で GPR を直接叩く
+
+**未実装**: ota-update.sh / release.sh の i.MX 対応、Falcon Mode。
 XPI 実機では DTS のピン参照（ECSPI インスタンス / INT GPIO）の差し替えが必要。
+A/B フロー（rootfs / U-Boot とも）は実機なしでは起動検証できない
+（ビルドと成果物検査のみ実施）。PSB の devmem 操作と ROM フォールバックは
+特に実機での検証が必須。
 
 **実機で要確認**: extlinux.conf の APPEND に `rw` が入る（RPi5 の cmdline には
 無かった）。read-only-rootfs 機能が systemd 側で ro を強制するかは EVK 実機の

@@ -1,0 +1,32 @@
+#!/bin/sh
+# kart-ab-status (i.MX / U-Boot bootcount 版) — A/B スロット状態を表示。
+# RPi5 版と同じ KEY=VALUE 形式。boot パーティション番号だけ異なる
+# (i.MX: BOOTA=p1/BOOTB=p2、RPi5: BOOTA=p2/BOOTB=p3)。
+# root は両プラットフォームとも p5/p6。
+set -eu
+
+case "$(cat /proc/cmdline)" in
+    *root=*p6*) ACTIVE=B; ACTIVE_BOOT=2; ACTIVE_ROOT=6; INACTIVE=A; INACTIVE_BOOT=1; INACTIVE_ROOT=5 ;;
+    *root=*p5*) ACTIVE=A; ACTIVE_BOOT=1; ACTIVE_ROOT=5; INACTIVE=B; INACTIVE_BOOT=2; INACTIVE_ROOT=6 ;;
+    *) echo "ERROR: cmdline root= is not an A/B slot (p5/p6)" >&2; exit 1 ;;
+esac
+
+ROOTDEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
+
+echo "ACTIVE_SLOT=$ACTIVE"
+echo "ACTIVE_BOOT_PART=$ACTIVE_BOOT"
+echo "ACTIVE_ROOT_PART=$ACTIVE_ROOT"
+echo "INACTIVE_SLOT=$INACTIVE"
+echo "INACTIVE_BOOT_PART=$INACTIVE_BOOT"
+echo "INACTIVE_ROOT_PART=$INACTIVE_ROOT"
+echo "BASE_DEV=$ROOTDEV"
+
+# U-Boot 環境 (fw_printenv は /etc/fw_env.config を読む)
+for key in kart_slot kart_fallback_slot upgrade_available bootcount bootlimit; do
+    val=$(fw_printenv -n "$key" 2>/dev/null) || val="?"
+    echo "UBOOT_$(echo "$key" | tr '[:lower:]' '[:upper:]')=$val"
+done
+
+# RPi 版の TRYBOOT に相当: upgrade_available=1 なら「試行中」
+ua=$(fw_printenv -n upgrade_available 2>/dev/null) || ua=0
+echo "TRYBOOT=$ua"

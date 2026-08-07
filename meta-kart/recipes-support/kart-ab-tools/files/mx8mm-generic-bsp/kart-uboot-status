@@ -1,0 +1,31 @@
+#!/bin/sh
+# kart-uboot-status — U-Boot A/B の状態を KEY=VALUE で表示。
+set -eu
+
+GPR=0x30390098
+PSB_BIT=0x40000000
+A_SECTOR=66
+B_SECTOR=4162
+AREA_SECTORS=4030
+
+BASE_DEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
+[ -n "$BASE_DEV" ] || { echo "ERROR: cannot determine base device" >&2; exit 1; }
+
+cur=$(devmem "$GPR")
+if [ $(( cur & PSB_BIT )) -ne 0 ]; then
+    echo "UBOOT_ACTIVE_COPY=B"
+    echo "PERSIST_SECONDARY_BOOT=1"
+else
+    echo "UBOOT_ACTIVE_COPY=A"
+    echo "PERSIST_SECONDARY_BOOT=0"
+fi
+
+a_sum=$(dd if="$BASE_DEV" bs=512 skip="$A_SECTOR" count="$AREA_SECTORS" 2>/dev/null | md5sum | cut -d' ' -f1)
+b_sum=$(dd if="$BASE_DEV" bs=512 skip="$B_SECTOR" count="$AREA_SECTORS" 2>/dev/null | md5sum | cut -d' ' -f1)
+echo "UBOOT_A_MD5=$a_sum"
+echo "UBOOT_B_MD5=$b_sum"
+if [ "$a_sum" = "$b_sum" ]; then
+    echo "UBOOT_COPIES=IDENTICAL"
+else
+    echo "UBOOT_COPIES=DIFFER"
+fi

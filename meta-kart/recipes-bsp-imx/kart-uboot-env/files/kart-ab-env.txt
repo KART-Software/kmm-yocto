@@ -1,0 +1,27 @@
+# kart A/B 環境変数 (u-boot-initial-env に追記される。重複キーは後勝ち)
+#
+# RPi5 の tryboot/autoboot.txt に相当する仕組みを U-Boot の
+# bootcount + upgrade_available + altbootcmd で実現する:
+#
+#   通常運転:  upgrade_available=0 → bootcount は保存されず kart_slot を起動
+#   OTA 試行:  ota が kart_slot=<新>, kart_fallback_slot=<旧>,
+#              upgrade_available=1, bootcount=0 を設定して再起動
+#   起動成功:  kart-ab-commit が upgrade_available=0 に戻して確定
+#   起動失敗:  リセット毎に bootcount++ → bootlimit 超過で altbootcmd →
+#              旧スロットへ恒久フォールバック (RPi の tryboot 自動復帰と同義)
+#
+# ブート媒体は eMMC (U-Boot 番号 mmc2)。スロット構成は
+# BOOTA=p1 / BOOTB=p2 / roota=p5 / rootb=p6 (kart-imx8mm-emmc-ab.wks)。
+# 各スロットの extlinux.conf が root= を持つ (BOOTA は p5 を指してビルドされ、
+# OTA が BOOTB へコピーする際に p6 へ書き換える)。
+
+bootdelay=1
+bootlimit=1
+upgrade_available=0
+bootcount=0
+kart_slot=a
+kart_fallback_slot=a
+kart_mmcdev=2
+kart_boot=if test "x${kart_slot}" = xb; then setenv kart_bootpart 2; else setenv kart_bootpart 1; fi; echo "KART: booting slot ${kart_slot} (mmc ${kart_mmcdev}:${kart_bootpart})"; sysboot mmc ${kart_mmcdev}:${kart_bootpart} fat ${scriptaddr} /extlinux/extlinux.conf
+altbootcmd=echo "KART: bootlimit reached, falling back to slot ${kart_fallback_slot}"; setenv kart_slot ${kart_fallback_slot}; setenv upgrade_available 0; setenv bootcount 0; saveenv; run kart_boot
+bootcmd=run kart_boot
