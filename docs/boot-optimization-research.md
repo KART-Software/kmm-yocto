@@ -1167,3 +1167,72 @@ UART をホスト側 monotonic タイムスタンプ付きで記録する方式�
 そのままでは通しの時系列にならないため）。ホスト実測（`reboot: Restarting
 system` → `Starting OS`）7.011s とファーム自己申告 7.004ms が一致し、
 自己申告値がリセット直後起点であることを確認済み。
+
+### 16. slim-modular.cfg（2026-08-07）: =y→=m 移動 + KALLSYMS_ALL 削除、A/B OTA で実測 -30ms
+
+第 3 弾のカーネル削減。原理は「削除」より「読む主体の変更」: ファームは
+Image を ~35MB/s でしか読めないが、起動後のカーネルは NVMe から 500MB/s 超で
+読める。組み込みをモジュール化すればバイトがファーム段から userspace 段へ移る。
+
+内容 (slim-modular.cfg):
+- 完全削除: IPV6 (製品判断。元 =m なので Image には中立)、KALLSYMS_ALL
+  (シンボルテーブル、削減の最大単品)、LATENCYTOP (KALLSYMS_ALL を select
+  していた)、SWAP+ZSWAP、LOGO、INPUT_MOUSEDEV/KEYBOARD
+- =y→=m: SCSI + BLK_DEV_SD + USB_STORAGE / VFAT+FAT+NLS×3 (/boot は
+  userspace マウントなので自動ロードで足りる) / XHCI_HCD+XHCI_PCI /
+  HID+HID_GENERIC+USB_HID
+- Image: 17,377,792 → 16,099,840 (-1248KiB, -7.4%)
+
+適用時に踏んだ「黙って負ける」2 メカニズム (どちらもエラーにならない):
+1. **select による強制**: LATENCYTOP=y が KALLSYMS_ALL を select。fragment で
+   `# CONFIG_KALLSYMS_ALL is not set` と書いても =y に戻る。select 元を消す
+2. **KERNEL_FEATURES の適用順**: meta-raspberrypi が cfg/fs/vfat.scc を
+   KERNEL_FEATURES で注入しており SRC_URI fragment より後に適用される。
+   `KERNEL_FEATURES:remove = "cfg/fs/vfat.scc"` が必要
+検出手段は最終 .config の実測確認のみ (bitbake -e にも出ない)。
+
+計測 (A/B OTA 経由 — ota-update.sh で slot B へ配信 → tryboot → commit、
+それ自体が A/B 更新フローの初の実運用検証になった。1.5GB を 87.7MB/s):
+
+| | 旧 17.4MB (n=11) | 新 16.1MB (n=6) | 差 |
+|---|---|---|---|
+| Starting OS | 7000.5ms σ14.6 | 6970.2ms σ16.0 | **-30ms** (有意) |
+| カーネル読込 | 498ms | 466ms | -32ms (予測 -37ms と整合) |
+| カーネル init | 701ms | 702ms | ±0 |
+| GUI 到達 | 1587ms σ24 | 1593ms σ36 (n=4) | +6ms (ノイズ) |
+
+電源→GUI ≈ **8.56s**。init が ±0 なのは、モジュール化した SCSI/xhci/HID の
+ロードが weston のクリティカルパス外で並行処理されている証拠。vfat の
+自動ロード (/boot)、LTE 用 USB スタック、tailscale (IPv4 のみ) の動作を
+実機で確認済み。
+
+**結論: RPi5 の設定レベル削減はこれで枯渇。** 残 16.1MB の大半は
+ext4/NVMe/DRM+SND/MMC/ネットコアの不可侵領域。次の 30ms を探すより、
+i.MX 側の 46.6MB (arm64 defconfig 未スリム) に取り組む方が桁違いに効く。
+
+### 17. -Os (CC_OPTIMIZE_FOR_SIZE) の実測棄却（2026-08-08）
+
+slim-modular 後の残候補として -O2 → -Os を A/B 計測した。Image は
+16,099,840 → 14,123,520 (-12.3%) と素直に縮み、ファーム読込も予測通り
+466 → 407ms (-59ms) 改善したが、**カーネルの実行速度低下が userspace 段に
++33ms、GUI 到達で +40ms として現れ、正味 -17ms (合成誤差 ±22ms 以下)**。
+
+| | -O2 (n=6/4) | -Os (n=5/4) | 差 |
+|---|---|---|---|
+| ファーム段 | 6970.2ms σ16.0 | 6913.4ms σ16.3 | -57ms |
+| カーネル読込 | 466ms | 407ms | -59ms |
+| カーネル init | 702ms | 709ms | +7ms |
+| GUI 到達 | 1593ms σ36 | 1633ms σ15 | **+40ms** |
+| 正味 電源→GUI | 8563ms | 8546ms | -17ms |
+
+rootfs は同一バイナリのため GUI 悪化は純粋に -Os カーネルのランタイム
+コスト (syscall/ページフォルト/スケジューリング)。起動後も永続的に効く
+悪化と引き換えに正味 ~0 では割に合わず**棄却**。gzip 圧縮 (§14, +938ms)
+に続き、「読込を削る代わりに実行を遅くする」系はこのプラットフォームでは
+成立しないことが 2 例目で確定した。ファーム読込 35MB/s に対して
+カーネル実行効率の方が支配的。
+
+あわせて確認した閉店済みの選択肢: リンカ DCE (LD_DEAD_CODE_DATA_ELIMINATION)
+は arm64 非対応、LTO はツールチェーン変更が過大。**RPi5 のカーネル側は
+名実ともに枯渇** — 残るレバーは体感系 (ブートスプラッシュ、モニタ同期) と
+i.MX 移行のみ。
