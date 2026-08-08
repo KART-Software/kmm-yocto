@@ -2,7 +2,10 @@
 # 環境変数の中身は recipes-bsp-imx/kart-uboot-env/ が wic に焼き込む。
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
-SRC_URI += "file://kart-ab.cfg"
+SRC_URI += " \
+    file://kart-ab.cfg \
+    file://kart-uboot-slim.cfg \
+"
 
 # extlinux の root= の差し替え口。machine include (imx8mm-evk.inc) が
 # UBOOT_EXTLINUX_ROOT:default:use-mainline-bsp のフル修飾で = 代入しており、

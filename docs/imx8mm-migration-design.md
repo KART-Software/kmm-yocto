@@ -273,11 +273,25 @@ U-Boot の bootcount + upgrade_available + altbootcmd で実装した。
   `kart-uboot-commit` (B→A 昇格 + 読み戻し検証 + PSB クリア)。
   `kart-uboot-status` で PSB / A/B の md5 を表示。devmem で GPR を直接叩く
 
-**未実装**: ota-update.sh / release.sh の i.MX 対応、Falcon Mode。
+**追加実装（2026-08-08）**:
+- カーネルスリム化: Image 46.6MB → 20.9MB (-55.1%)。slim-imx-arch.cfg
+  (他ベンダー SoC 41 個削除) + slim-imx.cfg (製品ポリシー移植 + KVM/XEN/
+  NFS/SND/MEGARAID 等)。wic 143MB → 124MB
+- U-Boot 機能削減 (kart-uboot-slim.cfg): EFI_LOADER + NET 削除で flash.bin
+  1205KB → 1112KB (-7.7%)。sysboot は NET 非依存、UUU リカバリは USB 経由
+  なので影響なし。initial env から EFI/DHCP マクロが消え kart-env にも自動反映
+- ota-update.sh の i.MX 対応: イメージ (wic p1 サイズ) とデバイス
+  (kart-ab-status の UBOOT_* キー) の両方でプラットフォームを自動判別し、
+  食い違えば中断。分岐は boot 抜き出し (p2/p1)、root= の修正先
+  (cmdline.txt / extlinux.conf)、試行起動 (tryboot / fw_setenv+reboot) の 3 点。
+  fdisk のブートフラグによる列ズレも補正 (既存の潜在バグ)
+- kas/imx8mm-prod.yml: debug-tweaks 無しの本番構成
+
+**未実装**: release.sh の i.MX 対応、Falcon Mode。
 XPI 実機では DTS のピン参照（ECSPI インスタンス / INT GPIO）の差し替えが必要。
-A/B フロー（rootfs / U-Boot とも）は実機なしでは起動検証できない
-（ビルドと成果物検査のみ実施）。PSB の devmem 操作と ROM フォールバックは
-特に実機での検証が必須。
+A/B フロー（rootfs / U-Boot とも）と ota-update.sh の i.MX 経路は実機なしでは
+起動検証できない（ビルドと成果物検査のみ実施）。PSB の devmem 操作と
+ROM フォールバックは特に実機での検証が必須。
 
 **実機で要確認**: extlinux.conf の APPEND に `rw` が入る（RPi5 の cmdline には
 無かった）。read-only-rootfs 機能が systemd 側で ro を強制するかは EVK 実機の

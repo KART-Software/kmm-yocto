@@ -1,5 +1,10 @@
 #!/bin/bash
-# ota-update.sh — A/B (tryboot) OTA update over SSH, no SSD removal needed.
+# ota-update.sh — A/B OTA update over SSH, no storage removal needed.
+#
+# Platforms (自動判別: イメージのパーティション構成 + デバイスの kart-ab-status):
+#   RPi5  : firmware tryboot (reboot '0 tryboot', 失敗時はファームが自動復帰)
+#   i.MX  : U-Boot bootcount (upgrade_available=1 で試行、失敗時は altbootcmd が
+#           旧スロットへ復帰。電源断でも旧スロットに戻る)
 #
 # Usage:
 #   ./scripts/ota-update.sh --host <ssh-host> [image.wic.bz2]
@@ -60,13 +65,28 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "==> [1/6] Extracting partitions from $(basename "$IMAGE")..."
 bunzip2 -kc "$IMAGE" > "$WORK/image.wic"
-# p2 = BOOTA (FAT), p5 = roota (ext4) in the A/B layout
-mapfile -t PARTS < <(fdisk -l "$WORK/image.wic" | awk '/^\/|wic[0-9]/ {print $0}')
-BOOT_START=$(fdisk -l "$WORK/image.wic" | awk '/wic2/{print $2}')
-BOOT_SECTORS=$(fdisk -l "$WORK/image.wic" | awk '/wic2/{print $4}')
-ROOT_START=$(fdisk -l "$WORK/image.wic" | awk '/wic5/{print $2}')
-ROOT_SECTORS=$(fdisk -l "$WORK/image.wic" | awk '/wic5/{print $4}')
-[ -n "$BOOT_START" ] && [ -n "$ROOT_START" ] || { echo "ERROR: image is not an A/B layout (wic2/wic5 not found)" >&2; exit 1; }
+
+# fdisk の Sectors 列はブートフラグ '*' の有無で位置がずれるため補正して読む
+wic_sectors() { fdisk -l "$WORK/image.wic" | awk -v p="wic$1 " 'index($0,p){ if ($2=="*") print $5; else print $4; exit }'; }
+wic_start()   { fdisk -l "$WORK/image.wic" | awk -v p="wic$1 " 'index($0,p){ if ($2=="*") print $3; else print $2; exit }'; }
+
+# レイアウト判別:
+#   RPi5 A/B  : p1 = AUTOBOOT (4MiB = 8192 sectors), boot = p2, root = p5
+#   i.MX eMMC : p1 = BOOTA (256MiB),                boot = p1, root = p5
+P1_SECTORS=$(wic_sectors 1)
+[ -n "$P1_SECTORS" ] || { echo "ERROR: cannot read partition table from image" >&2; exit 1; }
+if [ "$P1_SECTORS" -le 16384 ]; then
+    PLATFORM=rpi;  BOOT_WICPART=2; BOOT_CFG="cmdline.txt"
+else
+    PLATFORM=imx;  BOOT_WICPART=1; BOOT_CFG="extlinux/extlinux.conf"
+fi
+echo "    layout: $PLATFORM (boot=wic${BOOT_WICPART}, root=wic5)"
+
+BOOT_START=$(wic_start "$BOOT_WICPART")
+BOOT_SECTORS=$(wic_sectors "$BOOT_WICPART")
+ROOT_START=$(wic_start 5)
+ROOT_SECTORS=$(wic_sectors 5)
+[ -n "$BOOT_START" ] && [ -n "$ROOT_START" ] || { echo "ERROR: image is not an A/B layout (boot/root partitions not found)" >&2; exit 1; }
 dd if="$WORK/image.wic" of="$WORK/boot.img" bs=512 skip="$BOOT_START" count="$BOOT_SECTORS" status=none
 dd if="$WORK/image.wic" of="$WORK/root.img" bs=512 skip="$ROOT_START" count="$ROOT_SECTORS" status=none
 rm -f "$WORK/image.wic"
@@ -81,6 +101,14 @@ IN_BOOT=$(echo "$STATUS"     | sed -n 's/^INACTIVE_BOOT_PART=//p')
 IN_ROOT=$(echo "$STATUS"     | sed -n 's/^INACTIVE_ROOT_PART=//p')
 BASE=$(echo "$STATUS"        | sed -n 's/^BASE_DEV=//p')
 [ -n "$IN_BOOT" ] && [ -n "$IN_ROOT" ] && [ -n "$BASE" ] || { echo "ERROR: could not parse kart-ab-status" >&2; exit 1; }
+
+# デバイス側プラットフォーム判別 (i.MX 版 kart-ab-status は UBOOT_* を出す)
+# — イメージのレイアウト判別と食い違ったら即中断
+if echo "$STATUS" | grep -q '^UBOOT_KART_SLOT='; then DEV_PLATFORM=imx; else DEV_PLATFORM=rpi; fi
+if [ "$DEV_PLATFORM" != "$PLATFORM" ]; then
+    echo "ERROR: image layout is '$PLATFORM' but device is '$DEV_PLATFORM' — wrong image for this device" >&2
+    exit 1
+fi
 IN_LABEL=$([ "$IN_SLOT" = "A" ] && echo BOOTA || echo BOOTB)
 IN_RLABEL=$([ "$IN_SLOT" = "A" ] && echo roota || echo rootb)
 
@@ -101,25 +129,48 @@ mount -o loop,ro /tmp/ota-boot.img /tmp/ota-src
 mount ${BASE}p${IN_BOOT} /tmp/ota-dst
 rm -rf /tmp/ota-dst/*
 cp -r /tmp/ota-src/. /tmp/ota-dst/
-sed -i 's|root=/dev/[a-z0-9]*p[56]|root=${BASE}p${IN_ROOT}|' /tmp/ota-dst/cmdline.txt
-echo '    cmdline:' \$(cat /tmp/ota-dst/cmdline.txt)
+sed -i 's|root=/dev/[a-z0-9]*p[56]|root=${BASE}p${IN_ROOT}|' /tmp/ota-dst/${BOOT_CFG}
+echo '    root cfg:' \$(grep -o 'root=[^ ]*' /tmp/ota-dst/${BOOT_CFG})
 sync
 umount /tmp/ota-src /tmp/ota-dst
 rm -f /tmp/ota-boot.img
 "
 
-echo "==> [4/6] Rebooting into slot $IN_SLOT via tryboot (one-shot)..."
-# Pre-flight: the [tryboot] section must point at the slot we just wrote,
-# otherwise tryboot would boot the WRONG slot (seen once when a commit did not
-# persist). Read the selector fresh from disk via kart-ab-status.
-TB_TARGET=$("${SSH[@]}" kart-ab-status | sed -n '/^\[tryboot\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p' | head -n 1)
-if [ "$TB_TARGET" != "$IN_BOOT" ]; then
-    echo "ERROR: autoboot.txt [tryboot] points at partition '$TB_TARGET' but we wrote partition $IN_BOOT." >&2
-    echo "       Selector state is inconsistent — run 'kart-ab-status' on the device and fix" >&2
-    echo "       (usually: run 'kart-ab-commit' on the device to resync, then re-run this update)." >&2
-    exit 1
+echo "==> [4/6] Rebooting into slot $IN_SLOT (one-shot try)..."
+if [ "$PLATFORM" = "rpi" ]; then
+    # Pre-flight: the [tryboot] section must point at the slot we just wrote,
+    # otherwise tryboot would boot the WRONG slot (seen once when a commit did
+    # not persist). Read the selector fresh from disk via kart-ab-status.
+    TB_TARGET=$("${SSH[@]}" kart-ab-status | sed -n '/^\[tryboot\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p' | head -n 1)
+    if [ "$TB_TARGET" != "$IN_BOOT" ]; then
+        echo "ERROR: autoboot.txt [tryboot] points at partition '$TB_TARGET' but we wrote partition $IN_BOOT." >&2
+        echo "       Selector state is inconsistent — run 'kart-ab-status' on the device and fix" >&2
+        echo "       (usually: run 'kart-ab-commit' on the device to resync, then re-run this update)." >&2
+        exit 1
+    fi
+    "${SSH[@]}" "reboot '0 tryboot'" || true
+else
+    # i.MX: U-Boot bootcount 方式。upgrade_available=1 + bootlimit で
+    # 「新スロットを試し、起動失敗が続けば altbootcmd が旧スロットへ復帰」。
+    # Pre-flight: 別の更新が試行中 (upgrade_available=1) なら手を出さない。
+    UA=$(echo "$STATUS" | sed -n 's/^UBOOT_UPGRADE_AVAILABLE=//p')
+    if [ "$UA" = "1" ]; then
+        echo "ERROR: upgrade_available=1 — a previous update try is still pending." >&2
+        echo "       Commit it (kart-ab-commit) or power-cycle to fall back, then re-run." >&2
+        exit 1
+    fi
+    IN_LC=$(echo "$IN_SLOT" | tr 'AB' 'ab')
+    ACTIVE_LC=$(echo "$ACTIVE" | tr 'AB' 'ab')
+    "${SSH[@]}" "
+set -e
+printf 'kart_slot ${IN_LC}\nkart_fallback_slot ${ACTIVE_LC}\nupgrade_available 1\nbootcount 0\n' > /tmp/ota-env
+fw_setenv -s /tmp/ota-env
+v=\$(fw_printenv -n kart_slot)
+[ \"\$v\" = \"${IN_LC}\" ] || { echo 'ERROR: fw_setenv read-back failed' >&2; exit 1; }
+rm -f /tmp/ota-env
+"
+    "${SSH[@]}" reboot || true
 fi
-"${SSH[@]}" "reboot '0 tryboot'" || true
 
 echo "==> [5/6] Waiting for the device to come back..."
 sleep 15
