@@ -1,0 +1,20 @@
+# XPI-iMX8MM bring-up 用 netboot オーバーレイ
+#
+#   kas-container build kas/imx8mm-dev.yml:kas/imx8mm-netboot.yml
+#   ( = ./scripts/build.sh imx8mm --netboot )
+#
+# 目的: DTS/ドライバの試行錯誤で SD を焼き直さない。
+#   - SD にはブートローダ (imx-boot) だけ置く (33KiB オフセットに dd、一度きり)
+#   - カーネル + DTB は U-Boot の TFTP で、rootfs は NFS で PC から供給
+#   - slim 化で削った NFS (カーネル) と NET (U-Boot) をここでだけ復活させる
+#     (この overlay の fragment は slim 系より後にマージされるので勝つ)
+header:
+  version: 14
+
+local_conf_header:
+  netboot: |
+    # rootfs を NFS エクスポート用に tar でも出す
+    IMAGE_FSTYPES:append = " tar.zst"
+    SRC_URI:append:pn-linux-fslc = " file://nfs-boot.cfg"
+    SRC_URI:append:pn-linux-fslc-imx = " file://nfs-boot.cfg"
+    SRC_URI:append:pn-u-boot-fslc = " file://kart-uboot-net.cfg"

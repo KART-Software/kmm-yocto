@@ -11,6 +11,7 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 SRC_URI += " \
     file://can.cfg \
     file://imx8mm-evk-kart.dts \
+    file://imx8mm-xpi-kart.dts \
     file://display.cfg \
     file://slim-imx-arch.cfg \
     file://slim-imx.cfg \
@@ -20,8 +21,8 @@ SRC_URI += " \
 # BSP 種別付きに変換する。素の "mx8mm" は OVERRIDES に存在せず、silently
 # 無視される (append は変数履歴に載るのに値へ反映されない)。BSP 非依存で
 # 効かせるトークンは "mx8mm-generic-bsp"。
-KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-kart.dtb"
+KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-kart.dtb freescale/imx8mm-xpi-kart.dtb"
 
 do_configure:prepend() {
-    cp ${WORKDIR}/imx8mm-evk-kart.dts ${S}/arch/arm64/boot/dts/freescale/
+    cp ${WORKDIR}/imx8mm-evk-kart.dts ${WORKDIR}/imx8mm-xpi-kart.dts ${S}/arch/arm64/boot/dts/freescale/
 }

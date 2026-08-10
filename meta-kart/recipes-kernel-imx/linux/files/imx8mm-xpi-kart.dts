@@ -1,0 +1,221 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * imx8mm-xpi-kart.dts — Geniatech XPI-iMX8MM 用 kart 製品 DT
+ *
+ * 根拠は全て実機/実物から採取済み:
+ *  - ベンダ実行中 DT (/sys/firmware/fdt, local/vendor-dtbs/running.dts)
+ *  - ベンダ 4.14 カーネルの起動ログ (lt9611: irq_gpio=5 reset_gpio=6)
+ *  - HW UserGuide の 40 ピン表 (ECSPI2 = pin19-24, RPi GPIO25 相当 = PDM_DATA3)
+ *
+ * EVK との差分:
+ *  - 表示: ADV7535 (EVK アダプタ) ではなく Lontium LT9611 (I2C4 @0x3b)。
+ *    mainline の lontium,lt9611 ドライバ用に binding を書き直して移植
+ *    (ベンダは独自 lt,lt9611 ドライバ)。EVK の adv7535 ノードは削除し、
+ *    hdmi-connector と dsi_out を LT9611 に繋ぎ替える
+ *  - CAN INT: RPi GPIO25 相当 (物理 pin22) = SAI5_RXD3 パッド = GPIO3_IO24
+ *    (EVK 足場の GPIO1_IO08 は XPI では 40 ピンに出ていない)
+ *  - ECSPI2 の conf 値はベンダ実績値 (SCLK/MOSI/MISO=0x140)
+ *  - eMMC (usdhc3): EVK 足場と同じ NXP 由来ノード (ベンダ DT にも同構成を確認)
+ */
+
+#include "imx8mm-evk.dts"
+#include <dt-bindings/interrupt-controller/irq.h>
+
+/ {
+	clk_can_osc: clock-can-osc {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <12000000>;
+		clock-output-names = "can_osc";
+	};
+
+	reg_lt9611_vdd: regulator-lt9611-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "lt9611-vdd";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	reg_lt9611_vcc: regulator-lt9611-vcc {
+		compatible = "regulator-fixed";
+		regulator-name = "lt9611-vcc";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+};
+
+/* EVK の ADV7535 (アダプタカード) は XPI に存在しない */
+&i2c2 {
+	/delete-node/ hdmi@3d;
+};
+
+/* HDMI コネクタは LT9611 の出力へ */
+&hdmi_connector_in {
+	remote-endpoint = <&lt9611_out>;
+};
+
+/* DSIM の出力を LT9611 の DSI 入力へ */
+&dsi_out {
+	remote-endpoint = <&lt9611_a>;
+};
+
+&i2c4 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_i2c4>;
+	status = "okay";
+
+	hdmi-bridge@3b {
+		compatible = "lontium,lt9611";
+		reg = <0x3b>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_lt9611>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&gpio1 6 GPIO_ACTIVE_HIGH>;
+		vdd-supply = <&reg_lt9611_vdd>;
+		vcc-supply = <&reg_lt9611_vcc>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				lt9611_a: endpoint {
+					remote-endpoint = <&dsi_out>;
+				};
+			};
+
+			port@2 {
+				reg = <2>;
+				lt9611_out: endpoint {
+					remote-endpoint = <&hdmi_connector_in>;
+				};
+			};
+		};
+	};
+};
+
+&iomuxc {
+	pinctrl_i2c4: i2c4grp {
+		fsl,pins = <
+			/* ベンダ実績 conf 0x400001c3 (open-drain 有効込み) */
+			MX8MM_IOMUXC_I2C4_SCL_I2C4_SCL		0x400001c3
+			MX8MM_IOMUXC_I2C4_SDA_I2C4_SDA		0x400001c3
+		>;
+	};
+
+	pinctrl_lt9611: lt9611grp {
+		fsl,pins = <
+			/* ベンダ実績 conf 0x19 (irq=GPIO1_IO05, reset=GPIO1_IO06) */
+			MX8MM_IOMUXC_GPIO1_IO05_GPIO1_IO5	0x19
+			MX8MM_IOMUXC_GPIO1_IO06_GPIO1_IO6	0x19
+		>;
+	};
+
+	pinctrl_ecspi2: ecspi2grp {
+		fsl,pins = <
+			/* ベンダ実績 conf 0x140 */
+			MX8MM_IOMUXC_ECSPI2_SCLK_ECSPI2_SCLK	0x140
+			MX8MM_IOMUXC_ECSPI2_MOSI_ECSPI2_MOSI	0x140
+			MX8MM_IOMUXC_ECSPI2_MISO_ECSPI2_MISO	0x140
+		>;
+	};
+
+	pinctrl_ecspi2_cs: ecspi2csgrp {
+		fsl,pins = <
+			MX8MM_IOMUXC_ECSPI2_SS0_GPIO5_IO13	0x40000
+		>;
+	};
+
+	pinctrl_can_int: canintgrp {
+		fsl,pins = <
+			/* 物理 pin22 (RPi GPIO25 相当) = SAI5_RXD3 の GPIO モード */
+			MX8MM_IOMUXC_SAI5_RXD3_GPIO3_IO24	0x140
+		>;
+	};
+
+	pinctrl_usdhc3: usdhc3grp {
+		fsl,pins = <
+			MX8MM_IOMUXC_NAND_WE_B_USDHC3_CLK	0x190
+			MX8MM_IOMUXC_NAND_WP_B_USDHC3_CMD	0x1d0
+			MX8MM_IOMUXC_NAND_DATA04_USDHC3_DATA0	0x1d0
+			MX8MM_IOMUXC_NAND_DATA05_USDHC3_DATA1	0x1d0
+			MX8MM_IOMUXC_NAND_DATA06_USDHC3_DATA2	0x1d0
+			MX8MM_IOMUXC_NAND_DATA07_USDHC3_DATA3	0x1d0
+			MX8MM_IOMUXC_NAND_RE_B_USDHC3_DATA4	0x1d0
+			MX8MM_IOMUXC_NAND_CE2_B_USDHC3_DATA5	0x1d0
+			MX8MM_IOMUXC_NAND_CE3_B_USDHC3_DATA6	0x1d0
+			MX8MM_IOMUXC_NAND_CLE_USDHC3_DATA7	0x1d0
+			MX8MM_IOMUXC_NAND_CE1_B_USDHC3_STROBE	0x190
+		>;
+	};
+
+	pinctrl_usdhc3_100mhz: usdhc3-100mhzgrp {
+		fsl,pins = <
+			MX8MM_IOMUXC_NAND_WE_B_USDHC3_CLK	0x194
+			MX8MM_IOMUXC_NAND_WP_B_USDHC3_CMD	0x1d4
+			MX8MM_IOMUXC_NAND_DATA04_USDHC3_DATA0	0x1d4
+			MX8MM_IOMUXC_NAND_DATA05_USDHC3_DATA1	0x1d4
+			MX8MM_IOMUXC_NAND_DATA06_USDHC3_DATA2	0x1d4
+			MX8MM_IOMUXC_NAND_DATA07_USDHC3_DATA3	0x1d4
+			MX8MM_IOMUXC_NAND_RE_B_USDHC3_DATA4	0x1d4
+			MX8MM_IOMUXC_NAND_CE2_B_USDHC3_DATA5	0x1d4
+			MX8MM_IOMUXC_NAND_CE3_B_USDHC3_DATA6	0x1d4
+			MX8MM_IOMUXC_NAND_CLE_USDHC3_DATA7	0x1d4
+			MX8MM_IOMUXC_NAND_CE1_B_USDHC3_STROBE	0x194
+		>;
+	};
+
+	pinctrl_usdhc3_200mhz: usdhc3-200mhzgrp {
+		fsl,pins = <
+			MX8MM_IOMUXC_NAND_WE_B_USDHC3_CLK	0x196
+			MX8MM_IOMUXC_NAND_WP_B_USDHC3_CMD	0x1d6
+			MX8MM_IOMUXC_NAND_DATA04_USDHC3_DATA0	0x1d6
+			MX8MM_IOMUXC_NAND_DATA05_USDHC3_DATA1	0x1d6
+			MX8MM_IOMUXC_NAND_DATA06_USDHC3_DATA2	0x1d6
+			MX8MM_IOMUXC_NAND_DATA07_USDHC3_DATA3	0x1d6
+			MX8MM_IOMUXC_NAND_RE_B_USDHC3_DATA4	0x1d6
+			MX8MM_IOMUXC_NAND_CE2_B_USDHC3_DATA5	0x1d6
+			MX8MM_IOMUXC_NAND_CE3_B_USDHC3_DATA6	0x1d6
+			MX8MM_IOMUXC_NAND_CLE_USDHC3_DATA7	0x1d6
+			MX8MM_IOMUXC_NAND_CE1_B_USDHC3_STROBE	0x196
+		>;
+	};
+};
+
+&ecspi2 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_ecspi2>, <&pinctrl_ecspi2_cs>;
+	cs-gpios = <&gpio5 13 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	can0: mcp2515@0 {
+		compatible = "microchip,mcp2515";
+		reg = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_can_int>;
+		clocks = <&clk_can_osc>;
+		interrupt-parent = <&gpio3>;
+		interrupts = <24 IRQ_TYPE_LEVEL_LOW>;
+		spi-max-frequency = <10000000>;
+	};
+};
+
+/* XPI 実機の eMMC (Samsung 8GB)。/dev/mmcblk2 で見える。 */
+&usdhc3 {
+	assigned-clocks = <&clk IMX8MM_CLK_USDHC3_ROOT>;
+	assigned-clock-rates = <400000000>;
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc3>;
+	pinctrl-1 = <&pinctrl_usdhc3_100mhz>;
+	pinctrl-2 = <&pinctrl_usdhc3_200mhz>;
+	bus-width = <8>;
+	non-removable;
+	status = "okay";
+};

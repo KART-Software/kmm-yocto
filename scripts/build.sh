@@ -32,6 +32,7 @@ for arg in "$@"; do
         --sdcard)      BOOT="sdcard" ;;
         --nvme)        BOOT="nvme" ;;
         --emmc)        BOOT="emmc" ;;
+        --netboot)     BOOT="netboot" ;;
         *)
             echo "Unknown argument: $arg" >&2
             echo "Usage: $0 <prod|dev|qemu|imx8mm> [--sdcard|--nvme]" >&2
@@ -63,11 +64,11 @@ case "$TARGET" in
         ;;
     qemu) KAS_CONFIG="kas/qemu-dev.yml" ;;
     imx8mm)
-        if [ "$BOOT" = "emmc" ]; then
-            KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-emmc-ab.yml"
-        else
-            KAS_CONFIG="kas/imx8mm-dev.yml"
-        fi
+        case "$BOOT" in
+            emmc)    KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-emmc-ab.yml" ;;
+            netboot) KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-netboot.yml" ;;
+            *)       KAS_CONFIG="kas/imx8mm-dev.yml" ;;
+        esac
         ;;
 esac
 
