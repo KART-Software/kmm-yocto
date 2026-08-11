@@ -1,0 +1,13 @@
+[Unit]
+Description=Delay systemd-resolved start until after GUI
+# kmm.service is Type=notify and reports READY on first window expose,
+# so "kmm active" really means the GUI is on screen.
+After=kmm.service
+
+[Timer]
+OnActiveSec=500ms
+AccuracySec=1ms
+Unit=resolved-delayed-start.service
+
+[Install]
+WantedBy=timers.target

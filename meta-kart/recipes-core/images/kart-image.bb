@@ -30,6 +30,8 @@ IMAGE_INSTALL:append = " \
     systemd-analyze \
     tailscale \
     kart-data-mount \
+    kart-systemd-tuning \
+    kart-ssh-hostkeys \
 "
 
 # ---------------------------------------------------------------------------
@@ -67,17 +69,8 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
     kernel-modules \
     kart-ab-tools \
     libubootenv-bin \
+    kart-edid-firmware \
 "
-
-# fw_printenv/fw_setenv が U-Boot env (eMMC 4MiB, kart-ab.cfg の
-# CONFIG_ENV_OFFSET/SIZE と一致) を読み書きできるようにする
-install_fw_env_config() {
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/fw_env.config << 'EOF'
-# device        offset    size
-/dev/mmcblk2    0x400000  0x2000
-EOF
-}
-ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_fw_env_config;"
 
 # wic が rawcopy する seed 済み U-Boot env (A/B 変数入り)
 KART_WIC_EXTRA_DEPENDS = ""
@@ -93,7 +86,7 @@ IMAGE_ROOTFS_EXTRA_SPACE = "0"
 # Ensure systemd is used
 IMAGE_INSTALL:append = " systemd-serialgetty"
 
-ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;configure_wait_online_any;netboot_mask_networkd;"
+ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;netboot_mask_networkd;"
 
 # ---------------------------------------------------------------------------
 # netboot (NFS root) 専用: systemd-networkd スタックを丸ごと mask する。
@@ -126,14 +119,7 @@ create_data_mount() {
     # /boot is mounted by kart-boot-mount.service (A/B: the active slot's boot
     # partition BOOTA/BOOTB is chosen from the kernel cmdline), not by fstab.
     install -d ${IMAGE_ROOTFS}/boot
-
-    # Ensure /data and /data/log are world-writable at every boot
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d/data-partition.conf << 'EOF'
-d /data           0777 root root -
-d /data/log       0777 root root -
-d /data/tailscale 0700 root root -
-EOF
+    # /data 配下の tmpfiles 定義は kart-data-mount レシピが持つ
 }
 
 # ---------------------------------------------------------------------------
@@ -185,7 +171,8 @@ remove_timesyncd_sysinit_pull() {
     rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-timesyncd.service
     rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-timesyncd.service
 
-    # resolved にも同じ preset 再作成問題がある: delay_resolved_start が消した
+    # resolved にも同じ preset 再作成問題がある: (遅延起動 timer は
+    # kart-systemd-tuning レシピが持つが) preset が作る
     # sysinit.target.wants リンクを systemd_preset_all が復活させ、resolved が
     # sysinit の critical path に居座る (i.MX 実測で +450ms、sysinit 到達を
     # ~0.5s 遅らせていた。resolved の遅延起動は timer が担うので wants は不要)
@@ -197,76 +184,6 @@ IMAGE_PREPROCESS_COMMAND:append = " remove_timesyncd_sysinit_pull;"
 mask_journal_catalog_update() {
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
     ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-journal-catalog-update.service
-}
-
-delay_resolved_start() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timers.target.wants
-
-    # Prevent resolved from delaying sysinit (remove wants link only, no mask).
-    rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-resolved.service
-
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/resolved-delayed-start.service << 'EOF'
-[Unit]
-Description=Delayed start of systemd-resolved
-
-[Service]
-Type=oneshot
-ExecStart=/bin/systemctl start systemd-resolved.service
-EOF
-
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/resolved-delayed-start.timer << 'EOF'
-[Unit]
-Description=Delay systemd-resolved start until after GUI
-# kmm.service is Type=notify and reports READY on first window expose,
-# so "kmm active" really means the GUI is on screen.
-After=kmm.service
-
-[Timer]
-OnActiveSec=500ms
-AccuracySec=1ms
-Unit=resolved-delayed-start.service
-
-[Install]
-WantedBy=timers.target
-EOF
-
-    ln -sf ../resolved-delayed-start.timer \
-        ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timers.target.wants/resolved-delayed-start.timer
-}
-
-# ---------------------------------------------------------------------------
-# Install pre-generated SSH host keys so sshdgenkeys.service is a no-op
-# Note: All images share the same host keys. For per-device unique keys,
-#       remove this and accept the ~2s first-boot cost.
-# ---------------------------------------------------------------------------
-generate_ssh_host_keys() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/ssh
-    for keyfile in ssh_host_rsa_key ssh_host_ecdsa_key ssh_host_ed25519_key; do
-        install -m 0600 ${THISDIR}/files/ssh-host-keys/${keyfile} \
-            ${IMAGE_ROOTFS}${sysconfdir}/ssh/${keyfile}
-        install -m 0644 ${THISDIR}/files/ssh-host-keys/${keyfile}.pub \
-            ${IMAGE_ROOTFS}${sysconfdir}/ssh/${keyfile}.pub
-    done
-    # Mask the service so it doesn't even check at boot
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sshdgenkeys.service
-}
-
-# ---------------------------------------------------------------------------
-# Reach network-online.target as soon as ANY interface is online.
-# Default systemd-networkd-wait-online waits for ALL managed links; a
-# disconnected onboard eth0 (no carrier) then blocks boot for the full ~120s
-# timeout even when eth1/LTE is already up. --any returns once one link is up.
-# ---------------------------------------------------------------------------
-configure_wait_online_any() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-networkd-wait-online.service.d
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-networkd-wait-online.service.d/any.conf << 'EOF'
-[Service]
-ExecStart=
-ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any
-EOF
 }
 
 # ---------------------------------------------------------------------------
@@ -342,18 +259,6 @@ EOF
 # 共通に機能する — root=p5/p6・ラベル名を両レイアウトで揃えてあるため。
 ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi5 = " install_ab_boot_support;"
 ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_ab_boot_support;"
-
-# ---------------------------------------------------------------------------
-# XPI 開発パネルの EDID をファームウェアファイルで供給する
-# (cmdline の drm.edid_firmware= とセット。LT9611 の DDC 経由 EDID 読取が
-#  実測 1.1〜1.4s と遅く、weston 起動の大半を占めていたのを全廃する)
-# ---------------------------------------------------------------------------
-install_edid_firmware() {
-    install -d ${IMAGE_ROOTFS}${nonarch_base_libdir}/firmware/edid
-    install -m 0644 ${THISDIR}/files/kart-tfp401-edid.bin \
-        ${IMAGE_ROOTFS}${nonarch_base_libdir}/firmware/edid/kart-tfp401-edid.bin
-}
-ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_edid_firmware;"
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"

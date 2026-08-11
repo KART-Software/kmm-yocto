@@ -17,6 +17,7 @@ SRC_URI:append:mx8mm-generic-bsp = " \
     file://kart-uboot-status \
     file://kart-uboot-try \
     file://kart-uboot-commit \
+    file://fw_env.config \
 "
 
 do_install() {
@@ -29,6 +30,8 @@ do_install:append:mx8mm-generic-bsp() {
     install -m 0755 ${WORKDIR}/kart-uboot-status ${D}${sbindir}/kart-uboot-status
     install -m 0755 ${WORKDIR}/kart-uboot-try ${D}${sbindir}/kart-uboot-try
     install -m 0755 ${WORKDIR}/kart-uboot-commit ${D}${sbindir}/kart-uboot-commit
+    install -d ${D}${sysconfdir}
+    install -m 0644 ${WORKDIR}/fw_env.config ${D}${sysconfdir}/fw_env.config
 }
 
 FILES:${PN} = "${sbindir}/kart-ab-status ${sbindir}/kart-ab-commit"
@@ -36,6 +39,7 @@ FILES:${PN}:append:mx8mm-generic-bsp = " \
     ${sbindir}/kart-uboot-status \
     ${sbindir}/kart-uboot-try \
     ${sbindir}/kart-uboot-commit \
+    ${sysconfdir}/fw_env.config \
 "
 
 # i.MX 版は U-Boot env を fw_printenv/fw_setenv で操作する
