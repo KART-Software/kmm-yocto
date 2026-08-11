@@ -78,11 +78,20 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
 
 1. **CAN 実機確認** — MCP2515 HAT を挿し、`ip link set can0 up type can bitrate 1000000`
    → `candump`。DTS の CAN INT(GPIO3_IO24)と ECSPI2 配線の検証。
-2. **HDMI 表示** — LT9611 が connect したら [weston](00-glossary.md#g-weston)/[kmm](00-glossary.md#g-kmm) が画を出すか。
-   `/sys/class/drm/card0-HDMI-A-1/status`。
-3. **userspace→GUI の実測** — 移行判断で唯一未実測の値。RPi5 の [UART](00-glossary.md#g-uart) 計測
-   ハーネス(`docs/boot-timing.md`)をそのまま適用。A53 + [etnaviv](00-glossary.md#g-etnaviv) での weston+kmm
-   起動時間が移行の損益を決める。
+2. **HDMI 表示 — 完了 (2026-08-11)**。[weston](00-glossary.md#g-weston)/[kmm](00-glossary.md#g-kmm) の GUI 表示を実機確認
+   (開発用 800x480 パネル + TFP401、コールドブート再現込み)。
+   **LT9611 は低ピクセルクロックで使用不能**なため、「108MHz ラスタに
+   800x480 アクティブだけ置く」カスタムモードで解決
+   ([04-pitfalls](04-pitfalls.md) #17)。weston.ini (mx8mm override) に焼き込み済み。
+   CAN 実トラフィック (142fps) + GUI 更新の同時負荷も実測済み: CPU 33%
+   (うち kmm 21% — 当時 1080p 描画。現 800x480 描画では大幅減の見込み)。
+3. **userspace→GUI の実測 — 完了 (2026-08-11)**。eMMC ブートで
+   電源→GUI ≈13s (SPL+U-Boot 2.13s / カーネル→userspace 4.42s /
+   userspace→GUI 5.86s、kmm NRestarts=0)。RPi5 実測 8.59s より遅く、
+   見積 4.1〜4.8s とも乖離 — 未最適化のため。伸びしろの筆頭は
+   resolved の sysinit 混入 (preset 再作成バグ、RPi5 にも同件あり)、
+   カーネル 4.4s の initcall 調査、weston 1.7s。GPU は etnaviv (GC600)
+   ハードレンダリング動作確認済み、DVFS 1.8GHz まで有効。
 4. **eMMC への本焼き — 完了 (2026-08-11 実機実証)**。手順は UUU/`ums` ではなく
    **netboot Linux から dd** が最も簡単だった(全部実績のある経路のみ使う):
    1. `./scripts/build.sh imx8mm --emmc` → `kart-image-...-emmc.wic`(3.9GB raw)

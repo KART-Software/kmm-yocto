@@ -12,6 +12,7 @@ SRC_URI += " \
     file://watchdog.cfg \
     file://pinctrl-gpio.cfg \
     file://0001-drm-mxsfb-attach-bridge-with-NO_CONNECTOR.patch \
+    file://0002-drm-lontium-lt9611-dsi-lanes-from-dt.patch \
 "
 
 KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-kart.dtb freescale/imx8mm-xpi-kart.dtb"

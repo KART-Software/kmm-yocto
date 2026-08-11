@@ -116,9 +116,18 @@
 	remote-endpoint = <&lt9611_out>;
 };
 
-/* DSIM の出力を LT9611 の DSI 入力へ */
+/* DSIM の出力を LT9611 の DSI 入力へ。
+ * 4 レーンが正式構成。LT9611 の TX/PCR は低ピクセルクロック (〜75MHz) で
+ * 横揺れ・無信号になる実測特性があり、weston.ini (mx8mm override) の
+ * 高クロックラスタ + 小アクティブ領域モードとセットで運用する
+ * (docs/imx8mm-xpi-bringup/04-pitfalls.md #17)。
+ * なお data-lanes は 0002 パッチにより可変: 低 pclk を直接受けさせたい
+ * 実験では <1 2> にするとレーン当たりレートが倍になり、LT9611 の
+ * MIPI RX ロック下限 (実測 280〜312Mbps/lane の間) を回避できる。
+ * ただし 2 レーンでは 1080p (1782Mbps/lane) は帯域超過。 */
 &dsi_out {
 	remote-endpoint = <&lt9611_a>;
+	data-lanes = <1 2 3 4>;
 };
 
 &i2c4 {
@@ -146,6 +155,8 @@
 				reg = <0>;
 				lt9611_a: endpoint {
 					remote-endpoint = <&dsi_out>;
+					/* レーン数は dsi_out 側のコメント参照 */
+					data-lanes = <1 2 3 4>;
 				};
 			};
 
