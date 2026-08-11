@@ -28,11 +28,13 @@ fi
 # 1 バッチ = 1 CRC 更新。途中で電源断しても旧 env か新 env のどちらかに倒れる。
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
+# 注意: libubootenv の -s は「名前=値」形式。スペース区切りは黙って無視され
+# rc=0 のまま何も書かれない (実機で読み戻し検証に引っかかって発覚)
 cat > "$TMP" << EOF
-kart_slot $SLOT
-kart_fallback_slot $SLOT
-upgrade_available 0
-bootcount 0
+kart_slot=$SLOT
+kart_fallback_slot=$SLOT
+upgrade_available=0
+bootcount=0
 EOF
 fw_setenv -s "$TMP"
 

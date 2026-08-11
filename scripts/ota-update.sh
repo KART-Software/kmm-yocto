@@ -163,7 +163,7 @@ else
     ACTIVE_LC=$(echo "$ACTIVE" | tr 'AB' 'ab')
     "${SSH[@]}" "
 set -e
-printf 'kart_slot ${IN_LC}\nkart_fallback_slot ${ACTIVE_LC}\nupgrade_available 1\nbootcount 0\n' > /tmp/ota-env
+printf 'kart_slot=${IN_LC}\nkart_fallback_slot=${ACTIVE_LC}\nupgrade_available=1\nbootcount=0\n' > /tmp/ota-env
 fw_setenv -s /tmp/ota-env
 v=\$(fw_printenv -n kart_slot)
 [ \"\$v\" = \"${IN_LC}\" ] || { echo 'ERROR: fw_setenv read-back failed' >&2; exit 1; }

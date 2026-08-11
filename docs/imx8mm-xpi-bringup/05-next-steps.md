@@ -107,8 +107,19 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    (シリアル初バイト起点)。extlinux の `rw` は systemd が ro に再マウントし
    read-only rootfs 維持、`/data`(p7) rw マウント、systemd が
    RuntimeWatchdogSec=15 で watchdog を open、`kart-ab-status` も動作。
-   残: OTA (`ota-update.sh`) の i.MX 経路と B スロット試行/フォールバックの
-   実機検証、U-Boot A/B (PSB) の検証。
+
+   **OTA A→B フルサイクルも実機検証済み (2026-08-11)**: `ota-update.sh` で
+   slot B 書込 → fw_setenv 試行 → tryboot → `kart-ab-commit` (読み戻し検証) →
+   再起動で B 恒久ブート、まで完走。**フォールバックも実機実証**: 破壊した
+   スロットへの試行が rootwait 停止 → 60s watchdog リセット → bootcount 超過 →
+   `altbootcmd` が「bootlimit reached, falling back」を表示して旧スロットへ
+   自動復帰 (無人復帰まで 84 秒、シリアルで全捕捉)。
+   発見バグ: libubootenv の `fw_setenv -s` はスペース区切りを黙って無視する
+   ([04-pitfalls](04-pitfalls.md) #18)。既知の制限: DHCP 環境では新スロットの
+   machine-id 変化で IP が変わり ota-update.sh の復帰待ちがタイムアウトする
+   (実際は成功している。tailscale 名運用なら影響なし)。
+   残: U-Boot A/B (PSB) の実機検証、bootcmd 失敗時に U-Boot プロンプトへ
+   落ちるケースの `; reset` ハードニング検討。
 5. **XPI 用 machine の正式化** — 今は EVK machine(`imx8mm-lpddr4-evk`)を流用。
    ベンダ [BSP](00-glossary.md#g-bsp) か自前で XPI machine を作れば `imx8mm-lpddr4-evk` 依存が消える。
 

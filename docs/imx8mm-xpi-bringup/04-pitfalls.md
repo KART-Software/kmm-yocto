@@ -241,3 +241,14 @@ native 直送実験で使用。ただし TX 側の揺れは解決しないため
   `-f` (force) でドライバと共存してレジスタを覗ける。
 - PCR ロック品質は `video check` の `h_total_sysclk` ≈ 27e6×htotal/pclk
   で数値評価できる。
+
+## 18. libubootenv の fw_setenv -s はスペース区切りを黙って無視する
+
+症状: `fw_setenv -s <batch>` が rc=0 なのに何も書き込まれない
+(fw_printenv で旧値のまま)。単発の `fw_setenv name value` は成功する。
+真因: **libubootenv のバッチ形式は `名前=値`**。旧来の u-boot-tools 流の
+「名前 値」(スペース区切り) の行はエラーにならず捨てられる。
+ota-update.sh と kart-ab-commit (mx8mm 版) が両方これを踏んでいた —
+どちらも**読み戻し検証を実装していたおかげで無言破壊にならず検出できた**。
+修正: バッチファイルを `kart_slot=b` 形式に。
+教訓: fw_setenv 系は必ず読み戻し検証をセットにする (今回それが仕事をした)。
