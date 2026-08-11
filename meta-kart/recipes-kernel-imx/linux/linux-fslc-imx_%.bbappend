@@ -9,6 +9,8 @@ SRC_URI += " \
     file://display.cfg \
     file://slim-imx-arch.cfg \
     file://slim-imx.cfg \
+    file://watchdog.cfg \
+    file://pinctrl-gpio.cfg \
 "
 
 KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-kart.dtb freescale/imx8mm-xpi-kart.dtb"

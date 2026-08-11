@@ -51,6 +51,66 @@
 	/delete-node/ hdmi@3d;
 };
 
+/*
+ * ===== EVK 残骸の無効化 =====
+ * XPI に存在しない EVK 周辺を全て落とす。pinctrl+GPIO が生きていると
+ * これらのノードは実際に XPI の足を掴んで駆動してしまう
+ * (特に reg_pcie0 は GPIO1_IO05 = XPI の LT9611 IRQ 線を Low に初期化する)。
+ * phandle グラフに絡むノードは status="disabled" (参照切れコンパイルエラー
+ * 回避)、絡まないノードは /delete-node/。
+ */
+
+/* PCIe: XPI に引き出されていない */
+&pcie0 {
+	status = "disabled";
+};
+&pcie_phy {
+	status = "disabled";
+};
+/* MPCIE_3V3: gpio1 5 (XPI では LT9611 IRQ) を regulator init が Low に叩く */
+&reg_pcie0 {
+	status = "disabled";
+};
+
+/* USB-C PD (ptn5110) は EVK アダプタの物。XPI はベンダ DT 通り素の host */
+&ptn5110 {
+	status = "disabled";
+};
+&usbotg1 {
+	dr_mode = "host";
+	/* role switch は ptn5110 前提。残すと usbotg1 が永久 deferred になる */
+	/delete-property/ usb-role-switch;
+};
+
+/* MIPI パネル用バックライト (XPI は HDMI)。pwm1 は backlight 専用 */
+&pwm1 {
+	status = "disabled";
+};
+
+/* PDM マイク (EVK): pdmgrp が SAI5_RXD3 を PDM_DATA3 に mux し、
+ * CAN INT (canintgrp: SAI5_RXD3 → GPIO3_IO24) とパッドを取り合う */
+&micfil {
+	status = "disabled";
+};
+
+/* EVK の GPIO エキスパンダ/カメラの載る i2c3 ごと不要 (XPI は i2c4=LT9611) */
+&i2c3 {
+	status = "disabled";
+};
+&csi {
+	status = "disabled";
+};
+&mipi_csi {
+	status = "disabled";
+};
+
+/delete-node/ &backlight;
+
+/ {
+	/delete-node/ leds;		/* gpio3 16 を出力 ON で掴む */
+	/delete-node/ ir-receiver;	/* gpio1 13 を掴む */
+};
+
 /* HDMI コネクタは LT9611 の出力へ */
 &hdmi_connector_in {
 	remote-endpoint = <&lt9611_out>;

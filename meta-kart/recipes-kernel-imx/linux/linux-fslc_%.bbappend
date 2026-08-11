@@ -15,6 +15,8 @@ SRC_URI += " \
     file://display.cfg \
     file://slim-imx-arch.cfg \
     file://slim-imx.cfg \
+    file://watchdog.cfg \
+    file://pinctrl-gpio.cfg \
 "
 
 # 注意: meta-freescale は machine-overrides-extender で MACHINEOVERRIDES を

@@ -92,7 +92,26 @@ IMAGE_ROOTFS_EXTRA_SPACE = "0"
 # Ensure systemd is used
 IMAGE_INSTALL:append = " systemd-serialgetty"
 
-ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;configure_wait_online_any;"
+ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;configure_wait_online_any;netboot_mask_networkd;"
+
+# ---------------------------------------------------------------------------
+# netboot (NFS root) 専用: systemd-networkd スタックを丸ごと mask する。
+# カーネルが ip= で上げた eth0 を networkd が掌握し直す際に一度落とすため、
+# NFS root (= /) が読めなくなり boot が 16 秒地点で全停止する
+# (docs/imx8mm-xpi-bringup/04-pitfalls.md 「16 秒の壁」)。
+# ローカル root の実機イメージでは networkd が必要なので、
+# kas/imx8mm-netboot.yml が KART_NETBOOT = "1" を立てたときだけ有効。
+# mask (/dev/null への symlink) は systemd_preset_all が作る wants リンクより
+# 優先されるので、ROOTFS_POSTPROCESS で入れて問題ない。
+# ---------------------------------------------------------------------------
+netboot_mask_networkd() {
+    [ "${KART_NETBOOT}" = "1" ] || return 0
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
+    for unit in systemd-networkd.service systemd-networkd.socket \
+                systemd-networkd-wait-online.service; do
+        ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/$unit
+    done
+}
 
 # ---------------------------------------------------------------------------
 # Create /data mount point and fstab entry for persistent data partition
