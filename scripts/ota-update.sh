@@ -7,9 +7,10 @@
 #           旧スロットへ復帰。電源断でも旧スロットに戻る)
 #
 # Usage:
-#   ./scripts/ota-update.sh --host <ssh-host> [image.wic.bz2]
+#   ./scripts/ota-update.sh --host <ssh-host> [--yes] [image.wic.bz2]
 #
 #   --host <host>   SSH destination (tailscale name/IP or LAN IP; root login)
+#   --yes | -y      最終確認プロンプトを省略して自動コミット (非対話実行用)
 #   [image]         wic.bz2 to deploy (default: latest built nvme image)
 #
 # What it does (each step is printed; nothing is silent):
@@ -44,10 +45,12 @@ fi
 
 HOST=""
 IMAGE=""
+ASSUME_YES=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --host)   HOST="${2:-}"; shift 2 ;;
         --host=*) HOST="${1#*=}"; shift ;;
+        --yes|-y) ASSUME_YES=1; shift ;;
         -h|--help) sed -n '2,/^set -e/p' "$0" | grep '^#' | sed 's/^# \?//'; exit 0 ;;
         -*) echo "ERROR: unknown option: $1" >&2; exit 1 ;;
         *)  IMAGE="$1"; shift ;;
@@ -58,7 +61,13 @@ done
 IMAGE="${IMAGE:-$(readlink -f "$IMAGE_DIR/kart-image-raspberrypi5-nvme.wic.bz2")}"
 [ -f "$IMAGE" ] || { echo "ERROR: image not found: $IMAGE" >&2; exit 1; }
 
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 "root@$HOST")
+# SSH は -n 付き (リモートへ stdin を転送しない)。無印 ssh は自分の stdin を
+# リモートに吸わせるため、`echo y | ota-update.sh` のようなパイプ実行で
+# 序盤の ssh 呼び出しが 'y' を食ってしまい、終盤の commit プロンプトに
+# 届かない (EOF → N 扱いで未コミット) バグがあった。
+# SSH_PIPE は stdin でデータを流す dd/展開用 (-n を付けてはいけない)。
+SSH=(ssh -n -o BatchMode=yes -o ConnectTimeout=10 "root@$HOST")
+SSH_PIPE=(ssh -o BatchMode=yes -o ConnectTimeout=10 "root@$HOST")
 
 WORK=$(mktemp -d /tmp/kart-ota.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
@@ -119,9 +128,9 @@ echo "    prepare rootfs image: label=${IN_RLABEL}, new UUID..."
 e2label "$WORK/root.img" "$IN_RLABEL"
 tune2fs -U random "$WORK/root.img" >/dev/null 2>&1 || true
 echo "    rootfs -> ${BASE}p${IN_ROOT} (dd over ssh)..."
-gzip -c "$WORK/root.img" | "${SSH[@]}" "gzip -dc | dd of=${BASE}p${IN_ROOT} bs=4M && sync"
+gzip -c "$WORK/root.img" | "${SSH_PIPE[@]}" "gzip -dc | dd of=${BASE}p${IN_ROOT} bs=4M && sync"
 echo "    boot files -> ${BASE}p${IN_BOOT} (file copy, label preserved)..."
-gzip -c "$WORK/boot.img" | "${SSH[@]}" "
+gzip -c "$WORK/boot.img" | "${SSH_PIPE[@]}" "
 set -e
 gzip -dc > /tmp/ota-boot.img
 mkdir -p /tmp/ota-src /tmp/ota-dst
@@ -190,7 +199,12 @@ echo "    health:"
 "${SSH[@]}" 'systemctl is-active weston kmm can0-up 2>/dev/null | tr "\n" " "; echo; systemctl --failed --no-legend | wc -l | xargs echo "    failed units:"'
 
 echo "==> [6/6] Commit?"
-read -rp "    Make slot $IN_SLOT permanent? [y/N] " ok
+if [ "$ASSUME_YES" = "1" ]; then
+    ok=y
+    echo "    Make slot $IN_SLOT permanent? [y/N] y (--yes)"
+else
+    read -rp "    Make slot $IN_SLOT permanent? [y/N] " ok
+fi
 if [[ "$ok" =~ ^[Yy]$ ]]; then
     "${SSH[@]}" kart-ab-commit
     echo "==> OTA complete: slot $IN_SLOT is now the boot slot."
