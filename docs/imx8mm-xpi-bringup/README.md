@@ -35,6 +35,7 @@ disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿し
 | [03-boot-flow.md](03-boot-flow.md) | ブート経路(SDP → 自作 U-Boot → [TFTP](00-glossary.md#g-tftp)/NFS netboot)の全手順 |
 | [04-pitfalls.md](04-pitfalls.md) | 詰まった箇所と回避策(全部) |
 | [05-next-steps.md](05-next-steps.md) | 残課題と直し方 |
+| [06-emmc-flash.md](06-emmc-flash.md) | eMMC 初回書き込み手順書(新品ボード → スタンドアロン起動) |
 
 関連: [../imx8mm-migration-design.md](../imx8mm-migration-design.md)(移行の設計判断)、
 `meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi-kart.dts`(XPI 用 [DT](00-glossary.md#g-dt))。

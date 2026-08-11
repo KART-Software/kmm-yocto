@@ -42,25 +42,25 @@ uuu -lsusb               # 3:5 MX8MM SDP: 0x1FC9 0x0134
 待ったまま止まる**(SPL が `Trying to boot from USB SDP` で待機)。
 ベンダ `uuu.auto` と同じく **SPL 後段([SDPV](00-glossary.md#g-sdpv))まで送るスクリプト**が要る。
 
-`build/tmp/deploy/images/imx8mm-lpddr4-evk/kart-boot.uuu`:
+スクリプトはリポジトリに入っている(`scripts/kart-boot.uuu`):
 
 ```
 uuu_version 1.5.243
-SDP:  boot  -f flash.bin-imx8mm-lpddr4-evk-sd
+SDP:  boot  -f ../build/tmp/deploy/images/imx8mm-lpddr4-evk/flash.bin-imx8mm-lpddr4-evk-sd
 SDPV: delay 1000
-SDPV: write -f flash.bin-imx8mm-lpddr4-evk-sd -skipspl
+SDPV: write -f ../build/.../flash.bin-imx8mm-lpddr4-evk-sd -skipspl
 SDPV: jump
 ```
 
 > ⚠️ **[UUU](00-glossary.md#g-uuu-universal-update-utility) スクリプトのパスは「スクリプトのあるディレクトリからの相対」で解決される。**
 > 絶対パスを書くと二重連結で壊れる(`scratchpad//home/...` エラー)。
-> **画像ディレクトリに置いてファイル名だけ書く**のが正解。
+> リポジトリ版が `../build/...` で書かれているのはこのため(`scripts/` 起点で
+> デプロイディレクトリを指す。実行時の CWD には依存しない)。
 
-実行(画像ディレクトリで):
+実行(リポジトリ直下から):
 
 ```bash
-cd build/tmp/deploy/images/imx8mm-lpddr4-evk
-uuu -v kart-boot.uuu
+uuu -v scripts/kart-boot.uuu
 # SDP: boot ... Okay
 # SDPV: write ... Okay
 # SDPV: jump ... Okay

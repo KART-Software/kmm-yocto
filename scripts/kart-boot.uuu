@@ -1,0 +1,20 @@
+uuu_version 1.5.243
+# kart-boot.uuu — 自作 imx-boot (SPL + U-Boot proper) を SDP で XPI の RAM に
+# 送って起動する。eMMC には一切書かない (電源を切れば元の状態に戻る)。
+#
+# 使い方 (リポジトリのどこからでも可):
+#   uuu -v scripts/kart-boot.uuu
+#
+# 前提: S1 = Serial Download (1010 1010) で電源投入済み
+#       (lsusb に 1fc9:0134 が見えること。詳細は docs/imx8mm-xpi-bringup/06-emmc-flash.md)
+#
+# 注意: uuu はファイルパスを「このスクリプトのあるディレクトリからの相対」で
+# 解決する (絶対パスは二重連結で壊れる — docs/imx8mm-xpi-bringup/03-boot-flow.md)。
+# そのため ../build/... で scripts/ からデプロイディレクトリを指している。
+#
+# 単純な `SDP: boot` だけでは SPL しか送られず U-Boot 本体を待って止まる。
+# SPL 後段 (SDPV) への write + jump が必須 (ベンダ uuu.auto と同じ構造)。
+SDP: boot -f ../build/tmp/deploy/images/imx8mm-lpddr4-evk/flash.bin-imx8mm-lpddr4-evk-sd
+SDPV: delay 1000
+SDPV: write -f ../build/tmp/deploy/images/imx8mm-lpddr4-evk/flash.bin-imx8mm-lpddr4-evk-sd -skipspl
+SDPV: jump
