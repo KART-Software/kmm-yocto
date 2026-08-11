@@ -1,0 +1,21 @@
+From: kart <kart@localhost>
+Subject: [PATCH] drm/bridge: lontium-lt9611: enable 時の settle 待ちを 500ms から 100ms に短縮
+
+msleep(500) は vendor リファレンス由来の保守的な値で、モードセットごとに
+500ms を固定で支払う (GUI 起動時間に直撃)。100ms で video check の
+読み値・表示安定性に変化が無いことを XPI 実機で確認。
+
+Upstream-Status: Inappropriate [board-specific tuning]
+
+--- a/drivers/gpu/drm/bridge/lontium-lt9611.c	2026-08-11 21:34:29.389042953 +0900
++++ b/drivers/gpu/drm/bridge/lontium-lt9611.c	2026-08-11 21:34:29.393042952 +0900
+@@ -728,7 +728,8 @@
+ 	lt9611_hdmi_tx_digital(lt9611, connector->display_info.is_hdmi);
+ 	lt9611_hdmi_tx_phy(lt9611);
+ 
+-	msleep(500);
++	/* 500ms は vendor 由来の保守的値。100ms で安定動作を実機確認済み */
++	msleep(100);
+ 
+ 	lt9611_video_check(lt9611);
+ 

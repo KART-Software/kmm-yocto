@@ -31,6 +31,12 @@ local_conf_header:
   imx8mm-image: |
     IMAGE_FSTYPES = "wic wic.bz2 wic.bmap"
 
+  imx8mm-cmdline: |
+    # 起動時間: quiet でシリアルへの printk 垂れ流しを止め、EDID は
+    # ファームウェアファイル供給 (LT9611 の DDC 読取 1.1〜1.4s を全廃。
+    # ファイルは kart-image が /lib/firmware/edid/ に配置)
+    UBOOT_EXTLINUX_KERNEL_ARGS = "rootwait rw quiet drm.edid_firmware=HDMI-A-1:edid/kart-tfp401-edid.bin"
+
   imx8mm-dtb: |
     # 実機 = XPI なので、XPI 用 kart DTB をストック名 (imx8mm-evk.dtb) で
     # ブートパーティションに配置する。U-Boot の fdtfile / extlinux の FDT が

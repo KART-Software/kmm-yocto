@@ -85,13 +85,24 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    ([04-pitfalls](04-pitfalls.md) #17)。weston.ini (mx8mm override) に焼き込み済み。
    CAN 実トラフィック (142fps) + GUI 更新の同時負荷も実測済み: CPU 33%
    (うち kmm 21% — 当時 1080p 描画。現 800x480 描画では大幅減の見込み)。
-3. **userspace→GUI の実測 — 完了 (2026-08-11)**。eMMC ブートで
+3. **userspace→GUI の実測 — 完了 (2026-08-11)**。未最適化の初回実測は
    電源→GUI ≈13s (SPL+U-Boot 2.13s / カーネル→userspace 4.42s /
-   userspace→GUI 5.86s、kmm NRestarts=0)。RPi5 実測 8.59s より遅く、
-   見積 4.1〜4.8s とも乖離 — 未最適化のため。伸びしろの筆頭は
-   resolved の sysinit 混入 (preset 再作成バグ、RPi5 にも同件あり)、
-   カーネル 4.4s の initcall 調査、weston 1.7s。GPU は etnaviv (GC600)
-   ハードレンダリング動作確認済み、DVFS 1.8GHz まで有効。
+   userspace→GUI 5.86s)。GPU は etnaviv (GC600) ハードレンダリング、
+   DVFS 1.8GHz まで有効。
+
+   **最適化 2 ラウンドで ≈6.3s まで短縮 (2026-08-11、コールドブート実測)**:
+   - fbdev エミュレーション無効 (lcdif probe 内の初回モードセット =
+     EDID 読取+500ms settle がカーネル起動から消える): カーネル 4.42→2.28s
+   - cmdline `quiet` (115200 への printk 垂れ流し停止): カーネル→0.67s
+   - EDID をファームウェアファイル供給 (`drm.edid_firmware=`。LT9611 の
+     DDC 経由読取 1.1〜1.4s を全廃): weston 1.57→0.53s
+   - lt9611 settle 500ms→100ms (0003 パッチ、video check で安定裏取り)
+   - resolved の sysinit preset 再作成バグ修正 (timesyncd と同じ
+     IMAGE_PREPROCESS 方式。**RPi5 イメージにも効く**): sysinit -0.5s
+   内訳 (現在): SPL+U-Boot 2.13s / カーネル→userspace 0.67s /
+   userspace→GUI 3.28s (kmm READY monotonic 3.95s)。**RPi5 の 8.59s を逆転**。
+   次の伸びしろ: SPL+U-Boot 2.13s (Falcon Mode 領域)、basic.target まで
+   の 2.2s (eMMC デバイス settle ~2s が主)、kmm 0.43s。
 4. **eMMC への本焼き — 完了 (2026-08-11 実機実証)**。手順は UUU/`ums` ではなく
    **netboot Linux から dd** が最も簡単だった(全部実績のある経路のみ使う):
    1. `./scripts/build.sh imx8mm --emmc` → `kart-image-...-emmc.wic`(3.9GB raw)

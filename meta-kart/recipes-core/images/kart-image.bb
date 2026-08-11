@@ -181,6 +181,13 @@ EOF
 remove_timesyncd_sysinit_pull() {
     rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-timesyncd.service
     rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-timesyncd.service
+
+    # resolved にも同じ preset 再作成問題がある: delay_resolved_start が消した
+    # sysinit.target.wants リンクを systemd_preset_all が復活させ、resolved が
+    # sysinit の critical path に居座る (i.MX 実測で +450ms、sysinit 到達を
+    # ~0.5s 遅らせていた。resolved の遅延起動は timer が担うので wants は不要)
+    rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-resolved.service
+    rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-resolved.service
 }
 IMAGE_PREPROCESS_COMMAND:append = " remove_timesyncd_sysinit_pull;"
 
@@ -332,6 +339,18 @@ EOF
 # 共通に機能する — root=p5/p6・ラベル名を両レイアウトで揃えてあるため。
 ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi5 = " install_ab_boot_support;"
 ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_ab_boot_support;"
+
+# ---------------------------------------------------------------------------
+# XPI 開発パネルの EDID をファームウェアファイルで供給する
+# (cmdline の drm.edid_firmware= とセット。LT9611 の DDC 経由 EDID 読取が
+#  実測 1.1〜1.4s と遅く、weston 起動の大半を占めていたのを全廃する)
+# ---------------------------------------------------------------------------
+install_edid_firmware() {
+    install -d ${IMAGE_ROOTFS}${nonarch_base_libdir}/firmware/edid
+    install -m 0644 ${THISDIR}/files/kart-tfp401-edid.bin \
+        ${IMAGE_ROOTFS}${nonarch_base_libdir}/firmware/edid/kart-tfp401-edid.bin
+}
+ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_edid_firmware;"
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"
