@@ -11,6 +11,7 @@ SRC_URI += " \
     file://slim-imx.cfg \
     file://watchdog.cfg \
     file://pinctrl-gpio.cfg \
+    file://0001-drm-mxsfb-attach-bridge-with-NO_CONNECTOR.patch \
 "
 
 KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-kart.dtb freescale/imx8mm-xpi-kart.dtb"

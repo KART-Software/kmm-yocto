@@ -17,6 +17,7 @@ SRC_URI += " \
     file://slim-imx.cfg \
     file://watchdog.cfg \
     file://pinctrl-gpio.cfg \
+    file://0001-drm-mxsfb-attach-bridge-with-NO_CONNECTOR.patch \
 "
 
 # 注意: meta-freescale は machine-overrides-extender で MACHINEOVERRIDES を

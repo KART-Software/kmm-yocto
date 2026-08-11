@@ -32,8 +32,9 @@ local_conf_header:
     IMAGE_FSTYPES = "wic wic.bz2 wic.bmap"
 
   imx8mm-dtb: |
-    # MCP2515 入りの kart バリアント DTB をストック名 (imx8mm-evk.dtb) で
-    # ブートパーティションに配置する。U-Boot の fdtfile デフォルトが
-    # imx8mm-evk.dtb を指すため、環境変数をいじらずに kart DTB が選ばれる。
+    # 実機 = XPI なので、XPI 用 kart DTB をストック名 (imx8mm-evk.dtb) で
+    # ブートパーティションに配置する。U-Boot の fdtfile / extlinux の FDT が
+    # imx8mm-evk.dtb を指すため、環境変数をいじらずに XPI DTB が選ばれる。
+    # EVK 足場用の imx8mm-evk-kart.dtb も素の名前で同梱 (U-Boot から手動選択用)。
     # DTB 自体は meta-kart/recipes-kernel-imx/ の bbappend がビルドする。
-    IMAGE_BOOT_FILES = "Image imx8mm-evk-kart.dtb;imx8mm-evk.dtb"
+    IMAGE_BOOT_FILES = "Image imx8mm-xpi-kart.dtb;imx8mm-evk.dtb imx8mm-evk-kart.dtb"

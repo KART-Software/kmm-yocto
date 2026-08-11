@@ -14,9 +14,15 @@ kart の自作 [Yocto](00-glossary.md#g-yocto) イメージ(自作 [SPL](00-glos
 | [eMMC](00-glossary.md#g-emmc)([HS400](00-glossary.md#g-hs400))/GbE | ✅ | `mmcblk2 8GTF4R HS400`、`Link is Up 1Gbps` |
 | [systemd](00-glossary.md#g-systemd) → login | ✅ | `imx8mm-lpddr4-evk login:` 到達 |
 
-**未完(実機なしで [DTS](00-glossary.md#g-dts) 修正して詰められる):**
-- NFS root + [systemd-networkd](00-glossary.md#g-systemd-networkd) の完全分離(login 後にネットワーク断)
-- [pinctrl](00-glossary.md#g-pinctrl) の [deferred probe](00-glossary.md#g-deferred-probe)([LT9611](00-glossary.md#g-lt9611) / [CAN](00-glossary.md#g-can) / backlight が pinctrl グループ供給待ち)
+**2026-08-11 追記 — 上記「未完」2 点は解決済み**([05-next-steps](05-next-steps.md) 冒頭と
+[04-pitfalls](04-pitfalls.md) #14〜#16 参照)。正体はどちらも当初の見立てと別物:
+「ネットワーク断」= **U-Boot が武装した WDOG1 60s のウォッチドッグリセット**、
+「pinctrl 待ち」= **スリム化の依存崩壊で CONFIG_PINCTRL/GPIOLIB ごと消えていた**。
+修正後の実機実証: pet 無し 233s+ 生存 / PMIC probe / **LT9611 revision 0xe2 実読** /
+mcp251x が SPI 通信到達(HAT 未装着で err=110 は期待通り)/
+**mxsfb-drm 初期化 + `card1-HDMI-A-1` コネクタ出現**(モニタ未接続で
+disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿しての
+物理検証([05](05-next-steps.md) C 項)。
 
 このディレクトリの構成:
 

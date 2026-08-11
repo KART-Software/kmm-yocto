@@ -1,0 +1,73 @@
+From: kart <kart@localhost>
+Subject: [PATCH] drm/mxsfb: attach bridge chain with DRM_BRIDGE_ATTACH_NO_CONNECTOR
+
+XPI-iMX8MM は lcdif(mxsfb) -> Samsung DSIM -> LT9611 -> hdmi-connector
+というチェーンだが、6.12 の lontium-lt9611 と display-connector は
+DRM_BRIDGE_ATTACH_NO_CONNECTOR 前提 (flags=0 だと -EINVAL)。mxsfb を
+NO_CONNECTOR で attach し、connector は drm_bridge_connector_init() で
+生成する方式に変更する。EVK の adv7535 経路も NO_CONNECTOR 対応済みで
+同じパスで動く。
+
+Upstream-Status: Inappropriate [product-specific bring-up, needs rework for submission]
+
+--- a/drivers/gpu/drm/mxsfb/mxsfb_drv.c	2026-08-11 01:55:10.740565436 +0900
++++ b/drivers/gpu/drm/mxsfb/mxsfb_drv.c	2026-08-11 01:55:10.771477900 +0900
+@@ -19,6 +19,7 @@
+ 
+ #include <drm/drm_atomic_helper.h>
+ #include <drm/drm_bridge.h>
++#include <drm/drm_bridge_connector.h>
+ #include <drm/drm_connector.h>
+ #include <drm/drm_drv.h>
+ #include <drm/drm_fbdev_dma.h>
+@@ -118,7 +119,7 @@
+ static int mxsfb_attach_bridge(struct mxsfb_drm_private *mxsfb)
+ {
+ 	struct drm_device *drm = mxsfb->drm;
+-	struct drm_connector_list_iter iter;
++	struct drm_connector *connector;
+ 	struct drm_panel *panel;
+ 	struct drm_bridge *bridge;
+ 	int ret;
+@@ -138,19 +139,22 @@
+ 	if (!bridge)
+ 		return -ENODEV;
+ 
+-	ret = drm_bridge_attach(&mxsfb->encoder, bridge, NULL, 0);
++	ret = drm_bridge_attach(&mxsfb->encoder, bridge, NULL,
++				DRM_BRIDGE_ATTACH_NO_CONNECTOR);
+ 	if (ret)
+ 		return dev_err_probe(drm->dev, ret, "Failed to attach bridge\n");
+ 
+ 	mxsfb->bridge = bridge;
+ 
+-	/*
+-	 * Get hold of the connector. This is a bit of a hack, until the bridge
+-	 * API gives us bus flags and formats.
+-	 */
+-	drm_connector_list_iter_begin(drm, &iter);
+-	mxsfb->connector = drm_connector_list_iter_next(&iter);
+-	drm_connector_list_iter_end(&iter);
++	connector = drm_bridge_connector_init(drm, &mxsfb->encoder);
++	if (IS_ERR(connector))
++		return PTR_ERR(connector);
++
++	ret = drm_connector_attach_encoder(connector, &mxsfb->encoder);
++	if (ret)
++		return ret;
++
++	mxsfb->connector = connector;
+ 
+ 	return 0;
+ }
+--- a/drivers/gpu/drm/mxsfb/Kconfig	2026-08-11 02:14:22.624904824 +0900
++++ b/drivers/gpu/drm/mxsfb/Kconfig	2026-08-11 02:14:22.651753105 +0900
+@@ -14,6 +14,8 @@
+ 	select DRM_GEM_DMA_HELPER
+ 	select DRM_PANEL
+ 	select DRM_PANEL_BRIDGE
++	select DRM_BRIDGE_CONNECTOR
++	select DRM_DISPLAY_HELPER
+ 	help
+ 	  Choose this option if you have an LCDIF or eLCDIF LCD controller.
+ 	  Those devices are found in various i.MX SoC (including i.MX23,
