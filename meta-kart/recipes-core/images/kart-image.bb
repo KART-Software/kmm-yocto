@@ -29,6 +29,7 @@ IMAGE_INSTALL:append = " \
     less \
     systemd-analyze \
     tailscale \
+    kart-data-mount \
 "
 
 # ---------------------------------------------------------------------------
@@ -118,7 +119,9 @@ netboot_mask_networkd() {
 # ---------------------------------------------------------------------------
 create_data_mount() {
     install -d ${IMAGE_ROOTFS}/data
-    echo "LABEL=data  /data  ext4  defaults,nofail  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
+    # /data のマウント自体は kart-data-mount レシピ (recipes-support/) の
+    # systemd サービスが行う。fstab の LABEL=data 方式は udev の blkid
+    # スキャン待ち (~1.3s) + fsck (+164ms) を伴うため廃止した。
 
     # /boot is mounted by kart-boot-mount.service (A/B: the active slot's boot
     # partition BOOTA/BOOTB is chosen from the kernel cmdline), not by fstab.
