@@ -130,8 +130,29 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    ([04-pitfalls](04-pitfalls.md) #18)。既知の制限: DHCP 環境では新スロットの
    machine-id 変化で IP が変わり ota-update.sh の復帰待ちがタイムアウトする
    (実際は成功している。tailscale 名運用なら影響なし)。
-   残: U-Boot A/B (PSB) の実機検証、bootcmd 失敗時に U-Boot プロンプトへ
-   落ちるケースの `; reset` ハードニング検討。
+   **U-Boot A/B も実機検証済み・最終形完成 (2026-08-12)**: ROM の inline
+   フォールバック (A copy の IVT 破壊 → SIT 経由で B copy を同一起動内で選択、
+   イベントログ 0x51 で裏取り) を確認。ただし **PSB を入力に使う「B の試し
+   起動」は 8MM では不可能と判明** (SRC_GPR10 は全リセットで消える) — 当初の
+   kart-uboot-try/-commit は廃止し、「**B 面に一つ前の版を残す**」方式に再設計:
+   - ツール: `kart-uboot-update` (A→B 退避 → 新版→A) / `kart-uboot-rollback`
+     (前版へ戻す) / `kart-uboot-selfheal` (boot 時 systemd oneshot、
+     フォールバックを検出したら自動 rollback) / `kart-uboot-status`
+     (起動元は ROM イベントログ判定)
+   - 安全機構: 全書き込み header-last (IVT を最後に。途中電源断は必ず
+     「IVT 不正」に落ちもう片方で起動) / A 不正時は退避スキップ (壊れた A を
+     複写して唯一の健全コピーを潰す事故を防止) / フォールバック起動中の
+     update 拒否 / flock (`/run/kart-uboot.lock`) で相互排他
+   - 検証: DP100 で各局面に実電源断 (退避中/A書込直後/本体書込後IVT前/
+     rollback中) を当てて全て再実行一発で収束。統合検証は最終イメージを
+     OTA → A破壊 → コールドブート → selfheal がサービスとして自動修復
+     (journal に全証跡) → 再起動でプライマリ起動、まで**人間の介入ゼロ**で完走
+   - 設計の全経緯・限界 (IVT 正当だが起動しないバイナリは救えない等) は
+     [04-pitfalls](04-pitfalls.md) #19 と
+     [../imx8mm-migration-design.md](../imx8mm-migration-design.md) の U-Boot A/B 節
+   残: bootcmd 失敗時に U-Boot プロンプトへ落ちるケースの `; reset`
+   ハードニング検討。「ソフト切替できる本物の A/B」が要るなら SPL セレクタ化
+   (Falcon Mode の前提工事と同内容)。
 5. **XPI 用 machine の正式化** — 今は EVK machine(`imx8mm-lpddr4-evk`)を流用。
    ベンダ [BSP](00-glossary.md#g-bsp) か自前で XPI machine を作れば `imx8mm-lpddr4-evk` 依存が消える。
 

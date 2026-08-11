@@ -1,5 +1,17 @@
 #!/bin/sh
 # kart-uboot-status — U-Boot A/B の状態を KEY=VALUE で表示。
+#
+# 運用モデル (B 面に一つ前の版を残す方式):
+#   A = 現行版 (通常こちらで起動)、B = 一つ前の版 (フォールバック先)。
+#   UBOOT_COPIES=DIFFER が正常 (A=現行 / B=前版)。IDENTICAL は
+#   rollback 直後か工場出荷状態。ACTIVE_COPY=B はフォールバック中の印
+#   (前版で動いている。現行版に戻すには kart-uboot-update を再実行)。
+#
+# 起動コピーの判定は ROM イベントログ (ポインタ @0x9e0、event 0x50=primary /
+# 0x51=secondary。U-Boot の imx8m_detect_secondary_image_boot と同じ方法)。
+# GPR10 の PERSIST_SECONDARY_BOOT は「ROM がフォールバック起動中に立てる
+# 出力」で、ソフトから立てても次回起動は変わらない (実機検証 2026-08-12。
+# GPR10 はあらゆるリセットでクリアされる)。参考として表示のみ。
 set -eu
 
 GPR=0x30390098
@@ -11,14 +23,38 @@ AREA_SECTORS=4030
 BASE_DEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
 [ -n "$BASE_DEV" ] || { echo "ERROR: cannot determine base device" >&2; exit 1; }
 
-cur=$(devmem "$GPR")
-if [ $(( cur & PSB_BIT )) -ne 0 ]; then
-    echo "UBOOT_ACTIVE_COPY=B"
-    echo "PERSIST_SECONDARY_BOOT=1"
-else
-    echo "UBOOT_ACTIVE_COPY=A"
-    echo "PERSIST_SECONDARY_BOOT=0"
+# ROM イベントログを歩いて 0x50/0x51 を探す。パラメータ付きイベントは
+# パラメータ語を読み飛ばす (パラメータ値が 0x50xxxxxx になり得るため)
+active="UNKNOWN"; source="none"
+ptr=$(devmem 0x9e0)
+ptr_n=$(( ptr ))
+if [ "$ptr_n" -ge $(( 0x00900000 )) ] && [ "$ptr_n" -lt $(( 0x00B00000 )) ] \
+   && [ $(( ptr_n % 4 )) -eq 0 ]; then
+    i=0
+    while [ $i -lt 128 ]; do
+        v=$(devmem $(( ptr_n + i * 4 )))
+        case "$v" in
+            0x00000000) break ;;
+            0x80*|0x81*|0x82*|0x8F*|0x8f*|0x90*|0x91*|0x9F*|0x9f*) i=$(( i + 2 )) ;;
+            0xA0*|0xa0*|0xC0*|0xc0*) i=$(( i + 3 )) ;;
+            0x50*) active=A; source="rom-event-log"; i=$(( i + 1 )) ;;
+            0x51*) active=B; source="rom-event-log"; i=$(( i + 1 )) ;;
+            *) i=$(( i + 1 )) ;;
+        esac
+    done
 fi
+
+cur=$(devmem "$GPR")
+psb=$(( (cur & PSB_BIT) != 0 ))
+if [ "$active" = "UNKNOWN" ]; then
+    # ログが読めない場合の次善: フォールバック起動なら ROM が PSB を立てる
+    if [ "$psb" -ne 0 ]; then active=B; else active=A; fi
+    source="gpr-fallback"
+fi
+
+echo "UBOOT_ACTIVE_COPY=$active"
+echo "UBOOT_ACTIVE_SOURCE=$source"
+echo "PERSIST_SECONDARY_BOOT=$psb"
 
 a_sum=$(dd if="$BASE_DEV" bs=512 skip="$A_SECTOR" count="$AREA_SECTORS" 2>/dev/null | md5sum | cut -d' ' -f1)
 b_sum=$(dd if="$BASE_DEV" bs=512 skip="$B_SECTOR" count="$AREA_SECTORS" 2>/dev/null | md5sum | cut -d' ' -f1)

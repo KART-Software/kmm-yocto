@@ -1,0 +1,64 @@
+#!/bin/sh
+# kart-uboot-rollback — B copy (一つ前の版) を A copy へ書き戻し、
+# 前版の U-Boot に戻す。kart-uboot-update の対になる操作。
+#
+# 用途:
+#   - 新しい U-Boot に問題があった → 前版へ戻す
+#   - A が破損して B (前版) でフォールバック起動中 → 前版のまま A を直して
+#     フォールバック状態を解消する (現行版に戻したければ update を再実行)
+#
+# 書き込みは header-last (途中で電源断しても A は「IVT 不正」で済み、
+# B で起動できる)。詳細は kart-uboot-update のコメント参照。
+# (busybox 構文のみ)
+set -eu
+
+A_SECTOR=66             # 0x42
+B_SECTOR=4162           # 0x1042
+AREA_SECTORS=4030       # 2015KiB
+
+BASE_DEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
+[ -n "$BASE_DEV" ] || { echo "ERROR: cannot determine base device" >&2; exit 1; }
+
+# 相互排他: update / rollback / selfheal の同時実行を禁止 (kart-uboot-update と
+# 同じロックファイル)。flock なのでプロセスがどう死んでも自動解放される
+exec 9> /run/kart-uboot.lock
+if ! flock -n 9; then
+    echo "ERROR: another kart-uboot operation is in progress" >&2
+    exit 1
+fi
+TMP=$(mktemp); SRC=$(mktemp)
+trap 'rm -f "$TMP" "$SRC"' EXIT
+
+dd if="$BASE_DEV" of="$SRC" bs=512 skip="$B_SECTOR" count="$AREA_SECTORS" 2>/dev/null
+
+# B の IVT が正当でなければ戻す先が無い (tag 0xd1, version 0x41)
+# (od ではなく hexdump: この busybox の od は -A/-t/-N 非対応)
+ivt=$(hexdump -n 4 -e '4/1 "%02x"' "$SRC")
+case "$ivt" in
+    d1????41) ;;
+    *) echo "ERROR: B copy has no valid IVT (got: $ivt) — nothing to roll back to." >&2
+       echo "       kart-uboot-update で健全な flash.bin を書き直すこと。" >&2
+       exit 1 ;;
+esac
+
+# 既に同一なら何もしない (冪等)
+dd if="$BASE_DEV" of="$TMP" bs=512 skip="$A_SECTOR" count="$AREA_SECTORS" 2>/dev/null
+if cmp -s "$TMP" "$SRC"; then
+    echo "A copy already matches B copy; nothing to do."
+    exit 0
+fi
+
+echo "Rolling back: B copy (前版) -> A copy..."
+dd if=/dev/zero of="$BASE_DEV" bs=512 seek="$A_SECTOR" count=1 2>/dev/null
+sync
+dd if="$SRC" of="$BASE_DEV" bs=512 skip=1 seek=$(( A_SECTOR + 1 )) count=$(( AREA_SECTORS - 1 )) 2>/dev/null
+sync
+dd if="$SRC" of="$BASE_DEV" bs=512 seek="$A_SECTOR" count=1 2>/dev/null
+sync
+
+dd if="$BASE_DEV" of="$TMP" bs=512 skip="$A_SECTOR" count="$AREA_SECTORS" 2>/dev/null
+if ! cmp -s "$TMP" "$SRC"; then
+    echo "ERROR: read-back verification FAILED; A != B after copy." >&2
+    exit 1
+fi
+echo "Done: A copy = B copy (前版)。次回起動から前版の U-Boot。"

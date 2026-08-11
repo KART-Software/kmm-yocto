@@ -39,10 +39,18 @@
 - <a id="g-uuu-auto"></a>**uuu.auto** — UUU のスクリプトファイル。SDP→SDPV→FB(fastboot)の各ステージを記述。
 - <a id="g-fb"></a>**FB(Fastboot)** — Android 由来の書き込みプロトコル。U-Boot が起動後に提供し、
   eMMC への本焼きに使う(今回は netboot までで未使用)。
-- <a id="g-psb"></a>**PSB(PERSIST_SECONDARY_BOOT)** — i.MX8M の ROM が持つ「A 面が壊れたら B 面から
-  起動」する冗長化機構のビット(SRC_GPR10[30])。U-Boot 自体の A/B に使う
-  (設計は [../imx8mm-migration-design.md] にあり、bring up では未使用)。
-- <a id="g-sit"></a>**SIT(Secondary Image Table)** — 上記 B 面イメージの位置を BootROM に教えるテーブル。
+- <a id="g-ivt"></a>**IVT(Image Vector Table)** — i.MX ブートイメージ先頭の小さなヘッダ(目次)。
+  タグ 0xD1・バージョン 0x41・エントリポイント・ロード先などを持ち、
+  **BootROM の「このイメージは正当か」検査の実体はこのヘッダ検査だけ**
+  (非セキュアブートでは本体のチェックサムを見ない)。U-Boot A/B では
+  「IVT の有効/無効」が事実上の起動面切替スイッチになる([04](04-pitfalls.md) #19)。
+- <a id="g-psb"></a>**PSB(PERSIST_SECONDARY_BOOT)** — SRC_GPR10[30] のビット。**ROM がフォールバック
+  起動中に立てる「B 面で動いている」印(出力)**であり、ソフトから立てても
+  次回起動は変わらない(実機検証 2026-08-12、[04](04-pitfalls.md) #19。
+  GPR10 はあらゆるリセットでクリアされる。imx6/7 の同名機構とは挙動が違う)。
+- <a id="g-sit"></a>**SIT(Secondary Image Table)** — B 面イメージの位置を BootROM に教えるテーブル
+  (sector 0x41)。A 面の IVT が不正なとき、ROM は**同一起動内で** SIT の指す
+  B 面へ inline フォールバックする(実機検証済み)。
 
 ## netboot / ネットワーク
 

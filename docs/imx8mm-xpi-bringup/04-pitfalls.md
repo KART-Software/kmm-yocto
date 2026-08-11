@@ -252,3 +252,65 @@ ota-update.sh と kart-ab-commit (mx8mm 版) が両方これを踏んでいた �
 どちらも**読み戻し検証を実装していたおかげで無言破壊にならず検出できた**。
 修正: バッチファイルを `kart_slot=b` 形式に。
 教訓: fw_setenv 系は必ず読み戻し検証をセットにする (今回それが仕事をした)。
+
+## 19. i.MX8MM の PERSIST_SECONDARY_BOOT は「入力」ではない — ソフトから B を試し起動する術は無い (重要)
+
+症状: SRC_GPR10[30] (PSB) を devmem で立てて reboot しても、次回起動は
+必ず A copy (プライマリ)。U-Boot の PSB ドキュメント (imx7 向け) を根拠に
+した「PSB セット → reboot で B 起動 → 確認して昇格」フロー
+(旧 kart-uboot-try) は成立しない。
+
+実機で確定させた事実 (2026-08-12):
+
+- **SRC_GPR10 はあらゆるリセットで消える**。PSCI reboot でも WDOG SRS
+  ソフトリセット (devmem 0x30280000 16 0x1D2F) でも、魔法値 (0x0A5A) ごと
+  0 に戻る。「POR のみでクリア」という imx6/7 の常識は 8MM には当てはまらない
+- **ROM のフォールバックは inline**。A copy の IVT を破壊して再起動すると、
+  同一起動内で SIT (sector 0x41) → B copy (sector 0x1042) が選択される。
+  リセットを挟む PSB 機構は 8MM では使われていない
+- **PSB は ROM が「フォールバック起動中」に立てる出力**。B で起動した瞬間の
+  GPR10 は 0x40000000 になっており、その起動内での検出には使える
+  (次のリセットでまた消える)
+- **確実な起動元判定は ROM イベントログ**。ポインタ @0x9e0 (ROM 定数、
+  Linux の devmem からも読める) → OCRAM 上のログを走査し、event 0x50 =
+  プライマリ / 0x51 = セカンダリ。U-Boot の
+  imx8m_detect_secondary_image_boot() と同じ方法。パラメータ付きイベント
+  (0x8x/0x9x = 1 語、0xA0/0xC0 = 2 語) の読み飛ばしを忘れると誤検出する
+
+対応: ツールを実仕様に合わせて再設計 (kart-uboot-try / -commit は廃止)。
+**B 面に一つ前の版を残す方式**に統一:
+
+- **kart-uboot-update <flash.bin>**: ①現行 A を B へ退避 → ②新版を A へ。
+  結果 A=新版 / B=直前まで動いていた版 (フォールバック先 & ロールバック元)。
+  UBOOT_COPIES=DIFFER が正常状態になる
+- **kart-uboot-rollback**: B (前版) を A へ書き戻す
+- **kart-uboot-selfheal** (systemd oneshot, boot 時): フォールバック起動を
+  検出したら自動で rollback — B 起動は無症状なので人間の気づきに頼らない
+- **kart-uboot-status**: 起動コピーをイベントログで判定
+- 安全ガード:
+  - **退避スキップ**: update 時に A が不正なら退避しない (壊れた A を B へ
+    複写して唯一の健全コピーを潰す事故を防ぐ)。判定は A 先頭の IVT ヘッダ検査
+  - **フォールバック起動中の update 禁止**: B 起動は事故の痕跡なので、先に A を
+    修復して正規状態へ戻す (boot 時 selfheal との A 同時書き込みレースも塞ぐ)
+  - **flock** (`/run/kart-uboot.lock`) で update/rollback/selfheal を相互排他。
+    mkdir だと SIGKILL でロック残留 = プロセス途中死のときに壊れるので不可
+- 実機検証: DP100 で各局面に実電源断を当てて全て再実行一発で収束、統合検証は
+  OTA → A破壊 → コールドブート → selfheal 自動修復 (journal) →プライマリ起動まで
+  人間の介入ゼロで完走 (詳細は migration-design の U-Boot A/B 節)
+- 全書き込みは **header-last**: 先に書き込み先の IVT セクタを潰し、
+  本体 → IVT の順で書く。ROM の正当性検査は実質 IVT ヘッダだけなので、
+  素朴に先頭から dd すると「途中で電源断 → IVT は正当だが後半欠損 →
+  ROM が通してしまい SPL が死んで watchdog ループ = UUU でしか復旧
+  できない」穴がある。header-last なら書きかけの面は常に「きれいな
+  IVT 不正」で、必ずもう片方の面で起動する
+
+限界も明記: IVT が正当なまま起動しないバイナリはこの仕組みでは救えない
+(前版 B で立ち上がるが A を直すまで毎回フォールバック)。U-Boot 更新は
+ベンチ検証してから配布する (最終復旧は UUU/SDP)。
+なお「ソフト切替できる本物の A/B」が要るなら、SPL に env を読ませて
+U-Boot proper (FIT) を選択させる設計になる — Falcon Mode (SPL が直接
+カーネルを選ぶ) の前提工事と同じ内容なので、やるなら Falcon と同時が良い。
+
+余談: 旧 kart-uboot-try の読み戻し検証は busybox に無い `head -c` で即死する
+バグも抱えていた (「busybox 構文のみ」と自称しながら)。デバイス側スクリプト
+の検証はセクタ単位 + パディング書きで行うこと (CLAUDE.md の coreutils 罠)。

@@ -1,0 +1,11 @@
+[Unit]
+Description=Repair U-Boot A copy after ROM fallback boot
+# 非クリティカル: 失敗してもシステムは B copy で正常動作しており、
+# 次回起動時に再試行される。GUI 起動 (kmm) を待たせない位置で走らせる。
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/kart-uboot-selfheal
+
+[Install]
+WantedBy=multi-user.target

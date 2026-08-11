@@ -15,10 +15,17 @@ SRC_URI = " \
 # i.MX のみ: U-Boot 自体の A/B (ROM secondary image + PERSIST_SECONDARY_BOOT)
 SRC_URI:append:mx8mm-generic-bsp = " \
     file://kart-uboot-status \
-    file://kart-uboot-try \
-    file://kart-uboot-commit \
+    file://kart-uboot-update \
+    file://kart-uboot-rollback \
+    file://kart-uboot-selfheal \
+    file://kart-uboot-selfheal.service \
     file://fw_env.config \
 "
+
+# フォールバック起動 (B copy) を検出したら boot 時に自動で A を修復する
+inherit systemd
+SYSTEMD_SERVICE:${PN} = ""
+SYSTEMD_SERVICE:${PN}:mx8mm-generic-bsp = "kart-uboot-selfheal.service"
 
 do_install() {
     install -d ${D}${sbindir}
@@ -28,8 +35,11 @@ do_install() {
 
 do_install:append:mx8mm-generic-bsp() {
     install -m 0755 ${WORKDIR}/kart-uboot-status ${D}${sbindir}/kart-uboot-status
-    install -m 0755 ${WORKDIR}/kart-uboot-try ${D}${sbindir}/kart-uboot-try
-    install -m 0755 ${WORKDIR}/kart-uboot-commit ${D}${sbindir}/kart-uboot-commit
+    install -m 0755 ${WORKDIR}/kart-uboot-update ${D}${sbindir}/kart-uboot-update
+    install -m 0755 ${WORKDIR}/kart-uboot-rollback ${D}${sbindir}/kart-uboot-rollback
+    install -m 0755 ${WORKDIR}/kart-uboot-selfheal ${D}${sbindir}/kart-uboot-selfheal
+    install -d ${D}${systemd_system_unitdir}
+    install -m 0644 ${WORKDIR}/kart-uboot-selfheal.service ${D}${systemd_system_unitdir}/kart-uboot-selfheal.service
     install -d ${D}${sysconfdir}
     install -m 0644 ${WORKDIR}/fw_env.config ${D}${sysconfdir}/fw_env.config
 }
@@ -37,8 +47,10 @@ do_install:append:mx8mm-generic-bsp() {
 FILES:${PN} = "${sbindir}/kart-ab-status ${sbindir}/kart-ab-commit"
 FILES:${PN}:append:mx8mm-generic-bsp = " \
     ${sbindir}/kart-uboot-status \
-    ${sbindir}/kart-uboot-try \
-    ${sbindir}/kart-uboot-commit \
+    ${sbindir}/kart-uboot-update \
+    ${sbindir}/kart-uboot-rollback \
+    ${sbindir}/kart-uboot-selfheal \
+    ${systemd_system_unitdir}/kart-uboot-selfheal.service \
     ${sysconfdir}/fw_env.config \
 "
 

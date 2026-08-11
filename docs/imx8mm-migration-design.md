@@ -254,24 +254,61 @@ U-Boot の bootcount + upgrade_available + altbootcmd で実装した。
 - display.cfg — 表示チェーン (lcdif/DSIM/ADV7511/etnaviv) を =m から =y へ。
   weston 起動とモジュールロードの競合を排除し起動を決定論化
 
-**U-Boot 自体の A/B も実装済み（2026-08-04、実機未検証）**: U-Boot を自前管理して
-高速化していく以上、ブートローダ更新は通常の OTA 対象であり単一コピーでは
-文鎮リスクを踏む。i.MX8M ROM 内蔵の secondary image 機構を使う
-（[U-Boot docs: PSB](https://docs.u-boot.org/en/v2021.07/imx/misc/psb.html)）。
+**U-Boot 自体の A/B も実装済み（2026-08-04 実装、2026-08-12 実機検証済み）**:
+U-Boot を自前管理して高速化していく以上、ブートローダ更新は通常の OTA 対象で
+あり単一コピーでは文鎮リスクを踏む。i.MX8M ROM 内蔵の secondary image 機構を
+使う（[U-Boot docs: PSB](https://docs.u-boot.org/en/v2021.07/imx/misc/psb.html)
+— ただしこの文書の PSB 記述は imx7 向けで、**8MM の実挙動とは異なることが
+実機検証で判明**。詳細は
+[imx8mm-xpi-bringup/04-pitfalls.md](imx8mm-xpi-bringup/04-pitfalls.md) #19）。
 
 - レイアウト: SIT (sector 0x41, magic 0x00112233, firstSectorNumber=0x1000) /
   A copy (sector 0x42 = 33KiB) / B copy (sector 0x1042 = 2081KiB)。
   imx-boot 実測 1177KiB、B 終端 ~3.2MiB、env (4MiB) まで ~840KiB の余裕。
   **imx-boot が 2015KiB を超えたらレイアウト再設計が必要**
-- ROM の挙動: A が無効 → ROM が PERSIST_SECONDARY_BOOT (SRC_GPR10[30],
-  0x30390098) を立てて WARM reset → B を起動。**電源断 (POR) で PSB は
-  クリアされ必ず A に戻る** — カートはマスタースイッチで電源を切る運用
-  (POWER_OFF_ON_HALT=0 と同じ前提) なので、「B で試してダメなら電源
-  入れ直しで旧に復帰」という tryboot 相当のフローが ROM だけで成立する
-- ツール (kart-ab-tools, busybox 構文): `kart-uboot-try <flash.bin>`
-  (B へ書込 + 読み戻し検証 + PSB セット) → reboot → 動作確認 →
-  `kart-uboot-commit` (B→A 昇格 + 読み戻し検証 + PSB クリア)。
-  `kart-uboot-status` で PSB / A/B の md5 を表示。devmem で GPR を直接叩く
+- ROM の実挙動 (実機検証 2026-08-12): A が無効 → **同一起動内で** SIT 経由の
+  B を inline 起動し、その起動中だけ PERSIST_SECONDARY_BOOT (SRC_GPR10[30])
+  を立てる。**SRC_GPR10 はあらゆるリセット (PSCI/WDOG/POR) で消える**ため、
+  ソフトから PSB を立てて B を試し起動することはできない。起動元の確実な
+  判定は ROM イベントログ (0x9e0 → event 0x50/0x51)
+- 運用方式: **B 面に一つ前の版を残す**。`kart-uboot-update <flash.bin>` が
+  ①現行 A を B へ退避 → ②新版を A へ、の順で書く (A=現行 / B=前版が定常。
+  UBOOT_COPIES=DIFFER が正常状態)。ツール群 (busybox 構文):
+  - **kart-uboot-update <flash.bin>**: 上記。入力の IVT ヘッダ (tag 0xd1 /
+    version 0x41) とサイズを事前検査。**A が不正なら退避をスキップ**
+    (壊れた A を B へ複写して唯一の健全コピーを潰す事故を防ぐ)。
+    **フォールバック起動 (B copy) 中は実行を拒否** — B 起動は事故の痕跡
+    なので、先に A を修復して正規状態に戻すのが先
+  - **kart-uboot-rollback**: B (前版) を A へ書き戻す
+  - **kart-uboot-selfheal** (systemd oneshot, multi-user.target): 起動時に
+    フォールバックを検出したら自動で rollback。B 起動は無症状 (GUI も CAN も
+    普通に動く) なので、人間の気づきに頼らず冗長性を回復する
+  - **kart-uboot-status**: 起動コピーを ROM イベントログ (0x9e0 → event
+    0x50/0x51) で判定 + A/B の md5
+  - 排他制御: update/rollback/selfheal は `/run/kart-uboot.lock` を **flock**
+    で相互排他 (mkdir だと SIGKILL でロック残留 = プロセス途中死のときに
+    壊れる。flock はカーネルが fd 生存に紐付けて自動解放)
+- 全書き込みは **header-last**: 書き込み先の IVT セクタを先にゼロ化 → 本体
+  (2 セクタ目以降) → IVT を最後に書く。ROM の正当性検査の実体は IVT
+  ヘッダだけ (非セキュアブート) なので、素朴に先頭から dd すると
+  「途中で電源断 → IVT は正当だが後半欠損 → ROM が通して SPL が死に
+  watchdog ループ = UUU でしか復旧できない文鎮」の穴がある。header-last なら
+  書きかけの面は常に「きれいな IVT 不正」で、必ずもう片方の面で起動する
+- 限界: IVT が正当なまま起動しないバイナリ (壊れたビルド、ヘッダ無傷の
+  本体ビット腐れ) は救えない — U-Boot 更新はベンチ検証してから配布
+  (最終復旧は UUU/SDP)。根治するなら HAB セキュアブート (署名不合格を
+  ROM がフォールバック扱い) か SPL セレクタ化 (SPL に env を読ませて FIT を
+  A/B 選択。Falcon Mode の前提工事と同内容なのでやるなら Falcon と同時)
+- **実機検証 (2026-08-12、XPI 実機 + DP100 電源制御)**:
+  - 電源断を DP100 で各局面に実際に当てて確認 — P1: update の B 退避中
+    (A で正常起動)、P2: A 書き込み開始直後 (B へフォールバック)、P3: A 本体
+    書き込み後・IVT 書き込み直前 (B へフォールバック。header-last が無ければ
+    文鎮だった局面)、P4: rollback 中 (B へフォールバック → selfheal で修復)。
+    全局面で再実行一発の収束を確認
+  - 統合検証: 最終イメージを OTA 導入 → A の IVT 破壊 → コールドブート →
+    selfheal がサービスとして自動修復 (journal に全証跡) → 再起動で
+    プライマリ A 起動、まで人間の介入ゼロで完走。フォールバック中の
+    update 拒否・flock の SIGKILL 自動解放も実機確認済み
 
 **追加実装（2026-08-08）**:
 - カーネルスリム化: Image 46.6MB → 20.9MB (-55.1%)。slim-imx-arch.cfg
