@@ -1,13 +1,13 @@
-# i.MX8M Mini machine fragment (XPI-iMX8MM 移行の足場)
+# i.MX8M Mini machine fragment (XPI-iMX8MM)
 #
-# XPI-iMX8MM のベンダ BSP が未入手のため、同一 SoC (LPDDR4 構成) の公開
-# マシン定義 imx8mm-lpddr4-evk (meta-freescale) をターゲットにする。
-# 実機 BSP が手に入ったら machine とレイヤをここで差し替える。
-# 背景は docs/imx8mm-migration-design.md を参照。
+# machine は meta-kart/conf/machine/imx8mm-xpi.conf (正式定義)。
+# EVK (imx8mm-lpddr4-evk) 流用時代のパッチワーク (MACHINE_FEATURES 削り、
+# DTB リネームトリック、extlinux 引数等) は machine conf に吸収済み。
+# 背景は docs/imx8mm-migration-design.md と docs/imx8mm-xpi-bringup/07。
 header:
   version: 14
 
-machine: imx8mm-lpddr4-evk
+machine: imx8mm-xpi
 
 repos:
   meta-freescale:
@@ -17,30 +17,8 @@ repos:
       .:
 
 local_conf_header:
-  imx8mm-machine: |
-    # kart 製品は WiFi/BT を使わない (rpi5.yml と同方針)。EVK の machine 定義が
-    # 引き込む NXP out-of-tree WiFi ドライバ (kernel-module-nxp-wlan) は
-    # mainline 6.12 に追従しておらずビルドが失敗するため、機能ごと外す。
-    MACHINE_FEATURES:remove = "wifi bluetooth bcm43455 bcm4356 nxp8987-sdio"
-
   imx8mm-eula: |
     # imx-boot が使う DDR トレーニングファームウェア (firmware-imx) は
-    # NXP EULA 配布のため明示的な同意が必要
+    # NXP EULA 配布のため明示的な同意が必要 (ライセンス同意はビルド環境の
+    # 意思表示なので machine conf ではなくここに置く)
     ACCEPT_FSL_EULA = "1"
-
-  imx8mm-image: |
-    IMAGE_FSTYPES = "wic wic.bz2 wic.bmap"
-
-  imx8mm-cmdline: |
-    # 起動時間: quiet でシリアルへの printk 垂れ流しを止め、EDID は
-    # ファームウェアファイル供給 (LT9611 の DDC 読取 1.1〜1.4s を全廃。
-    # ファイルは kart-image が /lib/firmware/edid/ に配置)
-    UBOOT_EXTLINUX_KERNEL_ARGS = "rootwait rw quiet drm.edid_firmware=HDMI-A-1:edid/kart-tfp401-edid.bin"
-
-  imx8mm-dtb: |
-    # 実機 = XPI なので、XPI 用 kart DTB をストック名 (imx8mm-evk.dtb) で
-    # ブートパーティションに配置する。U-Boot の fdtfile / extlinux の FDT が
-    # imx8mm-evk.dtb を指すため、環境変数をいじらずに XPI DTB が選ばれる。
-    # EVK 足場用の imx8mm-evk-kart.dtb も素の名前で同梱 (U-Boot から手動選択用)。
-    # DTB 自体は meta-kart/recipes-kernel-imx/ の bbappend がビルドする。
-    IMAGE_BOOT_FILES = "Image imx8mm-xpi-kart.dtb;imx8mm-evk.dtb imx8mm-evk-kart.dtb"

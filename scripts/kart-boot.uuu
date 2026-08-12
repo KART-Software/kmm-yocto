@@ -14,7 +14,7 @@ uuu_version 1.5.243
 #
 # 単純な `SDP: boot` だけでは SPL しか送られず U-Boot 本体を待って止まる。
 # SPL 後段 (SDPV) への write + jump が必須 (ベンダ uuu.auto と同じ構造)。
-SDP: boot -f ../build/tmp/deploy/images/imx8mm-lpddr4-evk/flash.bin-imx8mm-lpddr4-evk-sd
+SDP: boot -f ../build/tmp/deploy/images/imx8mm-xpi/flash.bin-imx8mm-xpi-sd
 SDPV: delay 1000
-SDPV: write -f ../build/tmp/deploy/images/imx8mm-lpddr4-evk/flash.bin-imx8mm-lpddr4-evk-sd -skipspl
+SDPV: write -f ../build/tmp/deploy/images/imx8mm-xpi/flash.bin-imx8mm-xpi-sd -skipspl
 SDPV: jump

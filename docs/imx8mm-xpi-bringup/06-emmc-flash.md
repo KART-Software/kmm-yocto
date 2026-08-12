@@ -99,7 +99,7 @@ lsblk -S | grep -i usb      # デバイス名を確認 (以下 sdX と表記)
 
 ```bash
 sudo bmaptool copy \
-    build/tmp/deploy/images/imx8mm-lpddr4-evk/kart-image-imx8mm-lpddr4-evk-emmc.wic.bz2 \
+    build/tmp/deploy/images/imx8mm-xpi/kart-image-imx8mm-xpi-emmc.wic.bz2 \
     /dev/sdX
 ```
 
@@ -173,7 +173,7 @@ KART: booting slot a (mmc 2:1)    ← wic に焼き込んだ A/B env が機能
 ## 以後の更新
 
 ```bash
-./scripts/ota-update.sh --host <host> [--yes] [--authkey <file>] build/tmp/deploy/images/imx8mm-lpddr4-evk/kart-image-*-emmc.wic.bz2
+./scripts/ota-update.sh --host <host> [--yes] [--authkey <file>] build/tmp/deploy/images/imx8mm-xpi/kart-image-*-emmc.wic.bz2
 ```
 
 A/B の仕組み・フォールバック挙動(起動失敗 → bootcount 超過 → 旧スロット自動復帰、

@@ -55,7 +55,7 @@ IMAGE_INSTALL:append:qemuarm64 = " \
 "
 
 # ---------------------------------------------------------------------------
-# i.MX8M Mini specific packages (imx8mm-lpddr4-evk scaffold)
+# i.MX8M Mini specific packages (machine imx8mm-xpi)
 # CAN は SoC 非内蔵のため RPi5 と同じく MCP2515 (SPI) を使う。
 # rpi-eeprom / kart-ab-tools / kart-eeprom-setup は RPi 専用なので含めない。
 # オーバーライドは素の mx8mm ではなく mx8mm-generic-bsp であること

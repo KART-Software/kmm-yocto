@@ -195,10 +195,13 @@ Pi5 より素直。ハードウェアウォッチドッグによる保険は現�
 
 ## 実装状況（2026-08-04）
 
-**フェーズ 1 の足場を実装済み**（このブランチ）。XPI の BSP が未入手のため、同一 SoC の
-公開マシン `imx8mm-lpddr4-evk`（meta-freescale scarthgap、mainline BSP =
-linux-fslc + etnaviv）をターゲットにしている。実機 BSP 入手後は
-`kas/imx8mm.yml` の machine とレイヤを差し替える。
+**フェーズ 1 の足場を実装済み**（このブランチ）。当初は XPI の BSP が未入手のため、
+同一 SoC の公開マシン `imx8mm-lpddr4-evk`（meta-freescale scarthgap、mainline BSP =
+linux-fslc + etnaviv）を流用していた。
+**2026-08-12 に machine を正式化**: ベンダ BSP 監査（07-vendor-bsp-audit）で
+ハード実態の裏取りが揃ったのを受け、`meta-kart/conf/machine/imx8mm-xpi.conf`
+を新設（`imx8mm-evk.inc` から SoC/boot 基盤のみ継承、kas パッチワークと
+DTB リネームトリックを吸収)。deploy dir / hostname は `imx8mm-xpi` になった。
 
 - `kas/imx8mm.yml` — machine + meta-freescale + `ACCEPT_FSL_EULA`
 - `kas/imx8mm-dev.yml` — base + imx8mm + debug-tweaks（`./scripts/build.sh imx8mm`）

@@ -155,8 +155,12 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    残: bootcmd 失敗時に U-Boot プロンプトへ落ちるケースの `; reset`
    ハードニング検討。「ソフト切替できる本物の A/B」が要るなら SPL セレクタ化
    (Falcon Mode の前提工事と同内容)。
-5. **XPI 用 machine の正式化** — 今は EVK machine(`imx8mm-lpddr4-evk`)を流用。
-   ベンダ [BSP](00-glossary.md#g-bsp) か自前で XPI machine を作れば `imx8mm-lpddr4-evk` 依存が消える。
+5. **XPI 用 machine の正式化 — 完了 (2026-08-12)**。
+   `meta-kart/conf/machine/imx8mm-xpi.conf` を新設し、EVK machine
+   (`imx8mm-lpddr4-evk`)への依存を解消 (SoC/boot 基盤の `imx8mm-evk.inc`
+   のみ継承)。kas のパッチワーク吸収・DTB リネームトリック廃止
+   (extlinux FDT 直指し)・deploy dir / hostname の `imx8mm-xpi` 化まで
+   実機 OTA で検証・commit 済み。tailscale 名も hostname 追従で変わる点に注意。
 
 ## 未確認・要検証のまま残っている前提
 
