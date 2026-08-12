@@ -160,10 +160,17 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
 
 ## 未確認・要検証のまま残っている前提
 
-- **DDR は 2GB・EVK 設定で動く**が、温度/個体ばらつきの余裕は未評価。
-- **自作 [SPL](00-glossary.md#g-spl) の DDR タイミング**がベンダ(2018.03)と厳密に同一かは未確認
-  (両方 training PASS したので実用上は問題無いが)。
-- **CAN INT のパッド(SAI5_RXD3=GPIO3_IO24)**は HW ガイドの 40 ピン表からの
-  推定。実機で MCP2515 割り込みが上がるかは未検証。
-- **LT9611 の電源シーケンス** — mainline binding は vdd/vcc supply 必須。
-  今は regulator-fixed でダミー供給。実際の電源制御が要るかは表示検証時に判明。
+2026-08-12 のベンダ BSP 監査([07-vendor-bsp-audit](07-vendor-bsp-audit.md))で
+大半を解消した。現状:
+
+- ~~自作 SPL の DDR タイミングがベンダと同一か~~ → **解消**: ベンダ 2GB 用は
+  NXP 純正 EVK 値そのままで、fslc 2025.01 とレジスタ全一致([07](07-vendor-bsp-audit.md) §1)。
+  温度/個体ばらつきの実測マージンだけは未評価(ベンダ出荷品と同等、までは確定)。
+  **1GB 個体は別テーブル必須**(Longsys 用再生成値が BSP にある)。
+- ~~LT9611 の電源シーケンス~~ → **解消**: 制御可能なレールは存在せず常時給電。
+  regulator-fixed ダミーが正しいモデル([07](07-vendor-bsp-audit.md) §2)。
+- **CAN INT のパッド(SAI5_RXD3=GPIO3_IO24)は未検証のまま**。ベンダ DT は
+  無言(パッドが空いていることだけ確認)、回路図バイナリは読めず。
+  確定は MCP2515 割り込みの実動確認で。
+- 監査で新たに判明した食い違い(PHY リセット GPIO、usbotg2 欠落、
+  PMIC compatible、AM1805 RTC)は [07](07-vendor-bsp-audit.md) §3 の採用候補リストを参照。

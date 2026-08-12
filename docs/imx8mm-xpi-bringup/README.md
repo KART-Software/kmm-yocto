@@ -36,6 +36,7 @@ disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿し
 | [04-pitfalls.md](04-pitfalls.md) | 詰まった箇所と回避策(全部) |
 | [05-next-steps.md](05-next-steps.md) | 残課題と直し方 |
 | [06-emmc-flash.md](06-emmc-flash.md) | eMMC 初回書き込み手順書(新品ボード → スタンドアロン起動) |
+| [07-vendor-bsp-audit.md](07-vendor-bsp-audit.md) | ベンダ BSP 監査 — DDR/LT9611/DTS 照合結果と採用候補・リカバリ知見 |
 
 関連: [../imx8mm-migration-design.md](../imx8mm-migration-design.md)(移行の設計判断)、
 `meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi-kart.dts`(XPI 用 [DT](00-glossary.md#g-dt))。

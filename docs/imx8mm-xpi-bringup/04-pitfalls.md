@@ -314,3 +314,22 @@ U-Boot proper (FIT) を選択させる設計になる — Falcon Mode (SPL が�
 余談: 旧 kart-uboot-try の読み戻し検証は busybox に無い `head -c` で即死する
 バグも抱えていた (「busybox 構文のみ」と自称しながら)。デバイス側スクリプト
 の検証はセクタ単位 + パディング書きで行うこと (CLAUDE.md の coreutils 罠)。
+
+## 20. ベンダローダ (boot0) の env は kart env と同一オフセット 4MiB — ベンダ復帰中の saveenv は A/B 状態を破壊する
+
+ベンダ U-Boot (eMMC boot0 に温存している 2018.03) の環境変数は
+`CONFIG_ENV_OFFSET = 64*64K` = **eMMC user 領域の 4MiB オフセット** (size 0x1000)。
+kart の U-Boot env も**同じ 4MiB** (`fw_env.config`: 0x400000, size 0x2000) にある。
+
+- ベンダローダは kart env を CRC 不一致として無視しデフォルト env で動く
+  (読みだけなら無害)
+- しかしベンダローダのプロンプトで **`saveenv` すると kart env
+  (kart_slot / upgrade_available / bootcount) が上書き破壊**され、
+  自作 U-Boot の A/B スロット選択が初期化される
+- 対処: ベンダ復帰 (`mmc partconf 2 0 1 0`) 中は saveenv 禁止。壊した場合は
+  kart-env.bin を 4MiB オフセットへ書き戻す (wic 再 dd、または ums で
+  該当 8KiB だけ dd)
+
+なおベンダローダは eMMC p1 の FAT から `boot.scr` を最優先で実行するため、
+BOOTA に boot.scr を置けばベンダ復帰状態からでも自作システムを起動できる
+(リカバリフック。詳細は [07-vendor-bsp-audit](07-vendor-bsp-audit.md) §4)。
