@@ -99,10 +99,21 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    - lt9611 settle 500ms→100ms (0003 パッチ、video check で安定裏取り)
    - resolved の sysinit preset 再作成バグ修正 (timesyncd と同じ
      IMAGE_PREPROCESS 方式。**RPi5 イメージにも効く**): sysinit -0.5s
-   内訳 (現在): SPL+U-Boot 2.13s / カーネル→userspace 0.67s /
-   userspace→GUI 3.28s (kmm READY monotonic 3.95s)。**RPi5 の 8.59s を逆転**。
-   次の伸びしろ: SPL+U-Boot 2.13s (Falcon Mode 領域)、basic.target まで
-   の 2.2s (eMMC デバイス settle ~2s が主)、kmm 0.43s。
+   内訳 (2026-08-12 実測、machine 正式化 + PMIC/PHY 是正後。コールドブート
+   N=5、シリアル初バイト起点、総合 stdev 23ms):
+   - U-Boot バナー → KART スロット選択 1.115s / → Starting kernel +0.227s
+     (SPL 区間はシリアル転送のチャンク化で分離不能。初バイト→GUI 計 5.33s、
+     電源→GUI 推定 ~6.5-7s)
+   - カーネル 0.67s / userspace→GUI 3.31s (kmm READY monotonic 3.98s)。
+     **RPi5 の 8.59s を逆転**を維持 (是正 4 点のリグレッション無し)
+   次の伸びしろ:
+   - U-Boot proper 1.34s (Falcon Mode 領域 — 温め中)
+   - **basic.target までの 2.2s の主犯は eMMC ハードではない** (実測で訂正:
+     HS400 認識は kernel 0.33s で完了)。実体は udevd 開始が 1.6s・coldplug
+     661ms という **systemd 序盤 + udev の直列区間**。udev ルールのダイエットと
+     序盤サービスの見直しで 0.3〜0.8s 圏の余地 (weston は /dev/dri を udev 経由で
+     見つけるため、この短縮はそのまま GUI に効く)
+   - kmm 0.45s
 4. **eMMC への本焼き — 完了 (2026-08-11 実機実証)**。再現手順は独立した手順書
    [06-emmc-flash.md](06-emmc-flash.md) に整理済み。初回実証は bring up で
    実績のある **netboot Linux から dd** で実施(下記)。その後 `ums` の実機検証
