@@ -464,6 +464,12 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_ecspi2>, <&pinctrl_ecspi2_cs>;
 	cs-gpios = <&gpio5 13 GPIO_ACTIVE_LOW>;
+	/* DMA (SDMA) を使わず PIO 固定。dmas があると builtin の spi-imx が
+	 * SDMA (=m) を待って "can't get the TX DMA channel" で probe 保留になり、
+	 * can0 が現れず kmm が凍結する (udev 二段 coldplug 導入時に実機で確定)。
+	 * MCP2515 の転送は小さく PIO で十分 */
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
 	status = "okay";
 
 	can0: mcp2515@0 {

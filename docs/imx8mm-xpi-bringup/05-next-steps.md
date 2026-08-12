@@ -106,14 +106,15 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
      電源→GUI 推定 ~6.5-7s)
    - カーネル 0.67s / userspace→GUI 3.31s (kmm READY monotonic 3.98s)。
      **RPi5 の 8.59s を逆転**を維持 (是正 4 点のリグレッション無し)
+   **udev ダイエット実施 (2026-08-12/13)**: ルール 23 本 + hwdb (10MB) を削減、
+   random-seed credit で CRNG 即時化、CAN/SPI をビルトイン化 + ecspi2 PIO 固定。
+   → kernel→GUI **3.98s → 3.82s** (N=5, stdev 0.07)、初バイト→GUI 5.21s。
+   二段 coldplug も試したが誤差利得 + ばらつき 10 倍で撤収
+   (敗戦記録と教訓は [04-pitfalls](04-pitfalls.md) #21)。
    次の伸びしろ:
    - U-Boot proper 1.34s (Falcon Mode 領域 — 温め中)
-   - **basic.target までの 2.2s の主犯は eMMC ハードではない** (実測で訂正:
-     HS400 認識は kernel 0.33s で完了)。実体は udevd 開始が 1.6s・coldplug
-     661ms という **systemd 序盤 + udev の直列区間**。udev ルールのダイエットと
-     序盤サービスの見直しで 0.3〜0.8s 圏の余地 (weston は /dev/dri を udev 経由で
-     見つけるため、この短縮はそのまま GUI に効く)
-   - kmm 0.45s
+   - userspace 残り: weston 自体の起動 ~1.3s (GL 初期化、シェーダキャッシュ無効)
+     と kmm 0.45s。CAAM (=m) のビルトイン化で CRNG のさらなる前倒しも選択肢
 4. **eMMC への本焼き — 完了 (2026-08-11 実機実証)**。再現手順は独立した手順書
    [06-emmc-flash.md](06-emmc-flash.md) に整理済み。初回実証は bring up で
    実績のある **netboot Linux から dd** で実施(下記)。その後 `ums` の実機検証

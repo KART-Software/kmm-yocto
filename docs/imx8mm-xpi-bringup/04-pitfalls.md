@@ -333,3 +333,62 @@ kart の U-Boot env も**同じ 4MiB** (`fw_env.config`: 0x400000, size 0x2000) 
 なおベンダローダは eMMC p1 の FAT から `boot.scr` を最優先で実行するため、
 BOOTA に boot.scr を置けばベンダ復帰状態からでも自作システムを起動できる
 (リカバリフック。詳細は [07-vendor-bsp-audit](07-vendor-bsp-audit.md) §4)。
+
+## 21. udev coldplug の遅延は「モジュールロード」と「エントロピー」を道連れにする (二段 coldplug の敗戦記録)
+
+起動短縮のため systemd-udev-trigger を GUI クリティカルなサブシステムに絞り、
+残りを kmm 起動後に回す「二段 coldplug」を試したところ、3 つの罠を連続で踏んだ
+(全て実機で確定。毎回 A/B の試行ブート監視が 84s でフォールバックして救済):
+
+1. **=m ドライバのロードは udev が起点** (MODALIAS→modprobe)。mcp251x (=m) の
+   ロードが stage2 送りになり、can0 が現れず kmm (After=can0-up) が凍結
+2. **バスドライバも =m だった**: spi-imx (=m) が居ないと ecspi2 バスごと不在。
+   ビルトイン化 (CONFIG_SPI_IMX=y + CONFIG_CAN_MCP251X=y) で解決したら—
+3. **今度は builtin spi-imx が SDMA (=m のまま) を待って probe 保留**
+   ("can't get the TX DMA channel")。DT で ecspi2 の dmas を削除して PIO 固定で解決
+4. さらに **coldplug は隠れたエントロピー源**だった: デバイス登録イベントが減り
+   CRNG 初期化が ~4.6s までずれ、weston の EGL 初期化が getrandom() で ~1.3s
+   ブロック (`crng init done` のタイムスタンプと weston ログのギャップが一致。
+   ブロックした正確な関数までは未特定だが、CRNG を早めたらギャップが消えた
+   ことで因果は実測確定)。
+   systemd-random-seed の SYSTEMD_RANDOM_SEED_CREDIT=1 + /data 上の seed で解決
+
+エントロピー問題の背景 (このボードが枯渇しやすい理由):
+`getrandom()` は CRNG が初期化されるまで**仕様としてブロック**する。
+PC が持つ乱数源 (RDRAND 命令、キーボード/マウス/ディスクシークのジッタ) が
+この板には無く、CAAM (ハード TRNG) もドライバ =m で寝ているため、起動直後の
+エントロピーは実質「デバイス初期化の割り込みラッシュ」頼み — だから coldplug を
+遅らせただけで枯渇した。credit は「seed は毎起動+シャットダウンで書き換わる
+ので再利用は電源断時のみ、/data はデバイス個体別」を根拠に許容している。
+さらに前倒ししたければ CAAM ビルトイン化 (ハード乱数) が次の一手。
+
+結末: ここまで直しても二段化の GUI 短縮は誤差程度 (-46ms) でばらつきが 10 倍に
+なったため**二段 coldplug 自体は撤収**。副産物の
+「udev ルール/hwdb 削減 (-10MB)」「CAN/SPI ビルトイン化 + ecspi2 PIO 固定」
+「random-seed credit」だけを残したところ、kernel→GUI は 3.98s → **3.82s**
+(N=5, stdev 0.07) と正味 -0.16s + 決定論性向上で着地した。
+
+教訓: クリティカルパス上のドライバは =y にする (udev を信路に入れない)。
+coldplug を痩せさせるならエントロピーの手当て (seed credit) をセットで。
+
+### PIO 固定の性能面の妥当性 (1Mbps CAN 飽和まで見た解析)
+
+ecspi2 の dmas 削除 (PIO 固定) が性能問題にならない根拠:
+
+- 1Mbps 飽和バスのフレームレートは 8 バイトフレームで ~8k/s、最小フレーム
+  連打の理論最悪で ~20k/s
+- フレーム 1 個の処理は SPI 25 バイト前後 = **ワイヤ時間 ~20µs (10MHz)** +
+  割り込み/threaded IRQ/spi_sync のオーバーヘッドで実質 60〜100µs/フレーム。
+  8k/s 飽和で 1 コアの 5〜8 割 (動くが重い)、20k/s は取りこぼす
+- **この数字は DMA でもほぼ変わらない**: ワイヤ時間は SPI クロック上限
+  (MCP2515 は 10MHz) で頭打ちで、DMA が肩代わりする「25 バイトの書き写し」は
+  数 µs。一方 DMA には記述子設定/キャッシュ操作/完了割り込みの固定費があり
+  この転送サイズでは差し引きゼロ以下
+- 真の律速は MCP2515 のアーキテクチャ: **フレーム毎に割り込み + SPI 往復が
+  必須**で、**チップ上の RX バッファが 2 個**しかない (連続 2 フレーム分 =
+  8 バイトフレームで ~240µs 以内のサービス保証が要る — 非 RT Linux では
+  飽和時の無損失は PIO/DMA を問わず保証できない。RPi5 の同 HAT も同条件)
+- 現実のカート負荷 (数百〜2k フレーム/s) では CPU 数 % で余裕。
+  **1Mbps 飽和が本当に要件になったら直すのは PIO ではなくチップ**:
+  MCP2518FD (RX FIFO 2KB、まとめ読み可、mainline mcp251xfd) への置き換え、
+  さらに上は FlexCAN 内蔵 SoC (i.MX8M Plus)。キャリア基板検討 (07 §CAN) と同文脈
