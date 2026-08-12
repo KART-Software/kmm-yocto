@@ -5,6 +5,7 @@ SRC_URI:append = " file://weston.ini \
                   "
 SRC_URI:append:mx8mm-generic-bsp = " file://mesa-cache.conf \
                                      file://mesa-cache-tmpfiles.conf \
+                                     file://weston-early.service \
                                     "
 
 # Create kart user (video, input, render, tty groups for display access)
@@ -39,6 +40,9 @@ do_install:append:mx8mm-generic-bsp() {
     install -d ${D}${nonarch_libdir}/tmpfiles.d
     install -m 0644 ${WORKDIR}/mesa-cache-tmpfiles.conf \
         ${D}${nonarch_libdir}/tmpfiles.d/weston-mesa-cache.conf
+    # mx8mm は早期起動変種で weston.service を上書き (中身のコメント参照)
+    install -m 0644 ${WORKDIR}/weston-early.service \
+        ${D}${systemd_system_unitdir}/weston.service
 }
 
 FILES:${PN} += "${sysconfdir}/xdg/weston/weston.ini \

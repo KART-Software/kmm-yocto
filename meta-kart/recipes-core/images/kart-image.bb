@@ -97,6 +97,27 @@ slim_udev_rules() {
 }
 ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " slim_udev_rules;"
 
+# 序盤ユニットの間引き (mx8mm のみ)。個々は 90〜120ms 級で並列実行だが、
+# 起動フェーズの fork/CPU 総量を減らして GUI チェーンに返す。
+# - fuse/configfs: キオスクに利用者なし (fuse FS 不使用、configfs は USB gadget
+#   用だが gadget は U-Boot の ums でしか使わない)
+# - modprobe@drm: 表示チェーンは全て =y (display.cfg) なので無意味な no-op
+# - getty@tty1: HDMI コンソールは weston が占有しており tty1 getty は不達。
+#   シリアル getty (保守用) は残す
+# - dev-hugepages: hugepage 利用者なし
+# - systemd-network-generator: kernel ip= の変換専用 = netboot でのみ必要
+boot_trim_units() {
+    for unit in modprobe@fuse.service sys-fs-fuse-connections.mount \
+                modprobe@configfs.service sys-kernel-config.mount \
+                modprobe@drm.service getty@tty1.service dev-hugepages.mount; do
+        ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/$unit
+    done
+    if [ "${KART_NETBOOT}" != "1" ]; then
+        ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-network-generator.service
+    fi
+}
+ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " boot_trim_units;"
+
 # wic が rawcopy する seed 済み U-Boot env (A/B 変数入り)
 KART_WIC_EXTRA_DEPENDS = ""
 KART_WIC_EXTRA_DEPENDS:mx8mm-generic-bsp = "kart-uboot-env:do_deploy"

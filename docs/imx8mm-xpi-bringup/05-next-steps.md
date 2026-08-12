@@ -120,6 +120,16 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    さらに「pam_systemd 抜き + logind/dbus mask で廃止」も実験したが、
    後送り済みのものを廃止しても **+9ms (誤差) で利得ゼロ**、loginctl /
    systemd --user 等の保守機能だけ失うため撤収 (後送りが最終形)。
+   **weston 早期起動 + 優先度制御 (2026-08-13)**: StartupCPUWeight
+   (GUI=500/ノイズ=50) と序盤ユニット間引き 8 本で −38ms、さらに weston を
+   DefaultDependencies=no で basic を待たせず sysinit 直後に発射する変種
+   (mx8mm のみ weston.service を置換) + klogd/syslog/iptables の After=kmm
+   退避で → kernel→GUI **mean 3.60s / best 3.28s** (発射は毎回 ~1.99s に
+   固定化、所要が残ノイズ次第で 0.8〜1.2s 揺れる)。
+   これ以上の前倒し (drm 専用事前トリガーで weston を 1.5s 台に) は
+   weston の DRM デバイス発見が udev DB 依存でレースになるため不採用 —
+   ordering で安全に絞れる限界がここ。残りは Falcon Mode とアプリ側
+   (kmm 0.46s の Qt 初期化と weston 起動の並行化) の領分。
    次の伸びしろ:
    - U-Boot proper 1.36s (Falcon Mode 領域 — 温め中)
    - systemd 序盤の直列区間 ~1.4s (kernel 完了 → sysinit 2.06s) と
