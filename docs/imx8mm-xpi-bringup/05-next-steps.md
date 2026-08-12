@@ -104,8 +104,10 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    次の伸びしろ: SPL+U-Boot 2.13s (Falcon Mode 領域)、basic.target まで
    の 2.2s (eMMC デバイス settle ~2s が主)、kmm 0.43s。
 4. **eMMC への本焼き — 完了 (2026-08-11 実機実証)**。再現手順は独立した手順書
-   [06-emmc-flash.md](06-emmc-flash.md) に整理済み。方式は UUU/`ums` ではなく
-   **netboot Linux から dd** が最も簡単だった(全部実績のある経路のみ使う):
+   [06-emmc-flash.md](06-emmc-flash.md) に整理済み。初回実証は bring up で
+   実績のある **netboot Linux から dd** で実施(下記)。その後 `ums` の実機検証
+   (2026-08-12)を受けて、手順書の正規経路は **UMS 直書き**(uuu 1 周 +
+   bmaptool、TFTP/NFS 不要)に更新し、netboot 経路はリカバリ用として温存:
    1. `./scripts/build.sh imx8mm --emmc` → `kart-image-...-emmc.wic`(3.9GB raw)
    2. wic を NFS root の `/root/` に置き、ボード上で
       `dd if=/root/kart-emmc.wic of=/dev/mmcblk2 bs=1M`(user 領域のみ。

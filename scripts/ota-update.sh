@@ -7,10 +7,15 @@
 #           旧スロットへ復帰。電源断でも旧スロットに戻る)
 #
 # Usage:
-#   ./scripts/ota-update.sh --host <ssh-host> [--yes] [image.wic.bz2]
+#   ./scripts/ota-update.sh --host <ssh-host> [--yes] [--authkey <file>] [image.wic.bz2]
 #
 #   --host <host>   SSH destination (tailscale name/IP or LAN IP; root login)
 #   --yes | -y      最終確認プロンプトを省略して自動コミット (非対話実行用)
+#   --authkey <f>   tailscale auth key を新スロットの boot FAT に注入する
+#                   (dev → prod 初回移行用。boot コピーは書き込み先を rm -rf
+#                   してから展開するので、事前に手で置いた鍵は消える — 必ず
+#                   このオプションで注入する。接続成功後はデバイス側の
+#                   tailscale-autoconnect が鍵を自動削除する)
 #   [image]         wic.bz2 to deploy (default: latest built nvme image)
 #
 # What it does (each step is printed; nothing is silent):
@@ -46,17 +51,24 @@ fi
 HOST=""
 IMAGE=""
 ASSUME_YES=0
+AUTHKEY=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --host)   HOST="${2:-}"; shift 2 ;;
         --host=*) HOST="${1#*=}"; shift ;;
         --yes|-y) ASSUME_YES=1; shift ;;
+        --authkey)   AUTHKEY="${2:-}"; shift 2 ;;
+        --authkey=*) AUTHKEY="${1#*=}"; shift ;;
         -h|--help) sed -n '2,/^set -e/p' "$0" | grep '^#' | sed 's/^# \?//'; exit 0 ;;
         -*) echo "ERROR: unknown option: $1" >&2; exit 1 ;;
         *)  IMAGE="$1"; shift ;;
     esac
 done
 [ -n "$HOST" ] || { echo "ERROR: --host is required" >&2; exit 1; }
+if [ -n "$AUTHKEY" ] && [ ! -f "$AUTHKEY" ]; then
+    echo "ERROR: authkey file not found: $AUTHKEY" >&2
+    exit 1
+fi
 
 IMAGE="${IMAGE:-$(readlink -f "$IMAGE_DIR/kart-image-raspberrypi5-nvme.wic.bz2")}"
 [ -f "$IMAGE" ] || { echo "ERROR: image not found: $IMAGE" >&2; exit 1; }
@@ -130,6 +142,13 @@ tune2fs -U random "$WORK/root.img" >/dev/null 2>&1 || true
 echo "    rootfs -> ${BASE}p${IN_ROOT} (dd over ssh)..."
 gzip -c "$WORK/root.img" | "${SSH_PIPE[@]}" "gzip -dc | dd of=${BASE}p${IN_ROOT} bs=4M && sync"
 echo "    boot files -> ${BASE}p${IN_BOOT} (file copy, label preserved)..."
+# --authkey: 鍵は boot コピーの rm -rf 後に置く必要があるため、先にデバイスの
+# /tmp (tmpfs) へ送っておき、下の展開スクリプト内でスロット FAT へ移す
+AUTHKEY_CMD=":"
+if [ -n "$AUTHKEY" ]; then
+    "${SSH_PIPE[@]}" "cat > /tmp/ota-tskey" < "$AUTHKEY"
+    AUTHKEY_CMD="mv /tmp/ota-tskey /tmp/ota-dst/tailscale.authkey && echo '    tailscale.authkey injected'"
+fi
 gzip -c "$WORK/boot.img" | "${SSH_PIPE[@]}" "
 set -e
 gzip -dc > /tmp/ota-boot.img
@@ -140,6 +159,7 @@ rm -rf /tmp/ota-dst/*
 cp -r /tmp/ota-src/. /tmp/ota-dst/
 sed -i 's|root=/dev/[a-z0-9]*p[56]|root=${BASE}p${IN_ROOT}|' /tmp/ota-dst/${BOOT_CFG}
 echo '    root cfg:' \$(grep -o 'root=[^ ]*' /tmp/ota-dst/${BOOT_CFG})
+${AUTHKEY_CMD}
 sync
 umount /tmp/ota-src /tmp/ota-dst
 rm -f /tmp/ota-boot.img
@@ -179,6 +199,13 @@ v=\$(fw_printenv -n kart_slot)
 rm -f /tmp/ota-env
 "
     "${SSH[@]}" reboot || true
+fi
+
+if [ -n "$AUTHKEY" ]; then
+    echo "    NOTE (--authkey): 新スロットが prod の場合、LAN の ssh では戻ってこないため"
+    echo "    以降の復帰待ちはタイムアウトする。tailscale-autoconnect の接続を待って"
+    echo "    'ssh root@<tailscale名> kart-ab-commit' で確定すること。"
+    echo "    (未コミットのままなら電源入れ直し数回で旧スロットへ自動復帰する)"
 fi
 
 echo "==> [5/6] Waiting for the device to come back..."
