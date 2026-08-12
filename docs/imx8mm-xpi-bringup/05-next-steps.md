@@ -111,10 +111,16 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    → kernel→GUI **3.98s → 3.82s** (N=5, stdev 0.07)、初バイト→GUI 5.21s。
    二段 coldplug も試したが誤差利得 + ばらつき 10 倍で撤収
    (敗戦記録と教訓は [04-pitfalls](04-pitfalls.md) #21)。
+   **Mesa シェーダキャッシュを /data へ (2026-08-13)**: read-only rootfs で
+   無効化されていたディスクキャッシュを /data/mesa-cache に常設 (weston
+   drop-in + tmpfiles、mx8mm のみ)。→ kernel→GUI **3.78s** (−42ms。
+   コンパイル時間の占有が小さく見込み下限だが、実測ベストの 3.67s を記録)。
    次の伸びしろ:
-   - U-Boot proper 1.34s (Falcon Mode 領域 — 温め中)
-   - userspace 残り: weston 自体の起動 ~1.3s (GL 初期化、シェーダキャッシュ無効)
-     と kmm 0.45s。CAAM (=m) のビルトイン化で CRNG のさらなる前倒しも選択肢
+   - U-Boot proper 1.36s (Falcon Mode 領域 — 温め中)
+   - systemd 序盤の直列区間 ~1.4s (kernel 完了 → sysinit 2.06s) と
+     basic → weston 起動開始までの ~0.8s (seatd/セッション準備の依存鎖)
+   - weston 本体 0.55s / kmm 0.42s は小粒。CAAM (=m) のビルトイン化で
+     CRNG のさらなる前倒しも選択肢
 4. **eMMC への本焼き — 完了 (2026-08-11 実機実証)**。再現手順は独立した手順書
    [06-emmc-flash.md](06-emmc-flash.md) に整理済み。初回実証は bring up で
    実績のある **netboot Linux から dd** で実施(下記)。その後 `ums` の実機検証
