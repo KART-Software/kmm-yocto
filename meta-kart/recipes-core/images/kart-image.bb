@@ -268,6 +268,15 @@ ExecStop=/bin/umount /boot
 [Install]
 WantedBy=multi-user.target
 EOF
+    # imx のみ: /boot マウントを GUI (kmm) 後へ退避。basic 直後のスタート集中
+    # から 300ms 級の CPU を返す (消費者は tailscale-autoconnect だけなので
+    # 遅らせて無害。Before=autoconnect の関係は維持)。RPi5 は据え置き
+    case "${WKS_FILE}" in
+        *imx8mm*)
+            sed -i '/^Before=tailscale-autoconnect.service/a After=kmm.service' \
+                ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
+            ;;
+    esac
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/multi-user.target.wants
     ln -sf ../kart-boot-mount.service \
         ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/multi-user.target.wants/kart-boot-mount.service

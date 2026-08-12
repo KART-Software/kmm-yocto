@@ -115,6 +115,11 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    無効化されていたディスクキャッシュを /data/mesa-cache に常設 (weston
    drop-in + tmpfiles、mx8mm のみ)。→ kernel→GUI **3.78s** (−42ms。
    コンパイル時間の占有が小さく見込み下限だが、実測ベストの 3.67s を記録)。
+   **起動嵐からの非クリティカル退避 (2026-08-13)**: selfheal / boot-mount /
+   logind / dbus を After=kmm で GUI 後へ。→ kernel→GUI **3.70s** (−80ms)。
+   さらに「pam_systemd 抜き + logind/dbus mask で廃止」も実験したが、
+   後送り済みのものを廃止しても **+9ms (誤差) で利得ゼロ**、loginctl /
+   systemd --user 等の保守機能だけ失うため撤収 (後送りが最終形)。
    次の伸びしろ:
    - U-Boot proper 1.36s (Falcon Mode 領域 — 温め中)
    - systemd 序盤の直列区間 ~1.4s (kernel 完了 → sysinit 2.06s) と
