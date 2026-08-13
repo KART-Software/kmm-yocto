@@ -292,9 +292,16 @@ EOF
     # imx のみ: /boot マウントを GUI (kmm) 後へ退避。basic 直後のスタート集中
     # から 300ms 級の CPU を返す (消費者は tailscale-autoconnect だけなので
     # 遅らせて無害。Before=autoconnect の関係は維持)。RPi5 は据え置き
+    #
+    # さらに imx は LABEL= でなく cmdline の root= からデバイス直導出で
+    # マウントする (kart-data-mount と同じ思想)。falcon+splash ブートは
+    # 起動が速く、udev の by-label リンク生成前にこのユニットが走って
+    # LABEL 解決に失敗する (実測)。root=/dev/mmcblk2p5 -> p1, p6 -> p2
     case "${WKS_FILE}" in
         *imx8mm*)
             sed -i '/^Before=tailscale-autoconnect.service/a After=kmm.service' \
+                ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
+            sed -i 's|^ExecStart=.*|ExecStart=/bin/sh -c '"'"'R=$$(sed "s/.*root=\\([^ ]*\\)p[56].*/\\1/" /proc/cmdline); if grep -q "root=[^ ]*p6" /proc/cmdline; then P=2; else P=1; fi; mount $${R}p$$P /boot'"'"'|' \
                 ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
             ;;
     esac

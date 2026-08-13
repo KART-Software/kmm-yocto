@@ -1,0 +1,196 @@
+kiosk-shell: add [shell] client-size=WxH option
+
+The XPI panel physically displays only the top-left 800x480 of the
+(black-padded) 1920x792 mode that stabilizes the LT9611 PCR lock.
+Let kiosk-shell advertise a fixed client size and anchor surfaces at
+the output's top-left instead of centering, so clients keep rendering
+at panel size while the scanout runs the padded mode.
+
+Upstream-Status: Inappropriate [product-specific panel quirk]
+
+--- a/kiosk-shell/kiosk-shell.h	2026-08-14 04:35:11.519674333 +0900
++++ b/kiosk-shell/kiosk-shell.h	2026-08-14 04:35:17.400631968 +0900
+@@ -48,6 +48,11 @@
+ 
+ 	const struct weston_xwayland_surface_api *xwayland_surface_api;
+ 	struct weston_config *config;
++
++	/* [shell] client-size=WxH: fixed size told to fullscreen/maximized
++	 * clients; surfaces are anchored top-left instead of centered. */
++	int32_t forced_client_w;
++	int32_t forced_client_h;
+ };
+ 
+ struct kiosk_shell_surface {
+--- a/kiosk-shell/kiosk-shell.c	2026-08-14 04:35:11.519561991 +0900
++++ b/kiosk-shell/kiosk-shell.c	2026-08-14 04:36:10.499594600 +0900
+@@ -27,6 +27,7 @@
+ #include <linux/input.h>
+ #include <stdbool.h>
+ #include <stdint.h>
++#include <stdio.h>
+ #include <string.h>
+ 
+ #include "kiosk-shell.h"
+@@ -224,20 +225,52 @@
+ 		      &shsurf->output_destroy_listener);
+ }
+ 
++/* Size to advertise to fullscreen/maximized clients: the output size, or
++ * the configured client-size when set (clamped to the output). */
++static void
++kiosk_shell_get_client_size(struct kiosk_shell *shell,
++			    struct weston_output *output,
++			    int32_t *width, int32_t *height)
++{
++	*width = output->width;
++	*height = output->height;
++	if (shell->forced_client_w > 0 && shell->forced_client_w < *width)
++		*width = shell->forced_client_w;
++	if (shell->forced_client_h > 0 && shell->forced_client_h < *height)
++		*height = shell->forced_client_h;
++}
++
++/* With a forced client size the surface is anchored at the output's
++ * top-left corner; otherwise keep the stock centering behavior. */
++static void
++kiosk_shell_position_view_on_output(struct kiosk_shell *shell,
++				    struct weston_view *view,
++				    struct weston_output *output)
++{
++	if (shell->forced_client_w > 0 || shell->forced_client_h > 0)
++		weston_view_set_position(view, output->pos);
++	else
++		weston_shell_utils_center_on_output(view, output);
++}
++
+ static void
+ kiosk_shell_surface_set_fullscreen(struct kiosk_shell_surface *shsurf,
+ 				   struct weston_output *output)
+ {
++	int32_t cw, ch;
++
+ 	if (!output)
+ 		output = kiosk_shell_surface_find_best_output(shsurf);
+ 
+ 	kiosk_shell_surface_set_output(shsurf, output);
+ 
+ 	weston_desktop_surface_set_fullscreen(shsurf->desktop_surface, true);
+-	if (shsurf->output)
++	if (shsurf->output) {
++		kiosk_shell_get_client_size(shsurf->shell, shsurf->output,
++					    &cw, &ch);
+ 		weston_desktop_surface_set_size(shsurf->desktop_surface,
+-						shsurf->output->width,
+-						shsurf->output->height);
++						cw, ch);
++	}
+ }
+ 
+ static void
+@@ -245,14 +278,17 @@
+ {
+ 	struct weston_output *output =
+ 		kiosk_shell_surface_find_best_output(shsurf);
++	int32_t cw, ch;
+ 
+ 	kiosk_shell_surface_set_output(shsurf, output);
+ 
+ 	weston_desktop_surface_set_maximized(shsurf->desktop_surface, true);
+-	if (shsurf->output)
++	if (shsurf->output) {
++		kiosk_shell_get_client_size(shsurf->shell, shsurf->output,
++					    &cw, &ch);
+ 		weston_desktop_surface_set_size(shsurf->desktop_surface,
+-						shsurf->output->width,
+-						shsurf->output->height);
++						cw, ch);
++	}
+ }
+ 
+ static void
+@@ -360,6 +396,7 @@
+ kiosk_shell_surface_reconfigure_for_output(struct kiosk_shell_surface *shsurf)
+ {
+ 	struct weston_desktop_surface *desktop_surface;
++	int32_t cw, ch;
+ 
+ 	if (!shsurf->output)
+ 		return;
+@@ -368,12 +405,13 @@
+ 
+ 	if (weston_desktop_surface_get_maximized(desktop_surface) ||
+ 	    weston_desktop_surface_get_fullscreen(desktop_surface)) {
+-		weston_desktop_surface_set_size(desktop_surface,
+-						shsurf->output->width,
+-						shsurf->output->height);
++		kiosk_shell_get_client_size(shsurf->shell, shsurf->output,
++					    &cw, &ch);
++		weston_desktop_surface_set_size(desktop_surface, cw, ch);
+ 	}
+ 
+-	weston_shell_utils_center_on_output(shsurf->view, shsurf->output);
++	kiosk_shell_position_view_on_output(shsurf->shell, shsurf->view,
++					    shsurf->output);
+ 	weston_view_update_transform(shsurf->view);
+ }
+ 
+@@ -915,9 +953,14 @@
+ 		output = kiosk_shell_surface_find_best_output(shsurf);
+ 
+ 		kiosk_shell_surface_set_output(shsurf, output);
+-		weston_desktop_surface_set_size(shsurf->desktop_surface,
+-						shsurf->output->width,
+-						shsurf->output->height);
++		{
++			int32_t cw, ch;
++
++			kiosk_shell_get_client_size(shsurf->shell,
++						    shsurf->output, &cw, &ch);
++			weston_desktop_surface_set_size(shsurf->desktop_surface,
++							cw, ch);
++		}
+ 		/* even if we couldn't find an appid set for a particular
+ 		 * output still flag the shsurf as to a avoid changing the
+ 		 * output every time */
+@@ -936,7 +979,8 @@
+ 
+ 	if (!weston_surface_is_mapped(surface) || (is_resized && is_fullscreen)) {
+ 		if (is_fullscreen || !shsurf->xwayland.is_set) {
+-			weston_shell_utils_center_on_output(shsurf->view,
++			kiosk_shell_position_view_on_output(shsurf->shell,
++							    shsurf->view,
+ 							    shsurf->output);
+ 		} else {
+ 			struct weston_coord_surface offset;
+@@ -1390,6 +1434,30 @@
+ 	config_file = weston_config_get_name_from_env();
+ 	shell->config = weston_config_parse(config_file);
+ 
++	if (shell->config) {
++		struct weston_config_section *section =
++			weston_config_get_section(shell->config, "shell",
++						  NULL, NULL);
++		char *size = NULL;
++		int w, h;
++
++		weston_config_section_get_string(section, "client-size",
++						 &size, NULL);
++		if (size) {
++			if (sscanf(size, "%dx%d", &w, &h) == 2 &&
++			    w > 0 && h > 0) {
++				shell->forced_client_w = w;
++				shell->forced_client_h = h;
++				weston_log("kiosk-shell: forcing client size "
++					   "%dx%d, top-left anchored\n", w, h);
++			} else {
++				weston_log("kiosk-shell: invalid client-size "
++					   "'%s', ignoring\n", size);
++			}
++			free(size);
++		}
++	}
++
+ 	weston_layer_init(&shell->background_layer, ec);
+ 	weston_layer_init(&shell->normal_layer, ec);
+ 	weston_layer_init(&shell->inactive_layer, ec);

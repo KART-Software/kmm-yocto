@@ -7,6 +7,11 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 
 DEPENDS = "u-boot-tools-native dtc-native"
 
+# SPL スプラッシュ用フレーム (scripts/gen-splash-raw.py が生成、リポジトリ収録)。
+# KART_SPLASH 無効時は未使用のまま (kas/imx8mm-splash.yml が "1" にする)
+SRC_URI = "file://kart-splash-1920x792.raw.gz"
+KART_SPLASH ?= ""
+
 inherit deploy nopackages
 
 COMPATIBLE_MACHINE = "imx8mm-xpi"
@@ -34,6 +39,33 @@ do_compile() {
     cp ${DEPLOY_DIR_IMAGE}/u-boot-nodtb.bin ${B}/u-boot-nodtb.bin
     cp ${DEPLOY_DIR_IMAGE}/u-boot-proper.dtb ${B}/u-boot-proper.dtb
 
+    # SPL スプラッシュ: ロゴフレームを loadable として同梱し、SPL が叩く
+    # LCDIF の FB 物理アドレスへ FIT ロード機構で直接置く (SPL 側コピー不要)。
+    # load=0xBFA00000 は U-Boot パッチ (kart_splash.c SPLASH_FB_ADDR) と一致必須。
+    # mem=2042M で FB 領域 (上位 6MB) をカーネルから隠す (reserved-memory の
+    # 代わり。fdtput は空プロパティ no-map を作れないため簡潔なこちらを採用)
+    if [ -n "${KART_SPLASH}" ]; then
+        # fetcher が .gz を自動展開するので raw をそのままコピー
+        cp ${WORKDIR}/kart-splash-1920x792.raw ${B}/splash.raw
+        # clk/pd_ignore_unused: SPL が立ち上げた表示クロック/電源ドメインを
+        # カーネルの「未使用掃除」から守る (養子縁組パッチ 0004/0005 の補完)
+        splash_args=" mem=2042M clk_ignore_unused pd_ignore_unused"
+        loadables='"kernel", "splash"'
+        splash_node='
+		splash {
+			description = "kart splash frame (1920x792 XRGB8888)";
+			data = /incbin/("splash.raw");
+			type = "firmware";
+			arch = "arm64";
+			compression = "none";
+			load = <0xBFA00000>;
+		};'
+    else
+        splash_args=""
+        loadables='"kernel"'
+        splash_node=""
+    fi
+
     # スロット毎の falcon.itb (bootargs の root= だけが差分)
     for slot in a b; do
         case $slot in
@@ -43,7 +75,17 @@ do_compile() {
         cp ${DEPLOY_DIR_IMAGE}/imx8mm-xpi-kart.dtb ${B}/falcon-$slot.dtb
         fdtput -c ${B}/falcon-$slot.dtb /chosen 2>/dev/null || true
         fdtput -t s ${B}/falcon-$slot.dtb /chosen bootargs \
-            "root=/dev/mmcblk2p$rootpart rootwait rw ${FALCON_BOOTARGS_COMMON}"
+            "root=/dev/mmcblk2p$rootpart rootwait rw ${FALCON_BOOTARGS_COMMON}$splash_args"
+        # SPL スプラッシュ時は lcdif/dsi の assigned-clocks を削除する。
+        # 素の DT だと lcdif probe (~0.3s) が LCDIF_PIXEL を 24MHz に
+        # 強制設定し、108MHz で走査中のスプラッシュ表示が即死する (実測特定)。
+        # weston の modeset はモード由来のレートを自前で設定するため機能損失なし
+        if [ -n "${KART_SPLASH}" ]; then
+            for prop in assigned-clocks assigned-clock-parents assigned-clock-rates; do
+                fdtput -d ${B}/falcon-$slot.dtb /soc@0/bus@32c00000/lcdif@32e00000 $prop || true
+                fdtput -d ${B}/falcon-$slot.dtb /soc@0/bus@32c00000/dsi@32e10000 $prop 2>/dev/null || true
+            done
+        fi
 
         cat > ${B}/falcon-$slot.its << EOF
 /dts-v1/;
@@ -78,14 +120,14 @@ do_compile() {
 			arch = "arm64";
 			compression = "none";
 			load = <${FALCON_FDT_ADDR}>;
-		};
+		};$splash_node
 	};
 	configurations {
 		default = "conf";
 		conf {
 			description = "falcon";
 			firmware = "atf";
-			loadables = "kernel";
+			loadables = $loadables;
 			fdt = "fdt";
 		};
 	};

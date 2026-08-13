@@ -1,0 +1,22 @@
+# SPL スプラッシュオーバーレイ — 必ず imx8mm-falcon.yml の後ろに付ける:
+#
+#   kas-container build kas/imx8mm-prod.yml:kas/imx8mm-emmc-ab.yml:kas/imx8mm-falcon.yml:kas/imx8mm-splash.yml
+#
+# SPL が LCDIF/DSIM/LT9611 を直接叩き、falcon FIT が FB (0xBFA00000) へ
+# ロードしたロゴを電源投入直後に表示する。カーネルには mem=2042M で
+# FB 領域 (上位 6MB) を隠す。表示チェーンと位相問題の全記録は
+# 04-pitfalls.md #22/#23。
+# 0002 パッチは 0001 (falcon) の上に当たるため、オーバーレイ順序が適用順序。
+header:
+  version: 14
+
+local_conf_header:
+  splash: |
+    SRC_URI:append:pn-u-boot-fslc = " file://kart-splash.cfg file://0002-imx8mm-kart-spl-splash.patch"
+    KART_SPLASH:pn-kart-falcon-itb = "1"
+    # ロゴを GUI 直前まで持続させるカーネル側 3 点 (SPL が /chosen に立てる
+    # kart,splash-active で発動。splash 無しブート・他マシンは無変更):
+    #  0004 gpcv2: dispmix/mipi を ALWAYS_ON 養子縁組 (ADB400 電源断失敗の根治)
+    #  0005 blk-ctrl: LCDIF/DSI ドメイン養子縁組 + クロック恒久ピン
+    #  0006 lt9611: probe のハードリセット抑止 (ロゴ即死防止)
+    SRC_URI:append:pn-linux-fslc = " file://0004-pmdomain-imx-gpcv2-kart-splash-adopt.patch file://0005-pmdomain-imx8m-blk-ctrl-kart-splash-adopt.patch file://0006-drm-lontium-lt9611-kart-splash-skip-probe-reset.patch"
