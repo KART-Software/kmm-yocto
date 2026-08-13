@@ -15,3 +15,22 @@ SRC_URI += " \
 # この間接変数を設定する。デフォルトは machine include と同じ値。
 KART_EXTLINUX_ROOT ??= "root=/dev/mmcblk1p2"
 UBOOT_EXTLINUX_ROOT:default:use-mainline-bsp = "${KART_EXTLINUX_ROOT}"
+
+# falcon の proper フォールバック FIT (kart-falcon-itb が組む u-boot.itb) 用に
+# 素材を deploy へ出す。falcon 非使用ビルドでも小物 2 ファイルで無害
+do_deploy:append:mx8mm-generic-bsp() {
+    # UBOOT_CONFIG 使用時は ${B}/${config}/ 配下に成果物ができる
+    for cfg in ${UBOOT_MACHINE} ${UBOOT_CONFIG}; do
+        if [ -f ${B}/$cfg/u-boot-nodtb.bin ]; then
+            install -m 0644 ${B}/$cfg/u-boot-nodtb.bin ${DEPLOYDIR}/u-boot-nodtb.bin
+            install -m 0644 ${B}/$cfg/u-boot.dtb ${DEPLOYDIR}/u-boot-proper.dtb
+            return
+        fi
+    done
+    if [ -f ${B}/u-boot-nodtb.bin ]; then
+        install -m 0644 ${B}/u-boot-nodtb.bin ${DEPLOYDIR}/u-boot-nodtb.bin
+        install -m 0644 ${B}/u-boot.dtb ${DEPLOYDIR}/u-boot-proper.dtb
+    else
+        bbfatal "u-boot-nodtb.bin not found under ${B} (checked ${UBOOT_MACHINE} ${UBOOT_CONFIG})"
+    fi
+}

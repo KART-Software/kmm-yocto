@@ -130,8 +130,11 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    weston の DRM デバイス発見が udev DB 依存でレースになるため不採用 —
    ordering で安全に絞れる限界がここ。残りは Falcon Mode とアプリ側
    (kmm 0.46s の Qt 初期化と weston 起動の並行化) の領分。
+   **Falcon Mode 実装・実機投入 (2026-08-13)**: U-Boot proper (1.39s) を
+   スキップし SPL が FAT の falcon.itb (ATF+Image+DTB) から BL33 シム経由で
+   カーネル直行。→ 初バイト→GUI **5.21s → 3.66s (−1.55s)**、電源→GUI
+   約 4.7s。設計・A/B 統合・復旧経路は [08-falcon.md](08-falcon.md)。
    次の伸びしろ:
-   - U-Boot proper 1.36s (Falcon Mode 領域 — 温め中)
    - systemd 序盤の直列区間 ~1.4s (kernel 完了 → sysinit 2.06s) と
      basic → weston 起動開始までの ~0.8s (seatd/セッション準備の依存鎖)
    - weston 本体 0.55s / kmm 0.42s は小粒。CAAM (=m) のビルトイン化で

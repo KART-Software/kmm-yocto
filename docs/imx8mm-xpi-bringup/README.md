@@ -37,6 +37,8 @@ disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿し
 | [05-next-steps.md](05-next-steps.md) | 残課題と直し方 |
 | [06-emmc-flash.md](06-emmc-flash.md) | eMMC 初回書き込み手順書(新品ボード → スタンドアロン起動) |
 | [07-vendor-bsp-audit.md](07-vendor-bsp-audit.md) | ベンダ BSP 監査 — DDR/LT9611/DTS 照合結果と採用候補・リカバリ知見 |
+| [08-falcon.md](08-falcon.md) | Falcon Mode — SPL 直カーネル起動の設計・A/B 統合・実測 |
+| [09-boot-sequence.md](09-boot-sequence.md) | ブートシーケンス完全解説(初学者向け・図解・用語辞典付き) |
 
 関連: [../imx8mm-migration-design.md](../imx8mm-migration-design.md)(移行の設計判断)、
 `meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi-kart.dts`(XPI 用 [DT](00-glossary.md#g-dt))。

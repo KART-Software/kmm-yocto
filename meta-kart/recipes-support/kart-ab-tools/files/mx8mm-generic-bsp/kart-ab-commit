@@ -46,3 +46,35 @@ if [ "$verify" != "$SLOT" ]; then
     exit 1
 fi
 echo "Committed: slot $SLOT_NAME is now the permanent boot slot (kart_slot=$SLOT). (read-back verified)"
+
+# ---- Falcon (SPL 直カーネル起動) 用: MBR bootable フラグを確定スロットへ ----
+# falcon SPL は「bootable フラグの立ったパーティション」の falcon.itb を起動する
+# (CONFIG_SYS_MMCSD_FS_BOOT_PARTITION=-1)。slot a → p1、slot b → p2。
+# 非 falcon 構成 (U-Boot proper 経由) はフラグを見ないため、常に実行して無害。
+# busybox 制約: head -c / conv= を使わず dd スライスで MBR 512B を再構成する。
+BASE_DEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
+if [ -n "$BASE_DEV" ]; then
+    if [ "$SLOT" = "a" ]; then P_ON=446; P_OFF=462; else P_ON=462; P_OFF=446; fi
+    M=$(mktemp); PRE=$(mktemp); MID=$(mktemp); POST=$(mktemp); NEW=$(mktemp)
+    trap 'rm -f "$M" "$PRE" "$MID" "$POST" "$NEW"' EXIT
+    dd if="$BASE_DEV" of="$M" bs=512 count=1 2>/dev/null
+    # 446(p1 flag) と 462(p2 flag) の 2 バイトだけ差し替え
+    dd if="$M" of="$PRE"  bs=1 count=446 2>/dev/null
+    dd if="$M" of="$MID"  bs=1 skip=447 count=15 2>/dev/null
+    dd if="$M" of="$POST" bs=1 skip=463 count=49 2>/dev/null
+    if [ "$SLOT" = "a" ]; then F1='\200'; F2='\000'; else F1='\000'; F2='\200'; fi
+    { cat "$PRE"; printf "$F1"; cat "$MID"; printf "$F2"; cat "$POST"; } > "$NEW"
+    if [ "$(wc -c < "$NEW")" -eq 512 ]; then
+        dd if="$NEW" of="$BASE_DEV" bs=512 count=1 2>/dev/null
+        sync
+        # 読み戻し検証
+        dd if="$BASE_DEV" of="$M" bs=512 count=1 2>/dev/null
+        if cmp -s "$M" "$NEW"; then
+            echo "Boot flag: slot $SLOT_NAME partition marked bootable. (read-back verified)"
+        else
+            echo "WARNING: MBR boot-flag read-back mismatch — falcon boot may use the old slot." >&2
+        fi
+    else
+        echo "WARNING: MBR reassembly size != 512; boot flag NOT updated." >&2
+    fi
+fi

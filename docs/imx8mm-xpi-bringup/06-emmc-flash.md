@@ -38,6 +38,10 @@ U-Boot が上がらない・USB が使えない等の深い状態からの復旧
 
 - `uuu`(NXP mfgtools。導入は [02-debug-setup.md](02-debug-setup.md))
 - `bmaptool`(Debian/Ubuntu: `sudo apt install bmap-tools`。無ければ dd でも可)
+- **stock U-Boot** — `./scripts/build-recovery-uboot.sh` で
+  `local/recovery/flash.bin-stock` を生成しておく(kart-boot.uuu が参照)。
+  falcon 運用 ([08-falcon.md](08-falcon.md)) の flash.bin は SDPV を受けず
+  `u-boot=>` に到達できないため、**UUU 経路は常に stock 版**を使う
 
 **ビルド:**
 
@@ -94,6 +98,10 @@ lsblk -S | grep -i usb      # デバイス名を確認 (以下 sdX と表記)
 
 `ums` 中は PC からの読み書きがそのまま eMMC に落ちる。boot0/boot1 ハード
 パーティションは公開されないので、**ベンダブートローダ(boot0)には触れようがない**。
+
+なお falcon 構成の wic は U-Boot A/B の**両面とも falcon** になる(既存ボードの
+「B 面 = stock」は kart-uboot-update の温存による)。新品ボードの最終復旧は
+UUU + stock (`local/recovery/flash.bin-stock`) と覚えておくこと。
 
 ## Step 3 — wic を書き込む
 

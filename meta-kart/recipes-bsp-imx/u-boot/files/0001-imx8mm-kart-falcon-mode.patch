@@ -1,0 +1,148 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] imx8mm: kart falcon mode — SPL direct Linux boot via BL33 shim
+
+See docs/imx8mm-xpi-bringup/08-falcon.md in kmm-yocto for design.
+---
+--- a/board/freescale/imx8mm_evk/spl.c	2026-08-13 11:21:50.575418229 +0900
++++ b/board/freescale/imx8mm_evk/spl.c	2026-08-13 13:49:53.968430714 +0900
+@@ -34,7 +34,16 @@
+ {
+ 	switch (boot_dev_spl) {
+ 	case USB_BOOT:
++#ifdef CONFIG_SPL_OS_BOOT
++		/* kart falcon: SDP (UUU) で RAM 起動した SPL も eMMC の
++		 * falcon.itb から起動する。ベンチ検証 (eMMC 無書き込みで
++		 * falcon 経路を通す) と、実運用での挙動一貫性のため。
++		 * SDPV での proper 流し込みは falcon ビルドでは不可になるが、
++		 * リカバリは常に stock ビルドの kart-boot.uuu を使う */
++		return BOOT_DEVICE_MMC2;
++#else
+ 		return BOOT_DEVICE_BOARD;
++#endif
+ 	case SD2_BOOT:
+ 	case MMC2_BOOT:
+ 		return BOOT_DEVICE_MMC1;
+@@ -141,3 +150,83 @@
+ 
+ 	board_init_r(NULL, 0);
+ }
++
++#ifdef CONFIG_SPL_OS_BOOT
++/*
++ * kart Falcon mode: SPL が FAT 上の falcon.itb (ATF + Image + DTB) をロードし、
++ * U-Boot proper を飛ばしてカーネル直行する。
++ *
++ * この tree の imx-atf (lf_v2.10) は SPL から渡す bl31_params を無視して
++ * BL33 = 0x40200000 へ x0-x7=0 で盲目ジャンプするため、その番地に
++ * 「x0=DTB を積んでカーネルへ分岐する」8 命令のシムを置く方式を取る
++ * (ATF 無改造。docs/imx8mm-xpi-bringup/08-falcon.md)。
++ *
++ * A/B と OTA の整合:
++ *  - スロット選択は MBR bootable フラグ (CONFIG_SYS_MMCSD_FS_BOOT_PARTITION=-1)
++ *  - upgrade_available=1 (OTA 試行中) は U-Boot proper へ委譲し、
++ *    実績ある bootcount/フォールバック機構をそのまま使う
++ */
++#include <env.h>
++#include <linux/libfdt.h>
++
++#define KART_FALCON_SHIM_ADDR	0x40200000UL	/* ATF PLAT_NS_IMAGE_OFFSET */
++
++#define KART_FALCON_KERNEL_ADDR	0x40400000UL	/* falcon.its の load/entry と一致必須 */
++
++int spl_start_uboot(void)
++{
++	if (env_init())
++		return 1;
++	env_load();
++
++	/* OTA 試行ブート中は proper (bootcount/altbootcmd) に任せる */
++	if (env_get_yesno("upgrade_available") == 1)
++		return 1;
++	/* 手動脱出口: fw_setenv boot_os no で常に proper */
++	if (env_get_yesno("boot_os") == 0)
++		return 1;
++
++	return 0;	/* falcon */
++}
++
++static void kart_emit_bl33_shim(ulong shim, ulong fdt, ulong kernel)
++{
++	u32 *p = (u32 *)shim;
++
++	/* movz/movk (アドレスは 32bit に収まる) + br。x1-x3 はカーネル規約で 0 */
++	*p++ = 0xd2800000 | (u32)((fdt & 0xffff) << 5);		/* movz x0, #lo16 */
++	*p++ = 0xf2a00000 | (u32)(((fdt >> 16) & 0xffff) << 5);	/* movk x0, #hi16, lsl #16 */
++	*p++ = 0xd2800010 | (u32)((kernel & 0xffff) << 5);	/* movz x16, #lo16 */
++	*p++ = 0xf2a00010 | (u32)(((kernel >> 16) & 0xffff) << 5); /* movk x16, #hi16, lsl #16 */
++	*p++ = 0xd2800001;					/* movz x1, #0 */
++	*p++ = 0xd2800002;					/* movz x2, #0 */
++	*p++ = 0xd2800003;					/* movz x3, #0 */
++	*p++ = 0xd61f0200;					/* br x16 */
++
++	flush_dcache_range(shim, shim + 64);
++}
++
++void spl_perform_fixups(struct spl_image_info *spl_image)
++{
++	void *fdt = spl_image->fdt_addr;
++
++	/*
++	 * u-boot proper (os="u-boot"、dtsi パッチで付与) だけ素通しする。
++	 * falcon.itb の atf ノードは os 無しで、実測では os=255 になる
++	 * (IH_OS_INVALID=0 ではない — ベンチで確認)。
++	 */
++	if (spl_image->os == IH_OS_U_BOOT || !fdt)
++		return;
++
++	/* /memory を実 DRAM 構成で更新 (bootargs は DTB に焼き込み済み) */
++	spl_fixup_fdt(fdt);
++	flush_dcache_range((ulong)fdt,
++			   (ulong)fdt + fdt_totalsize(fdt) + 64);
++
++	kart_emit_bl33_shim(KART_FALCON_SHIM_ADDR, (ulong)fdt,
++			    KART_FALCON_KERNEL_ADDR);
++
++	printf("Falcon: shim@%lx fdt@%p kernel@%lx\n",
++	       KART_FALCON_SHIM_ADDR, fdt, KART_FALCON_KERNEL_ADDR);
++}
++#endif /* CONFIG_SPL_OS_BOOT */
+--- a/arch/arm/mach-imx/spl.c	2026-08-13 13:16:27.179730077 +0900
++++ b/arch/arm/mach-imx/spl.c	2026-08-13 13:16:27.245319190 +0900
+@@ -213,6 +213,9 @@
+ 	case MMC1_BOOT:
+ 	case MMC2_BOOT:
+ 	case MMC3_BOOT:
++#ifdef CONFIG_SPL_OS_BOOT
++	case USB_BOOT:	/* kart falcon: SDP (UUU) RAM 起動でも eMMC を FS モードで読む */
++#endif
+ 		if (IS_ENABLED(CONFIG_SPL_FS_FAT))
+ 			return MMCSD_MODE_FS;
+ 		else if (IS_ENABLED(CONFIG_SUPPORT_EMMC_BOOT))
+--- a/arch/arm/mach-imx/mmc_env.c	2026-08-13 13:22:08.361298165 +0900
++++ b/arch/arm/mach-imx/mmc_env.c	2026-08-13 13:22:32.936120269 +0900
+@@ -15,6 +15,12 @@
+ 
+ int mmc_get_env_dev(void)
+ {
++#if defined(CONFIG_SPL_OS_BOOT) && defined(CONFIG_XPL_BUILD)
++	/* kart falcon: SPL の DM には usdhc が 2 台しか居らず eMMC は dev 1
++	 * (ベンチ実測: FAT boot は通るのに env が "MMC Device 2 not found")。
++	 * imx8mm_evk.c の board_mmc_get_env_dev と衝突しないようここで分岐 */
++	return 1;
++#endif
+ 	struct bootrom_sw_info **p =
+ 		(struct bootrom_sw_info **)(ulong)ROM_SW_INFO_ADDR;
+ 	int devno = (*p)->boot_dev_instance;
+--- a/arch/arm/dts/imx8mm-u-boot.dtsi	2026-08-13 11:21:50.582418220 +0900
++++ b/arch/arm/dts/imx8mm-u-boot.dtsi	2026-08-13 11:23:44.686294166 +0900
+@@ -140,6 +140,10 @@
+ 						compression = "none";
+ 						description = "U-Boot (64-bit)";
+ 						load = <CONFIG_TEXT_BASE>;
++						/* kart falcon: SPL_OS_BOOT 有効時に os 無しだと
++						 * IH_OS_INVALID になり u-boot DTB が付かない。
++						 * proper フォールバック経路の生存条件 */
++						os = "u-boot";
+ 						type = "standalone";
+ 
+ 						uboot-blob {

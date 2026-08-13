@@ -1,0 +1,20 @@
+# Falcon mode 実験オーバーレイ (Phase 2 — ベンチ検証用)
+#
+#   kas-container build kas/imx8mm-prod.yml:kas/imx8mm-emmc-ab.yml:kas/imx8mm-falcon.yml
+#
+# SPL が FAT 上の falcon.itb (ATF + Image + DTB) を読んでカーネル直行する。
+# 設計・リスク (R1/R2 ほか)・検証手順は docs/imx8mm-xpi-bringup/08-falcon.md。
+# このオーバーレイを付けない通常ビルドには一切影響しない。
+header:
+  version: 14
+
+local_conf_header:
+  falcon: |
+    SRC_URI:append:pn-u-boot-fslc = " file://kart-falcon.cfg file://0001-imx8mm-kart-falcon-mode.patch"
+    # SPL が読むファイル一式を boot パーティションへ:
+    #   falcon.itb   = アクティブスロット用 (初回イメージは slot a 変種)
+    #   falcon-*.itb = 両スロット変種 (OTA が書き込み先に応じて falcon.itb へ複写)
+    #   u-boot.itb   = OTA 試行時 (upgrade_available=1) の proper フォールバック
+    #   args         = SPL falcon 機構が要求するダミー
+    IMAGE_BOOT_FILES:append = " falcon-a.itb;falcon.itb falcon-a.itb falcon-b.itb u-boot.itb args"
+    KART_WIC_EXTRA_DEPENDS:mx8mm-generic-bsp:append = " kart-falcon-itb:do_deploy"

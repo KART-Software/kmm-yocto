@@ -32,7 +32,7 @@ part sit --source rawcopy --sourceparams="file=kart-sit.bin" --ondisk mmcblk2 --
 part u-boot-a --source rawcopy --sourceparams="file=imx-boot" --ondisk mmcblk2 --no-table --align 33
 part u-boot-b --source rawcopy --sourceparams="file=imx-boot" --ondisk mmcblk2 --no-table --align 2081
 part env --source rawcopy --sourceparams="file=kart-env.bin" --ondisk mmcblk2 --no-table --align 4096
-part /boot --source bootimg-partition --ondisk mmcblk2 --fstype=vfat --label BOOTA --align 8192 --fixed-size 256M --use-uuid
+part /boot --source bootimg-partition --ondisk mmcblk2 --fstype=vfat --label BOOTA --align 8192 --fixed-size 256M --use-uuid --active
 part --ondisk mmcblk2 --fstype=vfat --label BOOTB --align 4096 --fixed-size 256M --use-uuid
 part --ondisk mmcblk2 --fstype=vfat --label KARTRSV --align 4096 --fixed-size 4M
 part / --source rootfs --ondisk mmcblk2 --fstype=ext4 --label roota --align 4096 --fixed-size 1536M --use-uuid

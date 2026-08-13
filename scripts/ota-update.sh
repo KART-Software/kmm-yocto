@@ -132,6 +132,7 @@ if [ "$DEV_PLATFORM" != "$PLATFORM" ]; then
 fi
 IN_LABEL=$([ "$IN_SLOT" = "A" ] && echo BOOTA || echo BOOTB)
 IN_RLABEL=$([ "$IN_SLOT" = "A" ] && echo roota || echo rootb)
+IN_LC_EARLY=$(echo "$IN_SLOT" | tr 'AB' 'ab')
 
 echo "==> [3/6] Writing INACTIVE slot $IN_SLOT (${BASE}p${IN_BOOT} + ${BASE}p${IN_ROOT})..."
 # Relabel + fresh UUID on the HOST before transfer (the device has no
@@ -159,6 +160,13 @@ rm -rf /tmp/ota-dst/*
 cp -r /tmp/ota-src/. /tmp/ota-dst/
 sed -i 's|root=/dev/[a-z0-9]*p[56]|root=${BASE}p${IN_ROOT}|' /tmp/ota-dst/${BOOT_CFG}
 echo '    root cfg:' \$(grep -o 'root=[^ ]*' /tmp/ota-dst/${BOOT_CFG})
+# falcon (i.MX): SPL が読む falcon.itb を書き込み先スロットの変種にする
+# (bootargs に root=p5/p6 が焼き込まれているため)。非 falcon イメージでは
+# 変種ファイルが無く、何もしない
+if [ -f /tmp/ota-dst/falcon-${IN_LC_EARLY}.itb ]; then
+    cp /tmp/ota-dst/falcon-${IN_LC_EARLY}.itb /tmp/ota-dst/falcon.itb
+    echo '    falcon.itb -> slot ${IN_LC_EARLY} variant'
+fi
 ${AUTHKEY_CMD}
 sync
 umount /tmp/ota-src /tmp/ota-dst
