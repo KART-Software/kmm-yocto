@@ -20,7 +20,7 @@ Geniatech 公式 BSP `imx8mm_xpi_yocto-kernel-uboot-source-20210909.zip`
 | SPL の DDR タイミング | **一致 — 解消**。ベンダ 2GB 用 = NXP 純正 EVK 値そのまま。fslc 2025.01 は同一スクリプトの NXP 公式再生成版 |
 | LT9611 電源シーケンス | **常時給電で確定 — 解消**。制御可能なレールは存在せず、regulator-fixed ダミーが正しいモデル |
 | CAN が ecspi2 | **裏取り成功**。ecspi2 = 40 ピンの RPi 互換 SPI(ベンダは spidev)。ecspi1 は disabled |
-| CAN INT = GPIO3_IO24 | **未検証のまま**。ベンダ DT は無言(パッドは空いている)。回路図バイナリは独自形式で読めず |
+| CAN INT = GPIO3_IO24 | **解消 (2026-08-13)**。HAT 装着で CAN 実受信を確認(受信は割り込み駆動のみ = INT 配線正当の実証) |
 | eMMC (usdhc3) 設定 | 完全一致(8bit / 400MHz / パッド値まで) |
 | Ethernet PHY リセット | **食い違い発見** — 実機は GPIO4_IO1、うちの継承 DT は GPIO4_IO22 を空撃ち |
 
@@ -159,9 +159,8 @@ fsl-imx8mm-ddr4-evk.dtb + root=/dev/mmcblk2p3`。
 
 ## 6. 未検証のまま残るもの
 
-- **CAN INT = SAI5_RXD3(GPIO3_IO24)** — HW ガイド 40 ピン表からの推定のまま。
-  ベンダ DT はこのパッドに触れず(micfil disabled で空いていることだけ確認)、
-  回路図 `rna210114 v1.0.pdf` は PDF ではなく独自バイナリで読めない。
-  確定にはオシロ/ループバックか、MCP2515 割り込みの実動確認が必要
+- ~~CAN INT = SAI5_RXD3(GPIO3_IO24)~~ — **解消 (2026-08-13)**: HAT 装着で
+  CAN 実受信を確認 (mcp2515 の受信は割り込み駆動のみなので、受信成立が
+  INT 配線正当の実証)。HW ガイド 40 ピン表からの推定が正しかった
 - DDR の温度・個体ばらつきマージン — ベンダと同一値であることは確定したので
   「ベンダ出荷品と同等のマージン」までは言える(それ以上は実測のみ)
