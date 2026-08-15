@@ -17,6 +17,7 @@ SRC_URI += " \
     file://slim-imx.cfg \
     file://watchdog.cfg \
     file://pinctrl-gpio.cfg \
+    file://m4-remoteproc.cfg \
     file://0001-drm-mxsfb-attach-bridge-with-NO_CONNECTOR.patch \
     file://0002-drm-lontium-lt9611-dsi-lanes-from-dt.patch \
     file://0003-drm-lontium-lt9611-reduce-enable-settle-delay.patch \
