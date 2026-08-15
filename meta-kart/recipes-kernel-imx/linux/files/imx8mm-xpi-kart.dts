@@ -496,3 +496,54 @@
 	non-removable;
 	status = "okay";
 };
+
+/* ------------------------------------------------------------------ */
+/* Cortex-M4 (remoteproc)                                              */
+/*                                                                     */
+/* /sys/class/remoteproc/remoteproc0 から M4 ファーム (.elf) を起動する */
+/* ための配線。fsl,imx8mm-cm4 は SMC メソッド = ATF SIP 経由で起動する  */
+/* (A53 userspace からの SRC 生叩きでは M4 は起動しない — 実機確認済)。 */
+/* ノードがあるだけでは何も走らない (auto-boot なし、明示 start 待ち)。 */
+/* 共有メモリ配置はベンダ BSP (NXP imx8mm-evk-rpmsg.dts) の実績値。     */
+/* mem=2042M (splash) でも 0xb85 万台は可視域内 (< 0xBFA00000)。        */
+/* M4 コンソールは UART4 = J64 (RDC で M4 ドメイン割当済み、A53 不可視)。*/
+/* ------------------------------------------------------------------ */
+/ {
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		vdev0vring0: vdev0vring0@b8000000 {
+			reg = <0 0xb8000000 0 0x8000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@b8008000 {
+			reg = <0 0xb8008000 0 0x8000>;
+			no-map;
+		};
+
+		rsc_table: rsc-table@b80ff000 {
+			reg = <0 0xb80ff000 0 0x1000>;
+			no-map;
+		};
+
+		vdevbuffer: vdevbuffer@b8400000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0xb8400000 0 0x100000>;
+			no-map;
+		};
+	};
+
+	imx8mm-cm4 {
+		compatible = "fsl,imx8mm-cm4";
+		clocks = <&clk IMX8MM_CLK_M4_DIV>;
+		mbox-names = "tx", "rx", "rxdb";
+		mboxes = <&mu 0 1
+			  &mu 1 1
+			  &mu 3 1>;
+		memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>, <&rsc_table>;
+		syscon = <&src>;
+	};
+};

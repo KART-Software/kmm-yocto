@@ -39,3 +39,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# M4 ベアメタル: 手元 clone するライブラリ (m4/README.md 参照) とビルド成果物
+m4/lib/rpmsg-lite/
+m4/**/*.elf
+m4/tools/rpmsg-rtt
+m4/tools/rpmsg-char-rtt

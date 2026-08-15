@@ -39,6 +39,7 @@ disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿し
 | [07-vendor-bsp-audit.md](07-vendor-bsp-audit.md) | ベンダ BSP 監査 — DDR/LT9611/DTS 照合結果と採用候補・リカバリ知見 |
 | [08-falcon.md](08-falcon.md) | Falcon Mode — SPL 直カーネル起動の設計・A/B 統合・実測 |
 | [09-boot-sequence.md](09-boot-sequence.md) | ブートシーケンス完全解説(初学者向け・図解・用語辞典付き) |
+| [10-cortex-m4.md](10-cortex-m4.md) | Cortex-M4 の使い方 (remoteproc・ベアメタル雛形・デバッグ手法) |
 
 関連: [../imx8mm-migration-design.md](../imx8mm-migration-design.md)(移行の設計判断)、
 `meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi-kart.dts`(XPI 用 [DT](00-glossary.md#g-dt))。
