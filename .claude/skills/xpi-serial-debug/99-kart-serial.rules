@@ -1,0 +1,24 @@
+# kart XPI-iMX8MM デバッグ用シリアルアダプタの安定名 (udev)。
+#
+# /dev/ttyACM* は接続順で番号が入れ替わり「どれが M4 でどれが A53 か」が
+# 毎回不定になる。USB の vid:pid + インターフェース番号は固定なので、
+# それを鍵に意味のあるシンボリックリンクを張る。以後は必ず
+# /dev/kart-* を使う (ttyACM 直アクセス禁止)。
+#
+# インストール:
+#   sudo cp 99-kart-serial.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=tty
+#
+# 実機トポロジ (2026-08 時点):
+#   Teensy "Dual Serial" (16c0:048b, 1 個の USB で 2 ポート)
+#     if00 = A53 コンソール (ttymxc1 / UART2 @0x30890000, U-Boot + Linux)
+#     if02 = M4 UART4 (J64 @0x30a60000, Cortex-M4 の printk 出力)
+#   CANable2 (16d0:117e) = ホスト側 CAN (slcand → hcan0)
+
+# 注意: idVendor/idProduct は USB デバイス階層、インターフェース番号は
+# インターフェース階層にあり、1 ルール内の複数 ATTRS{} は同一親でないと
+# マッチしない。そのためインターフェース番号は udev が tty に付与する
+# ENV{ID_USB_INTERFACE_NUM} で照合する。
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="kart-a53-console", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="kart-m4-uart", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="117e", SYMLINK+="kart-canable", GROUP="dialout", MODE="0660"
