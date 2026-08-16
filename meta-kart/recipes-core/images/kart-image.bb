@@ -67,6 +67,7 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
     can-utils \
     can-setup \
     kernel-modules \
+    kart-rpmsg-can \
     kart-ab-tools \
     libubootenv-bin \
     kart-edid-firmware \
