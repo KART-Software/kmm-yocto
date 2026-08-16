@@ -526,3 +526,60 @@ CCM はゲートレジスタにドメイン権限制御を持ち、各バスマ�
   リセット (UCR2 SRST) が完了せず設定書き込みが消える → 無出力
 - デバッグ手法 (TCMU ブレッドクラム / ダンプ・リプレイ) 込みの記録:
   [10-cortex-m4.md](10-cortex-m4.md)
+
+## 26. rpmsg セッション中の M4 GPIO/ECSPI **read** で SoC ごと無言ハードリセット → 真因 ATF RDC (解決済み)
+
+**結論(先に)**: 真因は **ATF (bl31) のブート時 RDC 設定で、M4 (domain1) に
+ECSPI2/GPIO が割り当てられていなかった**こと。既定の imx8mm_bl31_setup.c は
+M4 に UART4 しか渡しておらず、権限外の ECSPI2/GPIO を M4 が read すると RDC が
+弾いて SoC リセットに至っていた。**imx-atf の rdc[] に ECSPI2/GPIO3/GPIO5 を
+両ドメイン RW で追加**すると解消(`meta-kart/recipes-bsp-imx/imx-atf/`)。
+実行時に Linux devmem で PDAP を書いても効かないのは、RDC がブート最初期に
+確定 → CSU でロックされるため(EL を上げても突破できない)。詳細な最小再現
+(control 付き)と全実験マトリクスは **ブランチ `dev/imx8mm-m4-nxp-repro` /
+タグ `nxp-mu-read-reset-v2` の `m4/repro-mu-read-reset/`**。概念整理は
+`local/learning/02-rdc-and-domains.md`。
+
+以下は真因判明までの切り分け記録(同型のバグに再び出会った時の参考)。
+
+Linux と rpmsg (virtio/MU) のセッションが張られた状態で、M4 が GPIO の
+データレジスタや ECSPI2 を **read** した瞬間、SoC 全体がハードリセットする。
+A53 コンソールに panic なし (いきなり U-Boot SPL)、M4 のフォールトハンドラ
+も走らない (スピンハンドラを仕込んでも SoC ごと落ちる)、SRSR=0x1
+(ipp_reset_b のみ、WDOG ビットなし)。
+
+切り分けで**潰した**もの (全部実機検証):
+- スタック非依存 — Zephyr (CONFIG_IPM+OpenAMP) でも bare-metal
+  (rpmsg-lite) でも同一再現
+- RDC 非依存 — 対象 PDAP を 0xFF でも 0x0C (domain1 専用、Linux 側
+  devmem で設定) でも落ちる。M4 自身からの RDC 書込は無言で無視される
+  ことにも注意 (検証は必ず Linux 側から読み戻す)
+- クロック/PD/MPU/ダブルマスター/mcore_booted 非依存 — 全部確認済み
+- **write は常に安全** (>10^6 回)、read も SCTR/UART4/MU/DDR は常に安全
+- セッションが無ければ (rsc table 無し = Linux が MU を触らなければ)
+  同じ read が全部通る。実 CAN ドライバ (MCP2515/ECSPI2) も MU 無しなら
+  何時間でも動く (can_sniff 実績)
+
+つまり毒の組み合わせは「**MU ドアベル往来が実際にある** + **M4 の
+GPIO/ECSPI read**」。SDK にもこの組み合わせのサンプルは存在しない
+(rpmsg デモは UART/MU/DDR しか触らず、ECSPI/GPIO デモは
+empty_rsc_table 付き = rpmsg なし)。
+
+### 決着 — ATF の RDC に足したら通った (UUU RAM ブートで無リスク検証)
+
+`imx8mm_bl31_setup.c` の rdc[] に 3 行:
+```c
+RDC_PDAPn(RDC_PDAP_eCSPI2, D0R | D0W | D1R | D1W),
+RDC_PDAPn(RDC_PDAP_GPIO3,  D0R | D0W | D1R | D1W),
+RDC_PDAPn(RDC_PDAP_GPIO5,  D0R | D0W | D1R | D1W),
+```
+= ECSPI2/GPIO3/GPIO5 を両ドメイン RW に。検証は eMMC を汚さず **UUU で
+RAM ブート**(S1=Serial + `uuu scripts/kart-boot-atf-rdc.uuu` 相当、
+flash.bin-atf-rdc を RAM 起動)。Linux 起動後 `devmem 0x303D058C` が
+**0x0F**(既定は 0xFF)= パッチが効いた証拠。その状態で repro を回すと
+GPIO read が数億回通り、リセットせず生存 → 真因確定。
+
+- 恒久修正: `meta-kart/recipes-bsp-imx/imx-atf/` の bbappend + patch
+  (この修正で M4 の rpmsg + CAN/SPI 同居が成立)
+- 代替(MU 非依存): 共有 DDR ポーリング / GPIO ドアベル(RDC 修正前に検討。
+  詳細は `local/learning/`)。RDC 修正で不要になり保険扱い。
