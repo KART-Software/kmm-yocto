@@ -538,7 +538,7 @@ M4 に UART4 しか渡しておらず、権限外の ECSPI2/GPIO を M4 が read
 確定 → CSU でロックされるため(EL を上げても突破できない)。詳細な最小再現
 (control 付き)と全実験マトリクスは **ブランチ `dev/imx8mm-m4-nxp-repro` /
 タグ `nxp-mu-read-reset-v2` の `m4/repro-mu-read-reset/`**。概念整理は
-`local/learning/02-rdc-and-domains.md`。
+`learning/02-rdc-and-domains.md`。
 
 以下は真因判明までの切り分け記録(同型のバグに再び出会った時の参考)。
 
@@ -582,4 +582,4 @@ GPIO read が数億回通り、リセットせず生存 → 真因確定。
 - 恒久修正: `meta-kart/recipes-bsp-imx/imx-atf/` の bbappend + patch
   (この修正で M4 の rpmsg + CAN/SPI 同居が成立)
 - 代替(MU 非依存): 共有 DDR ポーリング / GPIO ドアベル(RDC 修正前に検討。
-  詳細は `local/learning/`)。RDC 修正で不要になり保険扱い。
+  詳細は `learning/`)。RDC 修正で不要になり保険扱い。
