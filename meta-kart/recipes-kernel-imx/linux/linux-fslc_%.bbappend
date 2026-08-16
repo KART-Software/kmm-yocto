@@ -8,6 +8,24 @@
 #   IMAGE_BOOT_FILES が行う。
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
+# カーネルバージョン文字列を決定論化 (localversion.cfg と対で効かせる)。
+# fsl-kernel-localversion.bbclass は SCMVERSION="y" のとき do_kernel_localversion
+# で「git ハッシュ入りの .scmversion 書き込み + CONFIG_LOCALVERSION_AUTO=y の
+# 強制再追加」を do_kernel_configme の後に行う。これがあると (a) fragment で
+# 切った AUTO が毎回書き戻され (b) カーネル Image は fslc 二重 + git ハッシュ、
+# out-of-tree モジュールは fslc 単一と、同一ビルド内でも vermagic が食い違い、
+# kart-rpmsg-can が modprobe できない。SCMVERSION="n" でこのブロックごと無効化し、
+# バージョンを CONFIG_LOCALVERSION の "-fslc" だけ = "6.12.20-fslc" に固定する。
+SCMVERSION = "n"
+
+# レシピの LOCALVERSION="-fslc" は make の LOCALVERSION env に渡り、
+# CONFIG_LOCALVERSION="-fslc" と二重に付いて Image が "6.12.20-fslc-fslc"、
+# out-of-tree モジュールは utsrelease.h 由来で "6.12.20-fslc" となり食い違う。
+# make env 側を空にし、CONFIG_LOCALVERSION は LINUX_VERSION_EXTENSION で
+# 明示保持する → 両者 "6.12.20-fslc" に一致する。
+LOCALVERSION = ""
+LINUX_VERSION_EXTENSION = "-fslc"
+
 SRC_URI += " \
     file://can.cfg \
     file://imx8mm-evk-kart.dts \
@@ -18,6 +36,8 @@ SRC_URI += " \
     file://watchdog.cfg \
     file://pinctrl-gpio.cfg \
     file://m4-remoteproc.cfg \
+    file://localversion.cfg \
+    file://module-force-load.cfg \
     file://0001-drm-mxsfb-attach-bridge-with-NO_CONNECTOR.patch \
     file://0002-drm-lontium-lt9611-dsi-lanes-from-dt.patch \
     file://0003-drm-lontium-lt9611-reduce-enable-settle-delay.patch \
