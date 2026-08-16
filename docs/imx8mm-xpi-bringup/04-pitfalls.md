@@ -526,3 +526,33 @@ CCM はゲートレジスタにドメイン権限制御を持ち、各バスマ�
   リセット (UCR2 SRST) が完了せず設定書き込みが消える → 無出力
 - デバッグ手法 (TCMU ブレッドクラム / ダンプ・リプレイ) 込みの記録:
   [10-cortex-m4.md](10-cortex-m4.md)
+
+## 26. rpmsg セッション中の M4 GPIO/ECSPI **read** で SoC ごと無言ハードリセット (未解決・NXP 照会中)
+
+Linux と rpmsg (virtio/MU) のセッションが張られた状態で、M4 が GPIO の
+データレジスタや ECSPI2 を **read** した瞬間、SoC 全体がハードリセットする。
+A53 コンソールに panic なし (いきなり U-Boot SPL)、M4 のフォールトハンドラ
+も走らない (スピンハンドラを仕込んでも SoC ごと落ちる)、SRSR=0x1
+(ipp_reset_b のみ、WDOG ビットなし)。
+
+切り分けで**潰した**もの (全部実機検証):
+- スタック非依存 — Zephyr (CONFIG_IPM+OpenAMP) でも bare-metal
+  (rpmsg-lite) でも同一再現
+- RDC 非依存 — 対象 PDAP を 0xFF でも 0x0C (domain1 専用、Linux 側
+  devmem で設定) でも落ちる。M4 自身からの RDC 書込は無言で無視される
+  ことにも注意 (検証は必ず Linux 側から読み戻す)
+- クロック/PD/MPU/ダブルマスター/mcore_booted 非依存 — 全部確認済み
+- **write は常に安全** (>10^6 回)、read も SCTR/UART4/MU/DDR は常に安全
+- セッションが無ければ (rsc table 無し = Linux が MU を触らなければ)
+  同じ read が全部通る。実 CAN ドライバ (MCP2515/ECSPI2) も MU 無しなら
+  何時間でも動く (can_sniff 実績)
+
+つまり毒の組み合わせは「**MU ドアベル往来が実際にある** + **M4 の
+GPIO/ECSPI read**」。SDK にもこの組み合わせのサンプルは存在しない
+(rpmsg デモは UART/MU/DDR しか触らず、ECSPI/GPIO デモは
+empty_rsc_table 付き = rpmsg なし)。
+
+- 最小再現 (control 付き・実機検証済み): `m4/repro-mu-read-reset/`
+  (README は NXP 提出用に英語)
+- 回避策: MU を使わない共有 DDR ポーリング転送 (M4 が書き Linux が
+  ~1kHz で読む。CPU <0.5%、M4 側タイムスタンプでログ精度は無劣化)

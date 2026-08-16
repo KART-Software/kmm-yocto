@@ -25,6 +25,7 @@ make stop
 | `hello-world/` | 雛形。ベクタテーブル + UART4 直叩き + TCMU ブレッドクラム |
 | `rpmsg-echo/` | rpmsg-lite ベースのエコー。リソーステーブル + MU 割り込みの雛形 |
 | `can-sim/` | mock CAN フレーム (0x5F0-0x5F4) を rpmsg で流す。kmm rpmsg バックエンドの相手 |
+| `repro-mu-read-reset/` | **NXP 報告用の最小再現**: rpmsg セッション中の GPIO read で SoC がハードリセットする問題 (pitfalls #26)。README は英語 |
 | `shim/` | SDK 代替の最小ヘッダ (MU レジスタ / NVIC) + ベアメタル libc |
 | `lib/` | ベンダリングライブラリ置き場 (gitignore、下記の手順で clone) |
 | `tools/` | Linux 側の計測ツール (rpmsg RTT 計測、ボード上でビルドせず scp) |
