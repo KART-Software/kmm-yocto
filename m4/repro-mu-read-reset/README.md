@@ -10,7 +10,11 @@ immediate, silent, SoC-wide hard reset** on i.MX8M Mini.
   XPI-iMX8MM) — same behavior expected on EVK (untested there)
 - A53: Linux 6.12.20 (linux-fslc), `imx_rproc` remoteproc (SMC method),
   DT with vdev0vring0/1 + rsc-table + vdevbuffer reserved-memory
-  (NXP `imx8mm-evk-rpmsg.dts` layout), `clk-imx8mm.mcore_booted=1`
+  (NXP `imx8mm-evk-rpmsg.dts` layout)
+- **Also reproduces identically on the NXP vendor kernel,
+  linux-fslc-imx lf-6.6.101** (control case runs indefinitely, the
+  GPIO-read case resets the SoC within seconds), with that kernel's
+  thermal management and watchdog fully operational.
 - M4 firmware: bare-metal + rpmsg-lite v5.4.1 (this directory). The same
   failure reproduces with Zephyr 4.3 (`CONFIG_IPM` + OpenAMP
   `openamp_rsc_table` port).
@@ -47,11 +51,22 @@ Additional facts:
   (>10^6 writes with active MU config, survives).
 - Reads of **SCTR, UART4, MU, DDR** are always safe (UART4 is polled
   continuously by the console driver in all passing cases).
-- GPIO/ECSPI clocks are on (`clk_summary` verified), power domains on,
-  `clk-imx8mm.mcore_booted=1` set, `CONFIG_MODULE_FORCE_LOAD` irrelevant.
+- GPIO/ECSPI clocks are on (`clk_summary` verified), power domains on.
+  Tested with and without `clk-imx8mm.mcore_booted=1` — no difference.
 - RDC: M4 is domain 1 (`MDA[1]=1`), target PDAPs checked/varied via
   `devmem` from Linux (domain 0). RDC assignment does not change the
-  outcome when the session is active.
+  outcome when the session is active. (Note: RDC writes issued by the
+  M4 itself are silently ignored; all RDC state was set and verified
+  from the A53 side.)
+- Not a low-power / bus-scaling artifact: disabling the deep cpuidle
+  state (`cpu-pd-wait`) at runtime on all A53 cores does not prevent the
+  reset, and the kernel has no devfreq/busfreq scaling compiled in
+  (no `/sys/class/devfreq` devices), so no dynamic NoC/DDR frequency
+  transitions are occurring.
+- Not a watchdog artifact: all failing rows were (re-)validated on boots
+  with the watchdog driver loaded and serviced; the resets occur within
+  seconds of the M4 reaching the peripheral read, far from any watchdog
+  timeout.
 - We did not find any MCUXpresso SDK example that combines rpmsg with
   ECSPI/GPIO on the M4 (the ECSPI/GPIO driver examples all carry
   `empty_rsc_table.c`, the rpmsg examples touch only UART/MU/DDR).
