@@ -1,0 +1,69 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] drm/bridge: lontium-lt9611: 養子縁組ブートの初回 enable を無操作化
+
+ロゴ→GUI 間の暗転 (~0.5s) の主犯は weston 初回コミットの
+lt9611_bridge_atomic_enable — 全レジスタ再設定 + PCR リセットに加えて
+ベタの msleep(500) を含む。SPL が同一モードで駆動中なら何もしなくてよい。
+
+kart,splash-active ブートの初回 enable に限り、実測レジスタ (video check
+の hactive/vactive) が要求モードと一致する場合は enable をスキップ。
+上流が一度でも止まっていれば実測が合わず自動でフル再初期化に落ちる。
+0007-0009 (lt9611 / samsung-dsim / mxsfb) の三点セットで完全無切断。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/gpu/drm/bridge/lontium-lt9611.c	2026-08-14 06:24:17.796395321 +0900
++++ b/drivers/gpu/drm/bridge/lontium-lt9611.c	2026-08-14 06:24:58.128247943 +0900
+@@ -682,6 +682,42 @@
+ }
+ 
+ /* bridge funcs */
++/* kart: 養子縁組ブート (SPL スプラッシュ) の初回 enable では、SPL が
++ * 同一モードで駆動済みのチップを再設定しない。enable 本体は msleep(500)
++ * と PCR リセットを含み、そのまま走らせると 0.5s の暗転になる。
++ * 実測レジスタ (video check) がモードと一致する場合のみスキップし、
++ * 不一致 (上流が一度でも止まった等) なら通常経路へフォールバック。
++ * ブート後 1 回しか試行しない (weston 再起動などは常にフル再初期化) */
++static bool kart_lt9611_seamless_takeover(struct lt9611 *lt9611,
++					  const struct drm_display_mode *mode)
++{
++	static bool tried;
++	int hactive, vactive;
++
++	if (tried || !of_property_read_bool(of_chosen, "kart,splash-active"))
++		return false;
++	tried = true;
++
++	vactive = lt9611_read_video_check(lt9611, 0x8282);
++	hactive = lt9611_read_video_check(lt9611, 0x8382);
++	if (hactive < 0 || vactive < 0)
++		return false;
++	hactive /= 3;
++
++	if (hactive != mode->hdisplay || vactive != mode->vdisplay) {
++		dev_info(lt9611->dev,
++			 "kart splash: running %dx%d != mode %dx%d, full re-init\n",
++			 hactive, vactive, mode->hdisplay, mode->vdisplay);
++		return false;
++	}
++
++	/* disable 経路 (power_off) の整合のため power_on 扱いにしておく */
++	lt9611->power_on = true;
++	dev_info(lt9611->dev, "kart splash: seamless takeover (%dx%d)\n",
++		 hactive, vactive);
++	return true;
++}
++
+ static void
+ lt9611_bridge_atomic_enable(struct drm_bridge *bridge,
+ 			    struct drm_bridge_state *old_bridge_state)
+@@ -708,6 +744,9 @@
+ 
+ 	mode = &crtc_state->adjusted_mode;
+ 
++	if (kart_lt9611_seamless_takeover(lt9611, mode))
++		return;
++
+ 	lt9611_mipi_input_digital(lt9611, mode);
+ 	lt9611_pll_setup(lt9611, mode, &postdiv);
+ 	lt9611_mipi_video_setup(lt9611, mode);

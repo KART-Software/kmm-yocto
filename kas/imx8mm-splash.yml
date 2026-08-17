@@ -12,11 +12,27 @@ header:
 
 local_conf_header:
   splash: |
-    SRC_URI:append:pn-u-boot-fslc = " file://kart-splash.cfg file://0002-imx8mm-kart-spl-splash.patch"
+    # 0002: SPL 表示チェーン初期化 + fill + 出力。0010: ロゴを 1bit マスク
+    # (kart_splash_logo.h) で埋め込み RUN 前に手続き描画 (帯 raw の FIT ロード
+    # を廃止)。ヘッダは plain ファイルなので u-boot-fslc bbappend の
+    # do_configure:prepend が SPL ソースへコピーする (SRC_URI の file:// は
+    # WORKDIR にしか展開されないため。local.conf にはタスク関数を書けない)。
+    SRC_URI:append:pn-u-boot-fslc = " file://kart-splash.cfg file://0002-imx8mm-kart-spl-splash.patch file://kart_splash_logo.h file://0010-imx8mm-kart-spl-splash-procedural-logo.patch"
     KART_SPLASH:pn-kart-falcon-itb = "1"
-    # ロゴを GUI 直前まで持続させるカーネル側 3 点 (SPL が /chosen に立てる
-    # kart,splash-active で発動。splash 無しブート・他マシンは無変更):
+    # ロゴを GUI 直前まで持続させるカーネル側 3 点 (falcon.itb の /chosen に
+    # kart-falcon-itb.bb が立てる kart,splash-active で発動。splash 無しブート・
+    # 他マシンは無変更):
     #  0004 gpcv2: dispmix/mipi を ALWAYS_ON 養子縁組 (ADB400 電源断失敗の根治)
     #  0005 blk-ctrl: LCDIF/DSI ドメイン養子縁組 + クロック恒久ピン
     #  0006 lt9611: probe のハードリセット抑止 (ロゴ即死防止)
     SRC_URI:append:pn-linux-fslc = " file://0004-pmdomain-imx-gpcv2-kart-splash-adopt.patch file://0005-pmdomain-imx8m-blk-ctrl-kart-splash-adopt.patch file://0006-drm-lontium-lt9611-kart-splash-skip-probe-reset.patch"
+    # シームレス引き継ぎ (ロゴ → GUI 間の暗転 ~0.5s をゼロに): 養子縁組
+    # ブートの初回 enable で SPL 駆動中のパイプラインを殺さない 3 点。
+    # いずれも実機レジスタが要求モードと一致する時だけスキップし、
+    # 不一致なら従来のフル再初期化へフォールバック。
+    # 実機検証済み (falcon splash 起動で seamless LCDIF/lt9611 takeover 発火、
+    # ロゴ→GUI 間の暗転が消えることをカメラで確認):
+    #  0007 lt9611: 初回 enable を無操作化 (msleep(500) + PCR リセット回避)
+    #  0008 samsung-dsim: SWRST 付き再初期化と MDRESOL 書き直しをスキップ
+    #  0009 mxsfb: eLCDIF リセットを回避し初回モードセットをフリップ扱いに
+    SRC_URI:append:pn-linux-fslc = " file://0007-drm-lontium-lt9611-kart-seamless-takeover.patch file://0008-drm-samsung-dsim-kart-seamless-takeover.patch file://0009-drm-mxsfb-kart-seamless-takeover.patch"

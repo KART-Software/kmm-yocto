@@ -1,0 +1,92 @@
+From: kart build <kart@localhost>
+Date: Sun, 17 Aug 2026 00:00:00 +0900
+Subject: [PATCH] imx8mm: kart SPL splash ロゴを 1bit マスクの手続き描画に
+
+FB 全面 (6MB) や帯 raw (0.8MB) を falcon.itb から FIT loadable で FB へ
+直接ロードする方式をやめ、ロゴを 1bit マスク (kart_splash_logo.h、
+scripts/gen-splash-raw.py が生成) として SPL に埋め込み、fill 直後・
+eLCDIF RUN 前に bit=1 の画素だけ FB へ白 (0x00FFFFFF) を書く。
+
+狙い: raw を FB へ書くのは表示 DMA 稼働中で ~4MB/s と激遅く、6MB で
+~1.4s / 帯 0.8MB でも ~0.9s の FIT ロードになっていた。RUN 前に描けば
+競合せず (fill と同条件)、しかも運ぶのは 6.5KB のマスクのみ。falcon.itb
+の splash loadable は kart-falcon-itb.bb 側で削除する。
+
+さらに: ロゴが prepare() 時点で FB に載るため、HDMI 出力 ON を finish()
+(FIT ロード後) から prepare() 末尾へ前倒しする。ロゴ表示が FIT ロード分
+(~0.5s) 早まり、電源投入直後にほぼ即ロゴが出る。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+---
+--- a/board/freescale/imx8mm_evk/kart_splash.c
++++ b/board/freescale/imx8mm_evk/kart_splash.c
+@@ -23,6 +23,7 @@
+ #include <linux/kernel.h>
+ #include <linux/types.h>
+ #include "kart_splash.h"
++#include "kart_splash_logo.h"
+ 
+ #define SPLASH_FB_ADDR		0xBFA00000UL	/* kart-falcon-itb.bb と一致必須 */
+ #define SPLASH_FB_SIZE		(1920 * 792 * 4)
+@@ -526,6 +527,26 @@
+ 
+ /* ---------------- エントリポイント ---------------- */
+ 
++/* 1bit マスク (kart_splash_logo.h) を走査し、bit=1 の画素だけ FB に白を
++ * 書く。bit=0 は触らない (直前の fill の BG が残る)。eLCDIF RUN 前に呼ぶ
++ * ので表示 DMA と競合せず高速。falcon.itb からの splash ロードを不要に
++ * する (旧: 帯 raw を FIT loadable で FB へ直接ロードしていた)。 */
++static void kart_splash_blit_logo(u32 *fb)
++{
++	int row, col;
++
++	for (row = 0; row < KART_LOGO_H; row++) {
++		u32 *dst = fb + (KART_LOGO_Y + row) * 1920 + KART_LOGO_X;
++
++		for (col = 0; col < KART_LOGO_W; col++) {
++			int i = row * KART_LOGO_W + col;
++
++			if (kart_logo_bits[i >> 3] & (0x80 >> (i & 7)))
++				dst[col] = 0x00FFFFFF;	/* 白 (メモリ B,G,R,X) */
++		}
++	}
++}
++
+ void kart_splash_prepare(void)
+ {
+ 	ulong start = get_timer(0);
+@@ -536,6 +557,7 @@
+ 	printf("splash: fb ");
+ 	for (i = 0; i < 1920 * 792; i++)
+ 		p[i] = SPLASH_BG_XRGB;
++	kart_splash_blit_logo(p);
+ 	flush_dcache_range(SPLASH_FB_ADDR, SPLASH_FB_ADDR + SPLASH_FB_SIZE);
+ 
+ 	printf("clk ");
+@@ -563,11 +585,14 @@
+ 		return;
+ 
+ 	/* settle (カーネルドライバ実績の 100ms) + TX PLL ロック確認。
+-	 * 出力オンは finish() = FIT ロード後 (ロゴが FB に載った後) に行う */
++	 * 手続き描画でロゴは既に FB 上にあるので、settle 後この場 (prepare
++	 * 末尾) で出力を ON にする (旧: FIT ロード後の finish() で ON)。 */
+ 	mdelay(100);
+ 
+ 	splash_ok = true;
+ 	printf("ready (%lu ms)\n", get_timer(start));
++	if (!lt_wr(0x8130, 0xea))	/* HDMI 出力オン (ロゴは既に FB 上) */
++		printf("splash: logo on\n");
+ }
+ 
+ bool kart_splash_active(void)
+@@ -580,8 +605,6 @@
+ 	if (!splash_ok)
+ 		return;
+ 
+-	flush_dcache_range(SPLASH_FB_ADDR, SPLASH_FB_ADDR + SPLASH_FB_SIZE);
+-	if (lt_wr(0x8130, 0xea))	/* HDMI 出力オン */
+-		return;
+-	printf("splash: logo on\n");
++	/* 出力 ON は手続き描画版では prepare() 末尾で実施済み。ここは falcon
++	 * フローが呼ぶ互換用の空フック。 */
+ }

@@ -16,6 +16,16 @@ SRC_URI += " \
 KART_EXTLINUX_ROOT ??= "root=/dev/mmcblk1p2"
 UBOOT_EXTLINUX_ROOT:default:use-mainline-bsp = "${KART_EXTLINUX_ROOT}"
 
+# SPL スプラッシュ (kas/imx8mm-splash.yml) 時のみ SRC_URI に入る 1bit ロゴ
+# マスクヘッダを SPL ソースツリーへ置く。0010 パッチの kart_splash.c が
+# #include する。file:// は WORKDIR にしか展開されないため do_patch 後・
+# do_configure 前にここでコピー。splash 無しビルドではヘッダが無く無害。
+do_configure:prepend() {
+    if [ -f "${WORKDIR}/kart_splash_logo.h" ]; then
+        install -m 0644 ${WORKDIR}/kart_splash_logo.h ${S}/board/freescale/imx8mm_evk/
+    fi
+}
+
 # falcon の proper フォールバック FIT (kart-falcon-itb が組む u-boot.itb) 用に
 # 素材を deploy へ出す。falcon 非使用ビルドでも小物 2 ファイルで無害
 do_deploy:append:mx8mm-generic-bsp() {

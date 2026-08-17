@@ -1,0 +1,83 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] drm: samsung-dsim: 養子縁組ブートの初回はリセット付き再初期化をスキップ
+
+samsung_dsim_init() は SWRST で SPL 駆動中の DSI ストリームを殺し、
+atomic_enable の set_display_mode も MDRESOL 書き直しで MAIN_STANDBY を
+一瞬落とす。実機 MDRESOL (解像度 + MAIN_STANDBY) が要求モードと完全一致
+する初回に限り、INITIALIZED を先に立てて両方をスキップする。
+不一致なら従来経路。0007/0009 とセット。
+
+留意: 採用時は samsung_dsim_enable_irq() も走らない。video mode 専用で
+DSI コマンド転送を使わない本構成 (lt9611 は I2C 設定) では影響なし。
+runtime resume の phy_power_on(mixel dphy) は残る (PD 解除の同値操作で
+無害の想定。万一グリッチが観測されたら次はここ)。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/gpu/drm/bridge/samsung-dsim.c	2026-08-14 06:24:17.799906563 +0900
++++ b/drivers/gpu/drm/bridge/samsung-dsim.c	2026-08-14 06:24:58.128982486 +0900
+@@ -1456,6 +1456,41 @@
+ 	return 0;
+ }
+ 
++/* kart: 養子縁組ブート (SPL スプラッシュ、/chosen kart,splash-active) の
++ * 初回 enable では SPL が DSIM を HS video で駆動中。samsung_dsim_init()
++ * は SWRST でストリームを殺すので、実機の MDRESOL (解像度 + MAIN_STANDBY)
++ * がこれから設定する値と完全一致する場合のみ INITIALIZED を先に立てて
++ * 再初期化ごとスキップする。atomic_enable 側の set_display_mode も
++ * MDRESOL の書き直しで MAIN_STANDBY を一瞬落とすため併せてスキップ。
++ * 0007 (lt9611) / 0009 (mxsfb) とセットで初回モードセットが無切断になる */
++static bool kart_dsim_adopted;
++
++static bool kart_dsim_adopt_running(struct samsung_dsim *dsi)
++{
++	static bool tried;
++	const struct drm_display_mode *m = &dsi->mode;
++	u32 reg, want;
++
++	if (tried || !of_property_read_bool(of_chosen, "kart,splash-active"))
++		return false;
++	tried = true;
++
++	reg = samsung_dsim_read(dsi, DSIM_MDRESOL_REG);
++	want = DSIM_MAIN_STAND_BY |
++	       DSIM_MAIN_HRESOL(m->hdisplay, dsi->driver_data->num_bits_resol) |
++	       DSIM_MAIN_VRESOL(m->vdisplay, dsi->driver_data->num_bits_resol);
++	if (reg != want) {
++		dev_info(dsi->dev,
++			 "kart splash: MDRESOL %08x != %08x, full init\n",
++			 reg, want);
++		return false;
++	}
++
++	kart_dsim_adopted = true;
++	dev_info(dsi->dev, "kart splash: adopting running DSIM\n");
++	return true;
++}
++
+ static void samsung_dsim_atomic_pre_enable(struct drm_bridge *bridge,
+ 					   struct drm_bridge_state *old_bridge_state)
+ {
+@@ -1473,6 +1508,9 @@
+ 
+ 	dsi->state |= DSIM_STATE_ENABLED;
+ 
++	if (kart_dsim_adopt_running(dsi))
++		dsi->state |= DSIM_STATE_INITIALIZED;
++
+ 	/*
+ 	 * For Exynos-DSIM the downstream bridge, or panel are expecting
+ 	 * the host initialization during DSI transfer.
+@@ -1489,6 +1527,12 @@
+ {
+ 	struct samsung_dsim *dsi = bridge_to_dsi(bridge);
+ 
++	if (kart_dsim_adopted) {
++		kart_dsim_adopted = false;
++		dsi->state |= DSIM_STATE_VIDOUT_AVAILABLE;
++		return;
++	}
++
+ 	samsung_dsim_set_display_mode(dsi);
+ 	samsung_dsim_set_display_enable(dsi, true);
+ 

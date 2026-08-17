@@ -7,9 +7,10 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 
 DEPENDS = "u-boot-tools-native dtc-native"
 
-# SPL スプラッシュ用フレーム (scripts/gen-splash-raw.py が生成、リポジトリ収録)。
-# KART_SPLASH 無効時は未使用のまま (kas/imx8mm-splash.yml が "1" にする)
-SRC_URI = "file://kart-splash-1920x792.raw.gz"
+# SPL スプラッシュのロゴは u-boot 側 (SPL) に 1bit マスクで埋め込み済み
+# (scripts/gen-splash-raw.py → kart_splash_logo.h、0010 パッチ)。falcon.itb に
+# ロゴ画像は不要。KART_SPLASH は splash ビルドの印 (kas/imx8mm-splash.yml が "1"):
+# mem=2042M と /chosen kart,splash-active を付けるかの分岐に使う
 KART_SPLASH ?= ""
 
 inherit deploy nopackages
@@ -39,31 +40,21 @@ do_compile() {
     cp ${DEPLOY_DIR_IMAGE}/u-boot-nodtb.bin ${B}/u-boot-nodtb.bin
     cp ${DEPLOY_DIR_IMAGE}/u-boot-proper.dtb ${B}/u-boot-proper.dtb
 
-    # SPL スプラッシュ: ロゴフレームを loadable として同梱し、SPL が叩く
-    # LCDIF の FB 物理アドレスへ FIT ロード機構で直接置く (SPL 側コピー不要)。
-    # load=0xBFA00000 は U-Boot パッチ (kart_splash.c SPLASH_FB_ADDR) と一致必須。
+    # SPL スプラッシュ: ロゴは SPL に 1bit マスクで埋め込み済み (u-boot の
+    # kart_splash_logo.h + 0010 パッチ) で、SPL が fill 直後・eLCDIF RUN 前に
+    # 描く。よって falcon.itb に splash loadable (ロゴ画像) は載せない。
+    # 旧方式 (帯 raw を FIT で FB へ直接ロード) は表示 DMA 稼働中の FB 書きが
+    # ~4MB/s と激遅く FIT ロードを膨らませていた — RUN 前描画でこれを解消。
     # mem=2042M で FB 領域 (上位 6MB) をカーネルから隠す (reserved-memory の
-    # 代わり。fdtput は空プロパティ no-map を作れないため簡潔なこちらを採用)
+    # 代わり。fdtput は空プロパティ no-map を作れないため簡潔なこちらを採用)。
+    # clk/pd_ignore_unused: SPL が立ち上げた表示クロック/電源ドメインを
+    # カーネルの「未使用掃除」から守る (養子縁組パッチ 0004/0005 の補完)
+    loadables='"kernel"'
+    splash_node=""
     if [ -n "${KART_SPLASH}" ]; then
-        # fetcher が .gz を自動展開するので raw をそのままコピー
-        cp ${WORKDIR}/kart-splash-1920x792.raw ${B}/splash.raw
-        # clk/pd_ignore_unused: SPL が立ち上げた表示クロック/電源ドメインを
-        # カーネルの「未使用掃除」から守る (養子縁組パッチ 0004/0005 の補完)
         splash_args=" mem=2042M clk_ignore_unused pd_ignore_unused"
-        loadables='"kernel", "splash"'
-        splash_node='
-		splash {
-			description = "kart splash frame (1920x792 XRGB8888)";
-			data = /incbin/("splash.raw");
-			type = "firmware";
-			arch = "arm64";
-			compression = "none";
-			load = <0xBFA00000>;
-		};'
     else
         splash_args=""
-        loadables='"kernel"'
-        splash_node=""
     fi
 
     # スロット毎の falcon.itb (bootargs の root= だけが差分)
@@ -85,6 +76,12 @@ do_compile() {
                 fdtput -d ${B}/falcon-$slot.dtb /soc@0/bus@32c00000/lcdif@32e00000 $prop || true
                 fdtput -d ${B}/falcon-$slot.dtb /soc@0/bus@32c00000/dsi@32e10000 $prop 2>/dev/null || true
             done
+            # /chosen に kart,splash-active を立てる。カーネル側の splash 引き継ぎ
+            # パッチ (0004-0009) はこのプロパティで発動する。SPL 実行時セットは
+            # 未実装なので、splash ビルド (KART_SPLASH) の falcon DTB に焼き込む。
+            # パッチ側は実ハード状態 (ドメイン ON / チップ生存 / 解像度一致) も
+            # 検証してから引き継ぐので、万一 splash 未描画でも安全にフォールバックする。
+            fdtput -t s ${B}/falcon-$slot.dtb /chosen kart,splash-active "1"
         fi
 
         cat > ${B}/falcon-$slot.its << EOF
