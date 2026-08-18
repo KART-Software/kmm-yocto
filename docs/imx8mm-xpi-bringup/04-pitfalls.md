@@ -646,10 +646,25 @@ m4/clk-test (CCGR/read 生還のブレッドクラム実験)。
    (tailscaled 自体は健全)。M4 実験 ELF には必ず rsc_table を持たせる
    (雛形: m4/clk-test, m4/uart-test)。tailscale-ssh は stdin パイプ転送
    中に session が segfault する脆さも別途あり (Wait: code=-1)。
-2. **M4 UART4 console 無言は物理経路** — m4/uart-test (rsc_table 付き、
-   クロック/pinmux/8N1 全部自前 + TCM ブレッドクラム) で M4 側は送信完走
-   (SRST 即完了、送信ループ回転、TXFULL 詰まり無し) を確認。パッド
-   mux/daisy/conf も実測正常 (UART4 パッドはリセット既定で ALT0)。
-   残るは J64 ↔ Teensy if02 の配線/Teensy 側。
+2. **M4 UART4 console 無言の真因は「stale fd + 読者不在は詰まるのが仕様」**
+   (解決済み・対照実験で実証)。板側は送信完走 (m4/uart-test + A53 からの
+   UART4 レジスタ実測で TXDC 確認)、配線も Teensy も健全。診断コンソール
+   (if04) の `avail=4159 / usb1=0` が「M4 の信号は届いている、詰まりは
+   USB CDC 側」を確定させた。実証された機構は 2 段:
+   - **読者不在なら詰まるのは仕様**: Teensy の CDC TX プール (4×2048B) は
+     ホストが IN 転送で引き取らないと満杯になり、ブリッジの pump が停止 →
+     双方向無音 + Serial2 RX 満杯。open すれば即バーストで流れる (実測
+     4.7KB)。故障ではない。
+   - **今日の「読者が居るのに無音」= stale fd**: USB 再列挙 (電源サイクル
+     等で頻発) で fd が無効化しても、キャプチャスクリプトが OSError を
+     握りつぶして生存し「読んでいるフリ」になっていた (再列挙で再現実証)。
+   途中で立てた **LPUART 固着説・DTR 説はどちらも誤り** (DTR 説はコア実装
+   確認で棄却 — write パスに DTR チェックは無い。復活の決め手は「正しい
+   デバイスを open し直したこと」)。教訓: ①対策より先に計器 ②「直った」
+   の decisive 要因を分離せずに断定しない。
+   恒久対策 (実機検証済み): ブリッジは `if (SerialUSB1)` (DTR) で pump を
+   ガードし**未接続時は UART 受信を読み捨て** — 開いた瞬間から新鮮な
+   データが流れ、古いバースト/中抜けが消える。ホスト側キャプチャは
+   ENODEV で即死してフリを防ぐ。
    ※調査中に can-gw へ入れた誤 pinmux (0x303301F8/1FC = ECSPI1_MOSI/MISO
-   を誤って ALT0 化) は実機で 0x5 に復旧済み・コードからも削除すること。
+   を誤って ALT0 化) は実機で 0x5 に復旧済み・コードからも削除済み。

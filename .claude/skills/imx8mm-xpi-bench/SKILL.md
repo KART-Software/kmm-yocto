@@ -24,14 +24,16 @@ wedge した SDP のリセット、warm reboot と違う真のリセットが要
 
 ## シリアルコンソール
 
-udev 安定名 (`.claude/skills/xpi-serial-debug/` の rules。無ければ ttyACM で代替):
-- `/dev/kart-a53-console` → ttyACM0 (Teensy Dual Serial if00) = A53/SPL/U-Boot コンソール (115200 8N1)
-- `/dev/kart-m4-uart` → ttyACM1 (if02) = M4 UART
-- ttyACM2 = CANable (hcan0、slcand 使用中。コンソールではない)
+udev 安定名 (`.claude/skills/xpi-serial-debug/` の rules。ttyACM 番号は変動するので必ずこちらを使う):
+- `/dev/kart-a53-console` = A53/SPL/U-Boot コンソール (115200 8N1)
+- `/dev/kart-m4-uart` = M4 UART4 コンソール
+- `/dev/kart-teensy-diag` = ブリッジ自己診断 (1Hz)
+- `/dev/kart-canable` = CANable (hcan0、slcand 使用。コンソールではない)
 
 **注意: 連続リブート/USB churn 中に ttyACM0 の open() が D-state でハングすることがある**。
 `fuser` は掴んでいないのに開けない時は **電源サイクル (dp100 cycle) で解消**。読み取りは
 `O_NONBLOCK` + 自前タイムアウトで(scratchpad の sercap 系スクリプト参照)。ミラーは pts/15。
+
 
 ## 画面の目視検証 (Web カメラ)
 

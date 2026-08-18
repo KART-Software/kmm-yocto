@@ -25,6 +25,27 @@ static uint32_t baudM = 0;  // Serial2 に設定済みのボーレート
 
 static elapsedMillis sinceActivity;
 
+
+#ifdef USB_TRIPLE_SERIAL
+// ---- 自己診断コンソール (SerialUSB2 = if04) ----
+// Serial2 (M コア側) が無音化した事例の真因判別用。固着時にここが生きて
+// いれば LPUART の内部値で「LPUART 側の固着 (availableForWrite=0 等)」vs
+// 「USB CDC2 側の死」をその場で確定できる。ここも死んでいれば USB
+// スタック全体の問題と分かる。対策 (自動リセット等) は真因確定後に入れる。
+static elapsedMillis sinceDiag;
+static void diagReport() {
+  if (sinceDiag < 1000) return;
+  sinceDiag = 0;
+  if (!SerialUSB2 || SerialUSB2.availableForWrite() < 96) return;  // 読者不在なら黙る
+  IMXRT_LPUART_t *lp = &IMXRT_LPUART4;  // Serial2 = LPUART4 (pin7/8)
+  SerialUSB2.printf(
+      "s2 afw=%d avail=%d baudM=%lu stat=%08lX ctrl=%08lX water=%08lX usb1=%d\r\n",
+      Serial2.availableForWrite(), Serial2.available(),
+      (unsigned long)baudM, (unsigned long)lp->STAT, (unsigned long)lp->CTRL,
+      (unsigned long)lp->WATER, (int)SerialUSB1.availableForWrite());
+}
+#endif
+
 // ホストが CDC ポートに設定したボーレートを対応する UART へ追従させる
 template <typename UsbSerial>
 static void syncBaud(UsbSerial &usb, HardwareSerial &uart, uint32_t &current) {
@@ -74,10 +95,26 @@ void loop() {
   syncBaud(SerialUSB1, Serial2, baudM);
 
   size_t moved = 0;
-  moved += pump(Serial, Serial1);      // PC -> A コア
-  moved += pump(Serial1, Serial);      // A コア -> PC
-  moved += pump(SerialUSB1, Serial2);  // PC -> M コア
-  moved += pump(Serial2, SerialUSB1);  // M コア -> PC
+  // ホストがポートを開いている (DTR あり) 時だけブリッジし、未接続時は
+  // UART 受信を読み捨てる。溜め込むと CDC TX プール (8KB) が満杯になり
+  // pump が止まる (実測)。その状態で溜まるのは「最古の ~12KB」なので、
+  // 次に開いた時に古いバースト + 中抜けの壊れたログになる。捨てて鮮度を
+  // 保てば「開いた瞬間から新しいデータが正しく流れる」が成立する。
+  if (Serial) {
+    moved += pump(Serial, Serial1);      // PC -> A コア
+    moved += pump(Serial1, Serial);      // A コア -> PC
+  } else {
+    while (Serial1.available() > 0) Serial1.read();
+  }
+  if (SerialUSB1) {
+    moved += pump(SerialUSB1, Serial2);  // PC -> M コア
+    moved += pump(Serial2, SerialUSB1);  // M コア -> PC
+  } else {
+    while (Serial2.available() > 0) Serial2.read();
+  }
+#ifdef USB_TRIPLE_SERIAL
+  diagReport();
+#endif
 
   if (moved > 0) {
     sinceActivity = 0;

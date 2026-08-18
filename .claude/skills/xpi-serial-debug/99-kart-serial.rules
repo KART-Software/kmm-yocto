@@ -10,15 +10,17 @@
 #   sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=tty
 #
 # 実機トポロジ (2026-08 時点):
-#   Teensy "Dual Serial" (16c0:048b, 1 個の USB で 2 ポート)
+#   Teensy "Triple Serial" (16c0:048c, 1 個の USB で 3 ポート。旧 Dual=048b も併記)
 #     if00 = A53 コンソール (ttymxc1 / UART2 @0x30890000, U-Boot + Linux)
 #     if02 = M4 UART4 (J64 @0x30a60000, Cortex-M4 の printk 出力)
+#     if04 = ブリッジ自己診断 (Serial2/LPUART4 の内部状態レポート、1Hz)
 #   CANable2 (16d0:117e) = ホスト側 CAN (slcand → hcan0)
 
 # 注意: idVendor/idProduct は USB デバイス階層、インターフェース番号は
 # インターフェース階層にあり、1 ルール内の複数 ATTRS{} は同一親でないと
 # マッチしない。そのためインターフェース番号は udev が tty に付与する
 # ENV{ID_USB_INTERFACE_NUM} で照合する。
-SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="kart-a53-console", GROUP="dialout", MODE="0660"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="kart-m4-uart", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b|048c", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="kart-a53-console", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b|048c", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="kart-m4-uart", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048c", ENV{ID_USB_INTERFACE_NUM}=="04", SYMLINK+="kart-teensy-diag", GROUP="dialout", MODE="0660"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="117e", SYMLINK+="kart-canable", GROUP="dialout", MODE="0660"
