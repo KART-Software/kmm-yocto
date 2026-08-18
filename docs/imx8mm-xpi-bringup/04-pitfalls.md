@@ -636,3 +636,20 @@ devmem ポーリングして最終値を取る) で追い込み、ベアメタ�
 
 実装は data-logger リポ can-gw (e2b2516)。診断ツール: kmm-yocto
 m4/clk-test (CCGR/read 生還のブレッドクラム実験)。
+
+### 併発していた 2 つの罠 (同日の調査で判明)
+
+1. **rsc_table 無し ELF の remoteproc start はカーネル Oops**
+   (`No resource table in elf` → `rproc_start+0x64` で NULL deref、6.12
+   linux-fslc)。m4/hello-world の hello.elf がこれに該当し、start を書いた
+   ssh セッションごと死ぬ → **「tailscale が断続する」ように見えた**
+   (tailscaled 自体は健全)。M4 実験 ELF には必ず rsc_table を持たせる
+   (雛形: m4/clk-test, m4/uart-test)。tailscale-ssh は stdin パイプ転送
+   中に session が segfault する脆さも別途あり (Wait: code=-1)。
+2. **M4 UART4 console 無言は物理経路** — m4/uart-test (rsc_table 付き、
+   クロック/pinmux/8N1 全部自前 + TCM ブレッドクラム) で M4 側は送信完走
+   (SRST 即完了、送信ループ回転、TXFULL 詰まり無し) を確認。パッド
+   mux/daisy/conf も実測正常 (UART4 パッドはリセット既定で ALT0)。
+   残るは J64 ↔ Teensy if02 の配線/Teensy 側。
+   ※調査中に can-gw へ入れた誤 pinmux (0x303301F8/1FC = ECSPI1_MOSI/MISO
+   を誤って ALT0 化) は実機で 0x5 に復旧済み・コードからも削除すること。
