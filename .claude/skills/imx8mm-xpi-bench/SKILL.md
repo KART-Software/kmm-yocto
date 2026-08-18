@@ -88,6 +88,9 @@ ffmpeg -y -ss 3 -i rec.mkv -t 7 -vf "fps=3,scale=200:-1,tile=7x3:padding=2:color
   (`scripts/build-recovery-uboot.sh` で生成、`scripts/kart-boot.uuu` が参照)を使う。
 - **SDP は繰り返し試行で wedge する** (HID timeout)。詰まったら `dp100 cycle` で仕切り直し。
   1 電源投入 = 1 発勝負のつもりで。
+- **S1=eMMC のまま SDP に入る**(遠隔で S1 を触れない時): 稼働中 Linux から
+  IVT セクタを意図的に不正化して電源サイクル。手順・注意は
+  **`xpi-remote-sdp` スキル**参照(実測 2026-08-19)。
 
 ## eMMC の flash.bin (ブートローダ) を更新する
 

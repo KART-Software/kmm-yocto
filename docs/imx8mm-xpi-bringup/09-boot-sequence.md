@@ -75,6 +75,24 @@ flowchart TD
     style SDP fill:#ffcccc
 ```
 
+> **応用 — S1 を触らず SDP に落とす**: このチェーンは逆手に取れる。
+> **A/B 両面の IVT**(sector 0x42 / 0x1042 の各先頭セクタ)、または
+> **A 面の IVT + SIT の tag**(sector 0x41)を意図的に潰して再起動すると、
+> ROM は行き先を失って SDP へフォールバックする — S1=eMMC のままでも
+> USB 復旧(UUU)に入れる遠隔リカバリ手段になる。壊す前に該当セクタを
+> バックアップし、UUU + stock U-Boot の `ums` で書き戻して復帰する。
+> 注意: SIT は「A が不正なとき」しか読まれないため、**SIT 単独の
+> 破壊では通常起動のまま無症状で冗長性だけが失われる**。
+>
+> 実機検証済み(2026-08-19、S1=eMMC のまま。全て電源投入 ~1s で
+> 1fc9:0134 出現、セクタ書き戻しで完全復旧):
+>
+> | 状態 | 結果 |
+> |---|---|
+> | A IVT 不正 + B IVT 不正(SIT 正常) | SDP |
+> | A IVT 不正 + SIT tag 不正(**B は完全に正常**) | SDP — B への到達経路は SIT のみで、ROM に既定のセカンダリ位置は無い |
+> | A IVT 不正 + SIT tag 正常 + firstSectorNumber が零領域を指す | SDP — ROM はポインタ先の IVT も検証して諦める |
+
 ---
 
 ## ② SPL — DDR を起こし、カーネルを直接運ぶ(Falcon Mode)
@@ -278,7 +296,7 @@ flowchart TD
 
 | 場所 | 中身 |
 |---|---|
-| sector 0x41 | SIT(B 面の場所を ROM に教える表) |
+| sector 0x41 | SIT(B 面の場所を ROM に教える表。バイト構造・実測記録は [migration-design](../imx8mm-migration-design.md) の U-Boot A/B 節) |
 | sector 0x42〜 | U-Boot A 面(SPL + proper 入り flash.bin) |
 | sector 0x1042〜 | U-Boot B 面(前バージョン温存) |
 | 4MiB | U-Boot env(kart_slot / upgrade_available 等) |
