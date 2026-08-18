@@ -458,30 +458,19 @@
 	};
 };
 
+/* ECSPI2 + MCP2515 は Cortex-M4 (can-gw ファーム) に譲渡した。Linux から
+ * は rpmsg 経由の CAN netdev (kart-rpmsg-can) として見える。M4 側の
+ * pinmux/CS/INT 設定は Zephyr overlay (data-logger リポジトリ apps/can-gw)
+ * が自前で行うため、Linux 側は完全に disabled でよい。
+ * クロックの取り決め:
+ *  - root gate (TARGET_ROOT) は cmdline clk-imx8mm.mcore_booted=1 で
+ *    Linux が止めなくなる (clk-composite-8m の gate ops 差し替え)
+ *  - CCGR (0x30384080) は M4 起動フローが domain1 always-on (0xC) を
+ *    立てる (Linux clk は bits[1:0] しか触らないため保持される)
+ * 旧 Linux 直結構成 (can0 = spi-imx + mcp251x、PIO 固定の経緯含む) は
+ * git 履歴参照 */
 &ecspi2 {
-	#address-cells = <1>;
-	#size-cells = <0>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_ecspi2>, <&pinctrl_ecspi2_cs>;
-	cs-gpios = <&gpio5 13 GPIO_ACTIVE_LOW>;
-	/* DMA (SDMA) を使わず PIO 固定。dmas があると builtin の spi-imx が
-	 * SDMA (=m) を待って "can't get the TX DMA channel" で probe 保留になり、
-	 * can0 が現れず kmm が凍結する (udev 二段 coldplug 導入時に実機で確定)。
-	 * MCP2515 の転送は小さく PIO で十分 */
-	/delete-property/ dmas;
-	/delete-property/ dma-names;
-	status = "okay";
-
-	can0: mcp2515@0 {
-		compatible = "microchip,mcp2515";
-		reg = <0>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_can_int>;
-		clocks = <&clk_can_osc>;
-		interrupt-parent = <&gpio3>;
-		interrupts = <24 IRQ_TYPE_LEVEL_LOW>;
-		spi-max-frequency = <10000000>;
-	};
+	status = "disabled";
 };
 
 /* XPI 実機の eMMC (Samsung 8GB)。/dev/mmcblk2 で見える。 */
