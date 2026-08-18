@@ -30,7 +30,12 @@ fi
 
 # --ssh enables Tailscale SSH so the node is reachable over the tailnet even on
 # prod images that have no local login (the tailnet ACL must permit SSH).
-if tailscale up --authkey="$(cat "$KEY_FILE")" --hostname="$(hostname)" --ssh; then
+# --accept-dns=false: tailnet の DNS 設定 (MagicDNS) を OS に適用しない。
+# tailscaled が resolv.conf を書き換えるパス自体が走らなくなるので、
+# read-only rootfs での「resolv.conf バックアップ作成失敗」(毎ブート実測)
+# が根絶され、resolved の起動タイミングにも依存しなくなる。板から
+# tailnet 名で他ノードを引く用途は無い (接続は常にこちらから IP 指定)。
+if tailscale up --authkey="$(cat "$KEY_FILE")" --hostname="$(hostname)" --ssh --accept-dns=false; then
     rm -f "$KEY_FILE"
     echo "tailscale-autoconnect: connected; auth key removed from boot partition"
 else

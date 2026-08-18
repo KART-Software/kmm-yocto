@@ -29,6 +29,7 @@ IMAGE_INSTALL:append = " \
     less \
     systemd-analyze \
     tailscale \
+    glibc-utils \
     kart-data-mount \
     kart-systemd-tuning \
     kart-ssh-hostkeys \
