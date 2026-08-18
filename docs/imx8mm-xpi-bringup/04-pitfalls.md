@@ -610,4 +610,29 @@ GPIO read が数億回通り、リセットせず生存 → 真因確定。
 
 **M4 にペリフェラルを持たせる 3 点セット**: ① ATF RDC PDAP (D1 許可)、
 ② M4 自身で CCGR domain1 要求、③ root クロック維持 (mcore_booted=1)。
-NXP Community への問い合わせ文面もこの知見で更新する価値がある。
+CCGR のドメイン権限自体は **#25 で UART4 について踏破済み**だった
+(bits[5:4]、SET=0x30) — 横展開を怠り ECSPI/GPIO で掘り直した。
+
+### 追記 2 (2026-08-18) — 第 3 の真因: Linux→M4 の MU write × M4 read は 3 点セット充足でも死ぬ
+
+3 点セットを満たした can-gw (Zephyr) が、CAN フレーム連続処理 (数十発) で
+依然 SoC リセット。DDR ブレッドクラムのストリーム監視 (リセットを跨ぐ
+post-mortem は TCM/DDR とも SPL の DDR 再訓練で消えるため、稼働中に A53 から
+devmem ポーリングして最終値を取る) で追い込み、ベアメタル repro でも再現:
+
+- M4 送信 (M4→Linux kick) は **2 万回/s でも安全** (repro 実測)
+- **Linux→M4 方向の MU write が M4 のペリフェラル read と同時進行**すると、
+  低レートでも SoC リセット (can-gw は Linux の used-ack kick で死んでいた)
+- M4 側で MU 割込みを無効化しても死ぬ = **割込みでなく MU write という
+  バストランザクション自体が衝突源** (元バグの "real MU doorbell traffic"
+  の正体)
+
+**根治 (実装済み、双方向 200 フレーム同時でロス 0)**:
+1. M4: MU 受信割込みを使わず **1ms ポーリング受信** (rproc_virtio_notified)
+2. M4: virtio used ring に **VRING_USED_F_NO_NOTIFY** を立てる → Linux
+   (virtio driver) は仕様に従い kick (MU write) をスキップ。**Linux 側
+   無改造**で MU write が消える
+3. M4→Linux の kick は従来通り (安全側と実証済み)
+
+実装は data-logger リポ can-gw (e2b2516)。診断ツール: kmm-yocto
+m4/clk-test (CCGR/read 生還のブレッドクラム実験)。
