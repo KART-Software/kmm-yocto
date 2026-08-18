@@ -583,3 +583,31 @@ GPIO read が数億回通り、リセットせず生存 → 真因確定。
   (この修正で M4 の rpmsg + CAN/SPI 同居が成立)
 - 代替(MU 非依存): 共有 DDR ポーリング / GPIO ドアベル(RDC 修正前に検討。
   詳細は `learning/`)。RDC 修正で不要になり保険扱い。
+
+### 追記 (2026-08-18) — 第 2 の真因: CCGR のドメイン別クロック要求
+
+実運用構成 (Linux DT で ecspi2 を M4 に譲渡 = disabled) に切り替えたところ、
+**RDC PDAP 0x0F でも repro が再発**した。UUU 検証時は Linux 側が ECSPI2/GPIO を
+使っていた (= domain0 の CCGR 要求でクロックが回っていた) ため隠れていた条件が
+露出した:
+
+- **CCM の CCGR はドメイン別要求フィールド** (4bit/domain: [3:0]=d0, [7:4]=d1…)。
+  クロックが物理的に回っていても、**アクセス元ドメインの要求ビットが立って
+  いないとバスが応答しない** → M4 の read が stall → SoC 無言ハードリセット
+  (PDAP 不許可と全く同じ死に方)。
+- **各ドメインは CCGR の自分のフィールドしか書けない** (実測: Linux devmem で
+  0x33 を書くと 0x03 になる = domain1 分は落ちる)。Linux から M4 の分は
+  立てられない → **M4 自身が CCGR SET レジスタ (+4) に書く**。
+  SDK `CLOCK_EnableClock` が `SET = 0x3333` を書くのはこのため
+  (全ドメイン分書いて自分のだけ通る)。
+- 検証 (m4/clk-test + repro 改変): M4 が `*(u32*)0x303840D4 = 0x3333`
+  (GPIO3 CCGR SET) を書いてから read → **MU セッション + 秒間 550 万 GPIO read
+  で完全生存**。ECSPI2 版 (0x30384084) も 7000 万 read 生存。
+- 実装: Zephyr can-gw の `SYS_INIT(PRE_KERNEL_1)` で使用ペリフェラル
+  (ECSPI2/GPIO3/GPIO5/UART4) の CCGR SET に 0x3333 を書く。root クロック
+  (TARGET_ROOT) 側は Linux の `clk-imx8mm.mcore_booted=1` が disable を
+  no-op 化して守る (machine conf に追加済み)。
+
+**M4 にペリフェラルを持たせる 3 点セット**: ① ATF RDC PDAP (D1 許可)、
+② M4 自身で CCGR domain1 要求、③ root クロック維持 (mcore_booted=1)。
+NXP Community への問い合わせ文面もこの知見で更新する価値がある。
