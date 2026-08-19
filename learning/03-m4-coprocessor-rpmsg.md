@@ -26,9 +26,52 @@ echo start    > /sys/class/remoteproc/remoteproc0/state
 3. ATF に `IMX_SIP_SRC_M4_START` の SMC を投げて M4 の reset を解除
    → M4 が走り出す
 
-**起動経路は 2 通り**あり、今回はずっと (a):
+**起動経路は 3 通り**あり、今回はずっと (a):
 - (a) **Linux remoteproc + ATF SIP**(上記)
 - (b) **U-Boot の bootaux**(Linux より前に M4 を起動)
+- (c) **SPL の falcon.itb に loadable として同梱**(Linux より前・U-Boot proper も
+  経由せず、電源投入 ~数百 ms で M4 起動)。(b)(c) はどちらも「Linux が起動した
+  ときには M4 が既に走っている」ので、Linux は attach する形になる(§3・下記)
+
+### M4 ファームを loadable に載せられるか(can-gw = Zephyr で実測)
+
+can-gw の `zephyr.elf` を読んで確認した事実(`readelf -l`):
+- LOAD は実質 TCML 起点 `0x1FFE0000` の 1 本(code+rodata 0x90F0B)。
+  **Zephyr は .data のロード元をコード直後に置き、起動時に自分で TCMU
+  (`0x20000000`)へコピーし bss もゼロ化する**(自己再配置)。
+- つまり `zephyr.bin`(実測 37KB、TCML 128KB に余裕)は
+  **「`0x1FFE0000` 起点の連続イメージ 1 本」**で、これを falcon.itb の
+  loadable 1 個(A53 視点 `0x007E0000` へロード)にするだけで配置は完了する。
+  ベアメタルで想定した「code / data の 2 loadable」より簡単。
+- `.resource_table` もイメージ内(実測 `0x1FFE937C` = TCM)に一緒に運ばれる。
+  **ただしこのアドレスはビルドごとにずれる**。
+
+**結論の切り分け**: loadable 化 = 検証済みで容易。難所は 100% attach 側
+(下記の実測)と、SPL からの reset 解除 = SRC_M4RCR 直書き(SPL は EL3 なので
+ATF SIP を介さず書ける → [01](01-arm-boot-and-atf.md) §4)。
+
+### attach の実機検証(2026-08-19、can-gw で実施)
+
+「M4 を先行起動 → Linux が attach」経路を実機で切り分けた結果:
+
+- **DT は attach 対応済み**。reserved-memory に `rsc-table@b80ff000` /
+  `vdev0vring0@b8000000` / `vdev0vring1@b8008000` /
+  `vdevbuffer@b8400000`(shared-dma-pool)が宣言済み。ドライバは
+  `imx-rproc`(`fsl,imx8mm-cm4`)、カーネル 6.12.20-fslc。
+- **rsc_table を書くのは Linux(load 時)であって M4 ではない** ← attach の核心。
+  実測: `0xb80ff000` をゼロ化して stop→start すると version=1/num=1 に
+  **再populate される**(Linux が ELF から読んで DT の rsc-table 領域へ書く)。
+  一方 **M4 稼働中**にゼロ化して 3 秒待っても**ゼロのまま**(M4 は書き直さない)。
+  → 現行 can-gw は attach 非対応。attach では Linux は ELF をパースせず
+  `0xb80ff000` を**読む**側に回るので、**M4 firmware 自身がそこへ
+  rsc_table を発行する**改修が要る(Zephyr のリンカで .resource_table を
+  この固定 DDR 番地に置く等)。
+- **rsc_table は setup 時のみ使用**。稼働中にゼロ化しても rpmsg は無事
+  (can0 は UP のまま)= steady-state のデータ経路(vring)には無関係。
+- **software だけでは attach 経路を再現できない**。sysfs の `detach` は
+  この build で非対応(`echo detach > state` → "Unrecognised option")、
+  imx-rproc は built-in で boot 時に probe する。attach の完全再現には
+  **M4 を Linux より前に起動する実物**(SPL loadable か bootaux)が要る。
 
 ## 3. リソーステーブル
 

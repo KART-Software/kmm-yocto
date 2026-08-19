@@ -105,11 +105,40 @@ ssh root@<board> 'devmem 0x800100'    # A53 視点 = 0x20000100 - 0x1F800000
   ダンプ専用ファームで実効レジスタを読む** (M4 stop はコアのみで
   ペリフェラル設定は残る) → その値をリプレイするのが最短
 
+## SPL 起動 (常駐化) — loadable 可否と attach の実測 (2026-08-19)
+
+M4 を Linux より前に・U-Boot proper も経由せず起動する = falcon.itb に
+loadable として同梱し SPL がリセット解除する構想。実機で 2 点を切り分けた。
+
+**① loadable 化は容易(検証済み)**。can-gw の `zephyr.elf` を `readelf -l`
+した結果、LOAD は実質 TCML 起点 `0x1FFE0000` の 1 本。Zephyr は .data を
+コード直後から TCMU へ自己コピー・bss ゼロ化するので、`zephyr.bin`
+(実測 37KB)は「`0x1FFE0000` 起点の連続イメージ 1 本」。falcon.itb の
+loadable 1 個(A53 視点 `0x007E0000` へロード)にするだけ。SPL は EL3 なので
+リセット解除は SRC_M4RCR(`0x3039000C`)直書きでよい(ATF SIP 不要)。
+
+**② 難所は attach。現行 can-gw firmware の改修が 1 点必須**。M4 が先住だと
+Linux は「起動」ではなく稼働中 M4 への **attach** になり、ELF をパースしない。
+実測で所有関係を確定:
+
+- DT は attach 対応済み: reserved-memory に `rsc-table@b80ff000` /
+  `vdev0vring0@b8000000` / `vdev0vring1@b8008000` / `vdevbuffer@b8400000`。
+- **rsc_table を書くのは Linux(load 時)で、M4 ではない**。`0xb80ff000` を
+  ゼロ化 → stop/start で version=1/num=1 に再populate(Linux が ELF から書く)。
+  M4 稼働中にゼロ化して 3 秒待ってもゼロのまま(M4 は書き直さない)。
+  → attach では Linux が `0xb80ff000` を**読む**側になるので、**M4 firmware
+  自身がそこへ rsc_table を発行**する改修が要る(Zephyr リンカで
+  .resource_table を固定 DDR 番地へ)。
+- rsc_table は setup 専用: 稼働中ゼロ化でも can0 は UP のまま(vring は別)。
+- software だけでは attach 完全再現は不可: このカーネル(6.12.20-fslc)は
+  sysfs `detach` 非対応、imx-rproc は built-in。完全検証には SPL loadable か
+  bootaux で M4 を先行起動する実物が要る。
+
+概念の詳細は [learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §2-3。
+
 ## 未踏 (次にやるなら)
 
-- rpmsg (A53↔M4 通信): カーネル側は配線済み (RPMSG_TTY=m 等)。M4 側は
-  rpmsg-lite の移植か、プリビルト `rpmsg_lite_str_echo` での疎通確認から
+- 上記 SPL 常駐化の実装: SPL に SRC_M4RCR 解除の数行 + can-gw の rsc_table
+  を `0xb80ff000` 固定発行に改修 → SPL 先行起動→Linux attach→rpmsg を実地検証
 - 用途の本命は CAN 早期化・Linux 再起動をまたぐ常駐 (ECSPI2 の
-  MCP2518FD を M4 所有に移す)。RDC/DT の縄張り替えが必要
-- M4 常駐化するなら falcon SPL からの起動 (falcon.itb loadable + SPL 版
-  bootaux ≒ SIP 相当をセキュア側で) — splash と同じ相続パターン
+  MCP2515 は既に M4 所有に移済 = can-gw)。次は「Linux 落ちても CAN 生存」
