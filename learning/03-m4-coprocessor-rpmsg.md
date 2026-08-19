@@ -46,9 +46,12 @@ can-gw の `zephyr.elf` を読んで確認した事実(`readelf -l`):
 - `.resource_table` もイメージ内(実測 `0x1FFE937C` = TCM)に一緒に運ばれる。
   **ただしこのアドレスはビルドごとにずれる**。
 
-**結論の切り分け**: loadable 化 = 検証済みで容易。難所は 100% attach 側
-(下記の実測)と、SPL からの reset 解除 = SRC_M4RCR 直書き(SPL は EL3 なので
-ATF SIP を介さず書ける → [01](01-arm-boot-and-atf.md) §4)。
+**結論の切り分け**: loadable 化(FIT の作り方)は容易。難所は 2 つ — ① attach
+(下記)と、② **M4 を SPL で起動できない**。当初は「SPL は EL3 だから
+SRC_M4RCR 直書きで解除できる」と考え、次に「電源ドメイン」と誤診したが、
+真因は **SPL 自身が TCM で実行されているため、M4 を TCM にロードすると走行中の
+SPL を自己上書きしてハングする**ことだった(下記「SPL 起動の壁」で確定)。
+M4 のロード+起動は TCM 外(OCRAM)で走る **ATF(BL31)側**でやるのが正解。
 
 ### attach の実機検証(2026-08-19、can-gw で実施)
 
@@ -72,6 +75,47 @@ ATF SIP を介さず書ける → [01](01-arm-boot-and-atf.md) §4)。
   この build で非対応(`echo detach > state` → "Unrecognised option")、
   imx-rproc は built-in で boot 時に probe する。attach の完全再現には
   **M4 を Linux より前に起動する実物**(SPL loadable か bootaux)が要る。
+
+### attach を bootaux で完全実証(2026-08-19)
+
+上記の firmware 改修(**M4 が rsc_table を 0xB80FF000 に自己 publish**、有効な
+テーブルが無いとき=attach のときだけコピー。LOAD 時は Linux が先に version=1 を
+書くので上書きしない)を入れ、**stock U-Boot の `bootaux`**(flash.bin 無傷で
+RAM 起動、attach を安全に試せる)で全経路を通した:
+
+- bootaux で M4 起動 → M4 が `rsc_table published to 0xB80FF000 (attach mode)`
+  を出力(改修が発火)、`peer 0xffffffff / started=0` で Linux 待ち
+- eMMC カーネル起動 → dmesg `attaching to imx-rproc` → `is now attached`、
+  `remoteproc state = attached`
+- `kart-can channel bound`、**can0 UP**、M4 側 `peer 0x400 / started=1`(双方向確立)
+
+→ **「M4 先住 → Linux attach → can0 稼働」は完全に成立**。imx_rproc は
+稼働中 M4 を probe 時に検出して attach する(`imx_rproc_attach` 実在)。
+
+### SPL 起動の壁 — 電源ドメイン(2026-08-19、実機で確定)
+
+falcon.itb に M4 loadable を積み、**SPL で M4 を起動**しようとしたら
+**デッドハング**した(コンソールが `falcon_args...default` の直後で沈黙)。
+
+**真因(2 転して確定)**: 最初「SPL は EL3 だから SRC 直書きで起動」と考え、
+次に「ATF 前は M4 電源ドメイン OFF で TCM に書けない」と誤診した。実際は
+**SPL 自身が TCM 内で実行されている**:
+
+- flash.bin の IVT の entry = **`0x007E1000`**(実測)。imx8mm の TCM は
+  `0x7E0000`〜`0x820000`(ATF `IMX_TCM_BASE=0x7E0000 / SIZE=0x40000`)。
+  つまり **SPL は TCM の中で動く**(imx8m SPL は OCRAM/TCM を実行 RAM に使う)。
+- M4 loadable を TCML(`0x007E0000`〜)に置くと、**走行中の SPL(`0x7E1000`)を
+  自己上書き**して即ハング。「電源ドメイン OFF」ではなく「自分を消す」だった。
+- **DDR 経由でも同じ**: SPL が DDR→TCM へ memcpy しても、その memcpy コード
+  自体が TCM にあり途中で消える。**TCM への配置は TCM 外で走るコードからしか
+  できない**。
+- bootaux が成功したのは **U-Boot proper が DDR(`0x40200000`)で走る**から
+  (TCM を書いても自分は消えない)。ATF/電源ドメインは無関係だった。
+  ちなみに imx8mm の ATF `IMX_SIP_SRC_M4_START` は **SRC 書き込みのみ**
+  (GPC 電源ドメイン操作も GPR0x58 も無し)= M4 ドメインは元々 ON。
+- **結論: M4 の TCM 配置+起動は、TCM 外(OCRAM `0x920000`)で走る
+  ATF(BL31)側でやる**。SPL は loadable を DDR に運ぶだけ、BL31 が
+  DDR→TCM コピー + SRC 解除する。
 
 ## 3. リソーステーブル
 

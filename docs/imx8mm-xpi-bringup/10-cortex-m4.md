@@ -114,8 +114,12 @@ loadable として同梱し SPL がリセット解除する構想。実機で 2 
 した結果、LOAD は実質 TCML 起点 `0x1FFE0000` の 1 本。Zephyr は .data を
 コード直後から TCMU へ自己コピー・bss ゼロ化するので、`zephyr.bin`
 (実測 37KB)は「`0x1FFE0000` 起点の連続イメージ 1 本」。falcon.itb の
-loadable 1 個(A53 視点 `0x007E0000` へロード)にするだけ。SPL は EL3 なので
-リセット解除は SRC_M4RCR(`0x3039000C`)直書きでよい(ATF SIP 不要)。
+loadable 1 個(A53 視点 `0x007E0000` へロード)にするだけ。
+
+> ⚠️ **当初「SPL は EL3 だから SRC_M4RCR 直書きで解除でよい」と書いていたが
+> 実機で覆った** — 真因は **SPL 自身が TCM 内で実行**されており、M4 を TCM に
+> 置くと走行中の SPL を自己上書きしてハングする(下記「③」)。M4 起動は
+> TCM 外で走る ATF 側へ。
 
 **② 難所は attach。現行 can-gw firmware の改修が 1 点必須**。M4 が先住だと
 Linux は「起動」ではなく稼働中 M4 への **attach** になり、ELF をパースしない。
@@ -134,11 +138,34 @@ Linux は「起動」ではなく稼働中 M4 への **attach** になり、ELF 
   sysfs `detach` 非対応、imx-rproc は built-in。完全検証には SPL loadable か
   bootaux で M4 を先行起動する実物が要る。
 
+**attach を bootaux で完全実証**(2026-08-19): firmware に「rsc_table を
+`0xB80FF000` に自己 publish(attach のときだけ)」を実装し、stock U-Boot の
+`bootaux`(flash.bin 無傷で RAM 起動)で M4 を先行起動 → eMMC カーネル起動
+→ dmesg `attaching to imx-rproc` → `is now attached`、**can0 UP**、M4 側
+`peer 0x400 started=1`(双方向確立)。imx_rproc は稼働中 M4 を probe 時に検出
+して attach する(`imx_rproc_attach` 実在)。**「M4 先住 → attach → can0」成立**。
+
+**③ SPL 起動の壁 — SPL は TCM 内で実行(2026-08-19、実機で確定)**。falcon.itb に
+M4 loadable を積み SPL で起動しようとしたら**デッドハング**
+(`falcon_args...default` 直後で沈黙)。真因は **SPL 自身が TCM で走っている**
+こと: flash.bin の IVT entry = `0x007E1000`、imx8mm の TCM は `0x7E0000`〜
+`0x820000`。M4 loadable を TCML(`0x007E0000`)に置くと**走行中の SPL を
+自己上書き**して即ハング(電源ドメインではない — 当初の誤診を訂正)。DDR 経由の
+memcpy も、その memcpy コード自体が TCM にあり途中で消えるので不可。bootaux が
+成功したのは U-Boot proper が DDR で走るから。**M4 の TCM 配置+起動は TCM 外
+(OCRAM `0x920000`)で走る ATF(BL31)側でやる**のが正解。詳細は
+[learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §「SPL 起動の壁」。
+
 概念の詳細は [learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §2-3。
 
 ## 未踏 (次にやるなら)
 
-- 上記 SPL 常駐化の実装: SPL に SRC_M4RCR 解除の数行 + can-gw の rsc_table
-  を `0xb80ff000` 固定発行に改修 → SPL 先行起動→Linux attach→rpmsg を実地検証
+- **M4 起動を ATF(BL31)側で実装**: SPL は M4 loadable を DDR(`0x46000000`)
+  に運ぶだけ(falcon.itb 設定済み)。BL31 は OCRAM(`0x920000`)で走る = TCM を
+  書いても自分は消えないので、BL31 の plat 初期化で **DDR→TCML コピー + SRC 解除**
+  (`SRC_M4RCR`: NON_SCLR_RST クリア + M4_ENABLE セット。GPC 操作は不要)。
+  falcon.itb の M4 loadable(DDR staging 版)と firmware の attach 対応
+  (0xB80FF000 自己 publish)は実証済みで流用可。SPL 起動アプローチ
+  (旧 0011 パッチ)は「SPL が TCM で走る」ため原理的に不可。
 - 用途の本命は CAN 早期化・Linux 再起動をまたぐ常駐 (ECSPI2 の
   MCP2515 は既に M4 所有に移済 = can-gw)。次は「Linux 落ちても CAN 生存」
