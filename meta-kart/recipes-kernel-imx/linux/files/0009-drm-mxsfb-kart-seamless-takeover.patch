@@ -1,0 +1,85 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] drm/mxsfb: 養子縁組ブートの初回モードセットをフリップ扱いに
+
+mxsfb_crtc_mode_set_nofb() は「Mandatory eLCDIF reset」(SFTRST + FIFO
+クリア) で SPL の走査を止める。LCDIF が RUN 中かつ TRANSFER_COUNT が
+要求モードと一致する初回に限りこれをスキップし、cur_buf も触らず
+next_buf だけ書いて次の vblank で SPL ロゴ→weston FB へ切り替える
+(通常のページフリップと同じ機構)。enable_controller は稼働中の LCDIF に
+対して全て冪等 (REG_SET / 同値書き) なのでそのまま通す。
+不一致なら従来のリセット経路。0007/0008 とセット。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/gpu/drm/mxsfb/mxsfb_kms.c	2026-08-14 06:24:17.803148902 +0900
++++ b/drivers/gpu/drm/mxsfb/mxsfb_kms.c	2026-08-14 06:24:58.129360858 +0900
+@@ -12,6 +12,7 @@
+ #include <linux/io.h>
+ #include <linux/iopoll.h>
+ #include <linux/media-bus-format.h>
++#include <linux/of.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/spinlock.h>
+ 
+@@ -343,6 +344,33 @@
+ 	spin_unlock_irq(&crtc->dev->event_lock);
+ }
+ 
++/* kart: SPL スプラッシュ (/chosen kart,splash-active) が LCDIF を同一
++ * モードで駆動中なら、リセット (mxsfb_reset_block) を伴う再プログラムを
++ * 避けて走査を継続する (ブート後 1 回だけ試行)。enable_controller 側は
++ * 稼働中の LCDIF に対して全て冪等 (REG_SET/同値書き) なのでそのまま通す。
++ * 判定: RUN ビット + TRANSFER_COUNT がこれから設定する値と一致 */
++static bool kart_mxsfb_adopt_running(struct mxsfb_drm_private *mxsfb)
++{
++	static bool tried;
++	struct drm_display_mode *m = &mxsfb->crtc.state->adjusted_mode;
++	u32 want;
++
++	if (tried || !of_property_read_bool(of_chosen, "kart,splash-active"))
++		return false;
++	tried = true;
++
++	if (!(readl(mxsfb->base + LCDC_CTRL) & CTRL_RUN))
++		return false;
++
++	want = TRANSFER_COUNT_SET_VCOUNT(m->crtc_vdisplay) |
++	       TRANSFER_COUNT_SET_HCOUNT(m->crtc_hdisplay);
++	if (readl(mxsfb->base + mxsfb->devdata->transfer_count) != want)
++		return false;
++
++	dev_info(mxsfb->drm->dev, "kart splash: seamless LCDIF takeover\n");
++	return true;
++}
++
+ static void mxsfb_crtc_atomic_enable(struct drm_crtc *crtc,
+ 				     struct drm_atomic_state *state)
+ {
+@@ -353,6 +381,7 @@
+ 	struct drm_device *drm = mxsfb->drm;
+ 	u32 bus_format = 0;
+ 	dma_addr_t dma_addr;
++	bool kart_adopted;
+ 
+ 	pm_runtime_get_sync(drm->dev);
+ 	mxsfb_enable_axi_clk(mxsfb);
+@@ -385,12 +414,17 @@
+ 	if (!bus_format)
+ 		bus_format = MEDIA_BUS_FMT_RGB888_1X24;
+ 
+-	mxsfb_crtc_mode_set_nofb(mxsfb, bridge_state, bus_format);
++	kart_adopted = kart_mxsfb_adopt_running(mxsfb);
++	if (!kart_adopted)
++		mxsfb_crtc_mode_set_nofb(mxsfb, bridge_state, bus_format);
+ 
+ 	/* Write cur_buf as well to avoid an initial corrupt frame */
+ 	dma_addr = drm_fb_dma_get_gem_addr(new_pstate->fb, new_pstate, 0);
+ 	if (dma_addr) {
+-		writel(dma_addr, mxsfb->base + mxsfb->devdata->cur_buf);
++		/* kart: 養子縁組時は cur_buf を触らない — SPL のロゴを表示した
++		 * まま next_buf だけ書き、次の vblank で GUI に切り替える */
++		if (!kart_adopted)
++			writel(dma_addr, mxsfb->base + mxsfb->devdata->cur_buf);
+ 		writel(dma_addr, mxsfb->base + mxsfb->devdata->next_buf);
+ 	}
+ 

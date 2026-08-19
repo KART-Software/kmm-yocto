@@ -29,6 +29,10 @@ IMAGE_INSTALL:append = " \
     less \
     systemd-analyze \
     tailscale \
+    glibc-utils \
+    kart-data-mount \
+    kart-systemd-tuning \
+    kart-ssh-hostkeys \
 "
 
 # ---------------------------------------------------------------------------
@@ -52,6 +56,76 @@ IMAGE_INSTALL:append:qemuarm64 = " \
 "
 
 # ---------------------------------------------------------------------------
+# i.MX8M Mini specific packages (machine imx8mm-xpi)
+# CAN は SoC 非内蔵のため RPi5 と同じく MCP2515 (SPI) を使う。
+# rpi-eeprom / kart-ab-tools / kart-eeprom-setup は RPi 専用なので含めない。
+# オーバーライドは素の mx8mm ではなく mx8mm-generic-bsp であること
+# (meta-freescale の machine-overrides-extender が変換する。素の mx8mm は
+# OVERRIDES に無く、append が黙って捨てられる)。
+# 詳細は docs/imx8mm-migration-design.md。
+# ---------------------------------------------------------------------------
+IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
+    can-utils \
+    can-setup \
+    kernel-modules \
+    kart-rpmsg-can \
+    kart-ab-tools \
+    libubootenv-bin \
+    kart-edid-firmware \
+    kart-udev-slim \
+"
+
+# udev ダイエット (mx8mm のみ、RPi5 は据え置き):
+# 固定ハードのキオスクに無縁なルールと hwdb (10MB、キーボード/マウス量産品の
+# 互換 quirk 集) を rootfs から落とす。coldplug 全デバイス × 全ルールの積が
+# 縮み、kart-udev-slim の二段トリガーと合わせて GUI までの udev 区間を削る。
+# 消してよい根拠 (このシステムに消費者がいない) は
+# docs/imx8mm-xpi-bringup/05-next-steps.md の起動時間の項を参照。
+slim_udev_rules() {
+    for f in 60-autosuspend 60-block 60-cdrom_id 60-dmi-id 60-fido-id \
+             60-infiniband 60-persistent-alsa 60-persistent-input \
+             60-persistent-storage-mtd 60-persistent-storage-tape \
+             60-persistent-storage 60-persistent-v4l 60-sensor 60-serial \
+             64-btrfs 70-camera 70-joystick 70-memory 70-power-switch \
+             75-probe_mtd 78-sound-card 90-alsa-restore 90-iocost; do
+        rm -f ${IMAGE_ROOTFS}${nonarch_base_libdir}/udev/rules.d/$f.rules
+    done
+    rm -f ${IMAGE_ROOTFS}${nonarch_base_libdir}/udev/hwdb.bin
+    rm -rf ${IMAGE_ROOTFS}${nonarch_base_libdir}/udev/hwdb.d
+    # 乱数 seed を /data へ (kart-udev-slim の random-seed-credit.conf とペア。
+    # coldplug 遅延でデバイス登録由来のエントロピーが減るため、seed credit で
+    # CRNG を即時初期化しないと weston の EGL 初期化が getrandom() で止まる)
+    ln -sf /data/random-seed ${IMAGE_ROOTFS}${localstatedir}/lib/systemd/random-seed
+}
+ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " slim_udev_rules;"
+
+# 序盤ユニットの間引き (mx8mm のみ)。個々は 90〜120ms 級で並列実行だが、
+# 起動フェーズの fork/CPU 総量を減らして GUI チェーンに返す。
+# - fuse/configfs: キオスクに利用者なし (fuse FS 不使用、configfs は USB gadget
+#   用だが gadget は U-Boot の ums でしか使わない)
+# - modprobe@drm: 表示チェーンは全て =y (display.cfg) なので無意味な no-op
+# - getty@tty1: HDMI コンソールは weston が占有しており tty1 getty は不達。
+#   シリアル getty (保守用) は残す
+# - dev-hugepages: hugepage 利用者なし
+# - systemd-network-generator: kernel ip= の変換専用 = netboot でのみ必要
+boot_trim_units() {
+    for unit in modprobe@fuse.service sys-fs-fuse-connections.mount \
+                modprobe@configfs.service sys-kernel-config.mount \
+                modprobe@drm.service getty@tty1.service dev-hugepages.mount; do
+        ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/$unit
+    done
+    if [ "${KART_NETBOOT}" != "1" ]; then
+        ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-network-generator.service
+    fi
+}
+ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " boot_trim_units;"
+
+# wic が rawcopy する seed 済み U-Boot env (A/B 変数入り)
+KART_WIC_EXTRA_DEPENDS = ""
+KART_WIC_EXTRA_DEPENDS:mx8mm-generic-bsp = "kart-uboot-env:do_deploy"
+do_image_wic[depends] += "${KART_WIC_EXTRA_DEPENDS}"
+
+# ---------------------------------------------------------------------------
 # Image tweaks
 # ---------------------------------------------------------------------------
 IMAGE_FEATURES += "read-only-rootfs"
@@ -60,26 +134,40 @@ IMAGE_ROOTFS_EXTRA_SPACE = "0"
 # Ensure systemd is used
 IMAGE_INSTALL:append = " systemd-serialgetty"
 
-ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;delay_resolved_start;generate_ssh_host_keys;configure_wait_online_any;"
+ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;netboot_mask_networkd;"
+
+# ---------------------------------------------------------------------------
+# netboot (NFS root) 専用: systemd-networkd スタックを丸ごと mask する。
+# カーネルが ip= で上げた eth0 を networkd が掌握し直す際に一度落とすため、
+# NFS root (= /) が読めなくなり boot が 16 秒地点で全停止する
+# (docs/imx8mm-xpi-bringup/04-pitfalls.md 「16 秒の壁」)。
+# ローカル root の実機イメージでは networkd が必要なので、
+# kas/imx8mm-netboot.yml が KART_NETBOOT = "1" を立てたときだけ有効。
+# mask (/dev/null への symlink) は systemd_preset_all が作る wants リンクより
+# 優先されるので、ROOTFS_POSTPROCESS で入れて問題ない。
+# ---------------------------------------------------------------------------
+netboot_mask_networkd() {
+    [ "${KART_NETBOOT}" = "1" ] || return 0
+    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
+    for unit in systemd-networkd.service systemd-networkd.socket \
+                systemd-networkd-wait-online.service; do
+        ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/$unit
+    done
+}
 
 # ---------------------------------------------------------------------------
 # Create /data mount point and fstab entry for persistent data partition
 # ---------------------------------------------------------------------------
 create_data_mount() {
     install -d ${IMAGE_ROOTFS}/data
-    echo "LABEL=data  /data  ext4  defaults,nofail  0  2" >> ${IMAGE_ROOTFS}${sysconfdir}/fstab
+    # /data のマウント自体は kart-data-mount レシピ (recipes-support/) の
+    # systemd サービスが行う。fstab の LABEL=data 方式は udev の blkid
+    # スキャン待ち (~1.3s) + fsck (+164ms) を伴うため廃止した。
 
     # /boot is mounted by kart-boot-mount.service (A/B: the active slot's boot
     # partition BOOTA/BOOTB is chosen from the kernel cmdline), not by fstab.
     install -d ${IMAGE_ROOTFS}/boot
-
-    # Ensure /data and /data/log are world-writable at every boot
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/tmpfiles.d/data-partition.conf << 'EOF'
-d /data           0777 root root -
-d /data/log       0777 root root -
-d /data/tailscale 0700 root root -
-EOF
+    # /data 配下の tmpfiles 定義は kart-data-mount レシピが持つ
 }
 
 # ---------------------------------------------------------------------------
@@ -130,82 +218,20 @@ EOF
 remove_timesyncd_sysinit_pull() {
     rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-timesyncd.service
     rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-timesyncd.service
+
+    # resolved にも同じ preset 再作成問題がある: (遅延起動 timer は
+    # kart-systemd-tuning レシピが持つが) preset が作る
+    # sysinit.target.wants リンクを systemd_preset_all が復活させ、resolved が
+    # sysinit の critical path に居座る (i.MX 実測で +450ms、sysinit 到達を
+    # ~0.5s 遅らせていた。resolved の遅延起動は timer が担うので wants は不要)
+    rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-resolved.service
+    rm -f ${IMAGE_ROOTFS}/usr/lib/systemd/system/sysinit.target.wants/systemd-resolved.service
 }
 IMAGE_PREPROCESS_COMMAND:append = " remove_timesyncd_sysinit_pull;"
 
 mask_journal_catalog_update() {
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
     ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-journal-catalog-update.service
-}
-
-delay_resolved_start() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timers.target.wants
-
-    # Prevent resolved from delaying sysinit (remove wants link only, no mask).
-    rm -f ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sysinit.target.wants/systemd-resolved.service
-
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/resolved-delayed-start.service << 'EOF'
-[Unit]
-Description=Delayed start of systemd-resolved
-
-[Service]
-Type=oneshot
-ExecStart=/bin/systemctl start systemd-resolved.service
-EOF
-
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/resolved-delayed-start.timer << 'EOF'
-[Unit]
-Description=Delay systemd-resolved start until after GUI
-# kmm.service is Type=notify and reports READY on first window expose,
-# so "kmm active" really means the GUI is on screen.
-After=kmm.service
-
-[Timer]
-OnActiveSec=500ms
-AccuracySec=1ms
-Unit=resolved-delayed-start.service
-
-[Install]
-WantedBy=timers.target
-EOF
-
-    ln -sf ../resolved-delayed-start.timer \
-        ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/timers.target.wants/resolved-delayed-start.timer
-}
-
-# ---------------------------------------------------------------------------
-# Install pre-generated SSH host keys so sshdgenkeys.service is a no-op
-# Note: All images share the same host keys. For per-device unique keys,
-#       remove this and accept the ~2s first-boot cost.
-# ---------------------------------------------------------------------------
-generate_ssh_host_keys() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/ssh
-    for keyfile in ssh_host_rsa_key ssh_host_ecdsa_key ssh_host_ed25519_key; do
-        install -m 0600 ${THISDIR}/files/ssh-host-keys/${keyfile} \
-            ${IMAGE_ROOTFS}${sysconfdir}/ssh/${keyfile}
-        install -m 0644 ${THISDIR}/files/ssh-host-keys/${keyfile}.pub \
-            ${IMAGE_ROOTFS}${sysconfdir}/ssh/${keyfile}.pub
-    done
-    # Mask the service so it doesn't even check at boot
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
-    ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/sshdgenkeys.service
-}
-
-# ---------------------------------------------------------------------------
-# Reach network-online.target as soon as ANY interface is online.
-# Default systemd-networkd-wait-online waits for ALL managed links; a
-# disconnected onboard eth0 (no carrier) then blocks boot for the full ~120s
-# timeout even when eth1/LTE is already up. --any returns once one link is up.
-# ---------------------------------------------------------------------------
-configure_wait_online_any() {
-    install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-networkd-wait-online.service.d
-    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-networkd-wait-online.service.d/any.conf << 'EOF'
-[Service]
-ExecStart=
-ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any
-EOF
 }
 
 # ---------------------------------------------------------------------------
@@ -218,6 +244,11 @@ EOF
 do_image_wic[depends] += "dosfstools-native:do_populate_sysroot mtools-native:do_populate_sysroot"
 
 generate_autoboot_image() {
+    # RPi5 tryboot 専用のスロットセレクタ。他マシン (qemu / imx8mm) の wic は
+    # autoboot.vfat を参照しないので生成しない。
+    if [ "${MACHINE}" != "raspberrypi5" ]; then
+        return
+    fi
     cat > ${WORKDIR}/autoboot.txt << 'EOF'
 [all]
 tryboot_a_b=1
@@ -237,6 +268,13 @@ do_image_wic[prefuncs] += "generate_autoboot_image"
 # Also enable the hardware watchdog so a hung tryboot kernel resets the board
 # and the firmware falls back to the previous slot.
 install_ab_boot_support() {
+    # A/B レイアウト (…-ab.wks) のときだけ。シングルスロット構成
+    # (imx8mm の SD 持ち込みイメージ等) に入れると BOOTA ラベルが無く
+    # 起動時に必ず失敗ユニットになる。
+    case "${WKS_FILE}" in
+        *-ab.wks) ;;
+        *) return ;;
+    esac
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system
     cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service << 'EOF'
 [Unit]
@@ -253,6 +291,22 @@ ExecStop=/bin/umount /boot
 [Install]
 WantedBy=multi-user.target
 EOF
+    # imx のみ: /boot マウントを GUI (kmm) 後へ退避。basic 直後のスタート集中
+    # から 300ms 級の CPU を返す (消費者は tailscale-autoconnect だけなので
+    # 遅らせて無害。Before=autoconnect の関係は維持)。RPi5 は据え置き
+    #
+    # さらに imx は LABEL= でなく cmdline の root= からデバイス直導出で
+    # マウントする (kart-data-mount と同じ思想)。falcon+splash ブートは
+    # 起動が速く、udev の by-label リンク生成前にこのユニットが走って
+    # LABEL 解決に失敗する (実測)。root=/dev/mmcblk2p5 -> p1, p6 -> p2
+    case "${WKS_FILE}" in
+        *imx8mm*)
+            sed -i '/^Before=tailscale-autoconnect.service/a After=kmm.service' \
+                ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
+            sed -i 's|^ExecStart=.*|ExecStart=/bin/sh -c '"'"'R=$$(sed "s/.*root=\\([^ ]*\\)p[56].*/\\1/" /proc/cmdline); if grep -q "root=[^ ]*p6" /proc/cmdline; then P=2; else P=1; fi; mount $${R}p$$P /boot'"'"'|' \
+                ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
+            ;;
+    esac
     install -d ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/multi-user.target.wants
     ln -sf ../kart-boot-mount.service \
         ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/multi-user.target.wants/kart-boot-mount.service
@@ -264,7 +318,11 @@ RuntimeWatchdogSec=15
 RebootWatchdogSec=60
 EOF
 }
-ROOTFS_POSTPROCESS_COMMAND += "install_ab_boot_support;"
+# kart-boot-mount (cmdline の p5/p6 で BOOTA/BOOTB ラベルを選んでマウント) と
+# watchdog 設定は RPi5 (tryboot) と i.MX (U-Boot bootcount) の両 A/B レイアウトで
+# 共通に機能する — root=p5/p6・ラベル名を両レイアウトで揃えてあるため。
+ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi5 = " install_ab_boot_support;"
+ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_ab_boot_support;"
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"

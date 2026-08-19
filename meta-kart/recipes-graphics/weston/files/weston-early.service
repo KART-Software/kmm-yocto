@@ -1,0 +1,38 @@
+[Unit]
+Description=Weston, a Wayland compositor, as a system service
+Documentation=man:weston(1) man:weston.ini(5)
+Documentation=http://wayland.freedesktop.org/
+Requires=seatd.service
+# mx8mm 早期起動変種: basic.target を待たず、sysinit 直後に seatd と共に
+# 起動する (素の weston.service の置き換え。RPi5 は素のまま)。
+# 根拠: StartupCPUWeight を盛っても seatd/weston の発射は basic 直後の
+# ジョブ一斉投入に呑まれて ~0.6s 遅れる実測 (PID1 のディスパッチ順は
+# cgroup 重みで制御できない)。ordering で先に発射させるのが確実。
+# 依存の実体は seatd / /dev/dri (sysinit までに udev coldplug 済み) /
+# /run (早期 tmpfs) / kart ユーザー (イメージ焼き込みの /etc/passwd) のみ。
+# dbus.socket への順序指定は名残で、weston は dbus を使わない (実測 fd 0 本)。
+DefaultDependencies=no
+After=seatd.service sysinit.target
+Conflicts=shutdown.target
+Before=shutdown.target graphical.target
+ConditionPathExists=/dev/tty0
+
+[Service]
+Type=notify
+EnvironmentFile=/etc/default/weston
+ExecStart=/usr/bin/weston --modules=systemd-notify.so
+# Fixed runtime dir (systemd-managed, kart-owned): keeps uid out of unit
+# files entirely (kart's uid is dynamically assigned at build time).
+Environment=XDG_RUNTIME_DIR=/run/wayland
+Environment=SEATD_SOCK=/run/seatd.sock
+RuntimeDirectory=wayland
+RuntimeDirectoryMode=0700
+User=kart
+Group=kart
+WorkingDirectory=/home/kart
+SupplementaryGroups=video input render tty
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,80 @@
+#!/bin/sh
+# kart-ab-commit (i.MX / U-Boot bootcount 版) — 現在起動中のスロットを
+# 恒久ブートスロットにする。
+#
+# OTA 試行 (upgrade_available=1) で新スロットが正常起動した後に実行する:
+# kart_slot を現スロットへ、upgrade_available=0、bootcount=0 に戻す。
+# fw_setenv のバッチモード (-s) で 1 回の CRC 更新にまとめる。
+# 冪等: すでに確定済みなら 0 で抜ける。
+set -eu
+
+case "$(cat /proc/cmdline)" in
+    *root=*p6*) SLOT=b; SLOT_NAME=B ;;
+    *root=*p5*) SLOT=a; SLOT_NAME=A ;;
+    *) echo "ERROR: cmdline root= is not an A/B slot (p5/p6)" >&2; exit 1 ;;
+esac
+
+cur=$(fw_printenv -n kart_slot 2>/dev/null) || {
+    echo "ERROR: cannot read U-Boot environment (check /etc/fw_env.config)" >&2
+    exit 1
+}
+ua=$(fw_printenv -n upgrade_available 2>/dev/null) || ua=0
+
+if [ "$cur" = "$SLOT" ] && [ "$ua" = "0" ]; then
+    echo "Already committed to slot $SLOT_NAME (kart_slot=$cur); nothing to do."
+    exit 0
+fi
+
+# 1 バッチ = 1 CRC 更新。途中で電源断しても旧 env か新 env のどちらかに倒れる。
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+# 注意: libubootenv の -s は「名前=値」形式。スペース区切りは黙って無視され
+# rc=0 のまま何も書かれない (実機で読み戻し検証に引っかかって発覚)
+cat > "$TMP" << EOF
+kart_slot=$SLOT
+kart_fallback_slot=$SLOT
+upgrade_available=0
+bootcount=0
+EOF
+fw_setenv -s "$TMP"
+
+# 読み戻し検証 (RPi5 版の read-back verification と同じ思想)
+verify=$(fw_printenv -n kart_slot 2>/dev/null) || verify=""
+if [ "$verify" != "$SLOT" ]; then
+    echo "ERROR: read-back verification FAILED: kart_slot=$verify (expected $SLOT)." >&2
+    echo "       The commit did NOT persist. Re-run kart-ab-commit." >&2
+    exit 1
+fi
+echo "Committed: slot $SLOT_NAME is now the permanent boot slot (kart_slot=$SLOT). (read-back verified)"
+
+# ---- Falcon (SPL 直カーネル起動) 用: MBR bootable フラグを確定スロットへ ----
+# falcon SPL は「bootable フラグの立ったパーティション」の falcon.itb を起動する
+# (CONFIG_SYS_MMCSD_FS_BOOT_PARTITION=-1)。slot a → p1、slot b → p2。
+# 非 falcon 構成 (U-Boot proper 経由) はフラグを見ないため、常に実行して無害。
+# busybox 制約: head -c / conv= を使わず dd スライスで MBR 512B を再構成する。
+BASE_DEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
+if [ -n "$BASE_DEV" ]; then
+    if [ "$SLOT" = "a" ]; then P_ON=446; P_OFF=462; else P_ON=462; P_OFF=446; fi
+    M=$(mktemp); PRE=$(mktemp); MID=$(mktemp); POST=$(mktemp); NEW=$(mktemp)
+    trap 'rm -f "$M" "$PRE" "$MID" "$POST" "$NEW"' EXIT
+    dd if="$BASE_DEV" of="$M" bs=512 count=1 2>/dev/null
+    # 446(p1 flag) と 462(p2 flag) の 2 バイトだけ差し替え
+    dd if="$M" of="$PRE"  bs=1 count=446 2>/dev/null
+    dd if="$M" of="$MID"  bs=1 skip=447 count=15 2>/dev/null
+    dd if="$M" of="$POST" bs=1 skip=463 count=49 2>/dev/null
+    if [ "$SLOT" = "a" ]; then F1='\200'; F2='\000'; else F1='\000'; F2='\200'; fi
+    { cat "$PRE"; printf "$F1"; cat "$MID"; printf "$F2"; cat "$POST"; } > "$NEW"
+    if [ "$(wc -c < "$NEW")" -eq 512 ]; then
+        dd if="$NEW" of="$BASE_DEV" bs=512 count=1 2>/dev/null
+        sync
+        # 読み戻し検証
+        dd if="$BASE_DEV" of="$M" bs=512 count=1 2>/dev/null
+        if cmp -s "$M" "$NEW"; then
+            echo "Boot flag: slot $SLOT_NAME partition marked bootable. (read-back verified)"
+        else
+            echo "WARNING: MBR boot-flag read-back mismatch — falcon boot may use the old slot." >&2
+        fi
+    else
+        echo "WARNING: MBR reassembly size != 512; boot flag NOT updated." >&2
+    fi
+fi

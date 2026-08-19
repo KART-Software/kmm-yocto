@@ -1,0 +1,538 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * imx8mm-xpi-kart.dts — Geniatech XPI-iMX8MM 用 kart 製品 DT
+ *
+ * 根拠は全て実機/実物から採取済み:
+ *  - ベンダ実行中 DT (/sys/firmware/fdt, local/vendor-dtbs/running.dts)
+ *  - ベンダ 4.14 カーネルの起動ログ (lt9611: irq_gpio=5 reset_gpio=6)
+ *  - HW UserGuide の 40 ピン表 (ECSPI2 = pin19-24, RPi GPIO25 相当 = PDM_DATA3)
+ *
+ * EVK との差分:
+ *  - 表示: ADV7535 (EVK アダプタ) ではなく Lontium LT9611 (I2C4 @0x3b)。
+ *    mainline の lontium,lt9611 ドライバ用に binding を書き直して移植
+ *    (ベンダは独自 lt,lt9611 ドライバ)。EVK の adv7535 ノードは削除し、
+ *    hdmi-connector と dsi_out を LT9611 に繋ぎ替える
+ *  - CAN INT: RPi GPIO25 相当 (物理 pin22) = SAI5_RXD3 パッド = GPIO3_IO24
+ *    (EVK 足場の GPIO1_IO08 は XPI では 40 ピンに出ていない)
+ *  - ECSPI2 の conf 値はベンダ実績値 (SCLK/MOSI/MISO=0x140)
+ *  - eMMC (usdhc3): EVK 足場と同じ NXP 由来ノード (ベンダ DT にも同構成を確認)
+ *  - Ethernet PHY リセット: XPI は SAI1_RXC → GPIO4_IO1 (EVK の SAI2_RXC →
+ *    GPIO4_IO22 は XPI では未配線。ベンダ BSP 監査 07 §3 で確認)
+ *  - usbotg2: 実機 DTB は OTG1/OTG2 とも host で有効 (mainline evk dtsi には
+ *    otg2 ノード自体が無い)。07 §3 で確認
+ */
+
+#include "imx8mm-evk.dts"
+#include <dt-bindings/interrupt-controller/irq.h>
+
+/ {
+	clk_can_osc: clock-can-osc {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <12000000>;
+		clock-output-names = "can_osc";
+	};
+
+	reg_lt9611_vdd: regulator-lt9611-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "lt9611-vdd";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	reg_lt9611_vcc: regulator-lt9611-vcc {
+		compatible = "regulator-fixed";
+		regulator-name = "lt9611-vcc";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+};
+
+/* EVK の ADV7535 (アダプタカード) は XPI に存在しない。
+ * なおベンダ DT はこのバスの 0x69 に AM1805 RTC を宣言しているが、
+ * 実機検証でチップ無応答 = 未実装と判断し、ノード/ドライバとも入れない
+ * (経緯と再有効化手順は docs/imx8mm-xpi-bringup/07-vendor-bsp-audit.md §3-3) */
+&i2c2 {
+	/delete-node/ hdmi@3d;
+};
+
+/*
+ * PMIC は実チップが ROHM BD71837 (8 buck。ベンダ DT・実機 DTB で確認)。
+ * EVK dtsi は後期 EVK の BD71847 (6 buck) として登録しており、GPU/VPU レール
+ * (buck3/4) が見えず buck5 以降のレジスタマップもズレる (07 §3-4)。
+ * ノードを丸ごと差し替え、電圧枠はベンダ DT の実績値を使う。
+ *
+ * ベンダとの意図的な差分: buck3 (VDD_GPU) / buck4 (VDD_VPU) を always-on に
+ * する。mainline にはこれらを consumer として掴むドライバが居ないため
+ * (etnaviv は GPC power-domain 管理で PMIC を知らない)、素のままだと
+ * regulator core の「未使用レギュレータ自動停止」(起動 30s 後) が
+ * GPU レールを落として weston が死ぬ。
+ *
+ * ラベルの継承: buck2_reg は cpu-supply (cpufreq DVS) が参照。
+ * buck4_reg/buck5_reg は evk.dtsi の i2c3 配下 (XPI では disabled) が参照する
+ * ため、電圧対応する BUCK6 (3.3V)/BUCK7 (1.8V) に旧名ラベルを併記して
+ * phandle 解決だけ維持する。
+ */
+&i2c1 {
+	/delete-node/ pmic@4b;
+
+	pmic@4b {
+		compatible = "rohm,bd71837";
+		reg = <0x4b>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_pmic>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
+		rohm,reset-snvs-powered;
+		#clock-cells = <0>;
+		clocks = <&osc_32k>;
+		clock-output-names = "clk-32k-out";
+
+		regulators {
+			buck1_reg: BUCK1 {
+				/* VDD_SOC */
+				regulator-name = "buck1";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-boot-on;
+				regulator-always-on;
+				regulator-ramp-delay = <1250>;
+			};
+
+			buck2_reg: BUCK2 {
+				/* VDD_ARM — cpufreq DVS (run 1.0V / idle 0.9V、ベンダ実績値) */
+				regulator-name = "buck2";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-boot-on;
+				regulator-always-on;
+				regulator-ramp-delay = <1250>;
+				rohm,dvs-run-voltage = <1000000>;
+				rohm,dvs-idle-voltage = <900000>;
+			};
+
+			buck3_reg: BUCK3 {
+				/* VDD_GPU — always-on は意図的 (冒頭コメント) */
+				regulator-name = "buck3";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			buck4_vpu_reg: BUCK4 {
+				/* VDD_VPU — 同上 (VPU 未使用だが安全側) */
+				regulator-name = "buck4";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1300000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			buck5_dram_reg: BUCK5 {
+				/* VDD_DRAM */
+				regulator-name = "buck5";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1350000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			buck4_reg: buck6_reg: BUCK6 {
+				/* 3.3V 系 (旧 bd71847 名 buck4 — ラベル併記は冒頭コメント) */
+				regulator-name = "buck6";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			buck5_reg: buck7_reg: BUCK7 {
+				/* 1.8V 系 (旧 bd71847 名 buck5) */
+				regulator-name = "buck7";
+				regulator-min-microvolt = <1605000>;
+				regulator-max-microvolt = <1995000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			buck8_reg: BUCK8 {
+				regulator-name = "buck8";
+				regulator-min-microvolt = <800000>;
+				regulator-max-microvolt = <1400000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			ldo1_reg: LDO1 {
+				/* ベンダ実績 3.0-3.3V (bd71847-EVK の 1.6V 枠とは異なる) */
+				regulator-name = "ldo1";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			ldo2_reg: LDO2 {
+				regulator-name = "ldo2";
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <900000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			ldo3_reg: LDO3 {
+				regulator-name = "ldo3";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			ldo4_reg: LDO4 {
+				regulator-name = "ldo4";
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
+			ldo6_reg: LDO6 {
+				regulator-name = "ldo6";
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+			/* LDO5/LDO7 はベンダ DT でも未定義 (未使用レール) */
+		};
+	};
+};
+
+/*
+ * ===== EVK 残骸の無効化 =====
+ * XPI に存在しない EVK 周辺を全て落とす。pinctrl+GPIO が生きていると
+ * これらのノードは実際に XPI の足を掴んで駆動してしまう
+ * (特に reg_pcie0 は GPIO1_IO05 = XPI の LT9611 IRQ 線を Low に初期化する)。
+ * phandle グラフに絡むノードは status="disabled" (参照切れコンパイルエラー
+ * 回避)、絡まないノードは /delete-node/。
+ */
+
+/* PCIe: XPI に引き出されていない */
+&pcie0 {
+	status = "disabled";
+};
+&pcie_phy {
+	status = "disabled";
+};
+/* MPCIE_3V3: gpio1 5 (XPI では LT9611 IRQ) を regulator init が Low に叩く */
+&reg_pcie0 {
+	status = "disabled";
+};
+
+/* USB-C PD (ptn5110) は EVK アダプタの物。XPI はベンダ DT 通り素の host */
+&ptn5110 {
+	status = "disabled";
+};
+&usbotg1 {
+	dr_mode = "host";
+	/* role switch は ptn5110 前提。残すと usbotg1 が永久 deferred になる */
+	/delete-property/ usb-role-switch;
+};
+
+/* 2 系統目の USB (usbotg2)。実機調査 (07 §3) の結末:
+ * 配下は GL850 ハブ + Marvell 88W8897 WiFi/BT メザニン (port4 固定) のみで、
+ * port1-3 は未接続 = 外部ポートは存在しない。カートは WiFi/BT 不使用のため
+ * 意図的に disabled (SoC dtsi のデフォルトと同じだが、経緯ごと明示する)。
+ * モジュールの物理撤去は親基板パターン損傷リスクが高いためしない。
+ * WiFi を使う日が来たら host で有効化 + mwifiex_usb を焚く */
+&usbotg2 {
+	status = "disabled";
+};
+
+/* Ethernet PHY (AR803x) のリセット線。EVK dtsi は SAI2_RXC → GPIO4_IO22 を
+ * 指すが、XPI のリセット実配線は SAI1_RXC → GPIO4_IO1 (ベンダ fec1grp が
+ * SAI2_RXC を外して SAI1_RXC を mux、実機 DTB でも確認。07 §3)。
+ * GPIO4_IO22 は XPI では未配線パッドの空撃ちで、PHY リセットが効いていなかった */
+&ethphy0 {
+	reset-gpios = <&gpio4 1 GPIO_ACTIVE_LOW>;
+};
+
+/* fec1grp を丸ごと差し替え (pinctrl グループは fsl,pins の全置換でしか
+ * 編集できない)。最終行以外は EVK dtsi と同一 */
+&pinctrl_fec1 {
+	fsl,pins = <
+		MX8MM_IOMUXC_ENET_MDC_ENET1_MDC			0x3
+		MX8MM_IOMUXC_ENET_MDIO_ENET1_MDIO		0x3
+		MX8MM_IOMUXC_ENET_TD3_ENET1_RGMII_TD3		0x1f
+		MX8MM_IOMUXC_ENET_TD2_ENET1_RGMII_TD2		0x1f
+		MX8MM_IOMUXC_ENET_TD1_ENET1_RGMII_TD1		0x1f
+		MX8MM_IOMUXC_ENET_TD0_ENET1_RGMII_TD0		0x1f
+		MX8MM_IOMUXC_ENET_RD3_ENET1_RGMII_RD3		0x91
+		MX8MM_IOMUXC_ENET_RD2_ENET1_RGMII_RD2		0x91
+		MX8MM_IOMUXC_ENET_RD1_ENET1_RGMII_RD1		0x91
+		MX8MM_IOMUXC_ENET_RD0_ENET1_RGMII_RD0		0x91
+		MX8MM_IOMUXC_ENET_TXC_ENET1_RGMII_TXC		0x1f
+		MX8MM_IOMUXC_ENET_RXC_ENET1_RGMII_RXC		0x91
+		MX8MM_IOMUXC_ENET_RX_CTL_ENET1_RGMII_RX_CTL	0x91
+		MX8MM_IOMUXC_ENET_TX_CTL_ENET1_RGMII_TX_CTL	0x1f
+		MX8MM_IOMUXC_SAI1_RXC_GPIO4_IO1			0x19
+	>;
+};
+
+/* MIPI パネル用バックライト (XPI は HDMI)。pwm1 は backlight 専用 */
+&pwm1 {
+	status = "disabled";
+};
+
+/* PDM マイク (EVK): pdmgrp が SAI5_RXD3 を PDM_DATA3 に mux し、
+ * CAN INT (canintgrp: SAI5_RXD3 → GPIO3_IO24) とパッドを取り合う */
+&micfil {
+	status = "disabled";
+};
+
+/* EVK の GPIO エキスパンダ/カメラの載る i2c3 ごと不要 (XPI は i2c4=LT9611) */
+&i2c3 {
+	status = "disabled";
+};
+&csi {
+	status = "disabled";
+};
+&mipi_csi {
+	status = "disabled";
+};
+
+/delete-node/ &backlight;
+
+/ {
+	/delete-node/ leds;		/* gpio3 16 を出力 ON で掴む */
+	/delete-node/ ir-receiver;	/* gpio1 13 を掴む */
+};
+
+/* HDMI コネクタは LT9611 の出力へ */
+&hdmi_connector_in {
+	remote-endpoint = <&lt9611_out>;
+};
+
+/* DSIM の出力を LT9611 の DSI 入力へ。
+ * 4 レーンが正式構成。LT9611 の TX/PCR は低ピクセルクロック (〜75MHz) で
+ * 横揺れ・無信号になる実測特性があり、weston.ini (mx8mm override) の
+ * 高クロックラスタ + 小アクティブ領域モードとセットで運用する
+ * (docs/imx8mm-xpi-bringup/04-pitfalls.md #17)。
+ * なお data-lanes は 0002 パッチにより可変: 低 pclk を直接受けさせたい
+ * 実験では <1 2> にするとレーン当たりレートが倍になり、LT9611 の
+ * MIPI RX ロック下限 (実測 280〜312Mbps/lane の間) を回避できる。
+ * ただし 2 レーンでは 1080p (1782Mbps/lane) は帯域超過。 */
+&dsi_out {
+	remote-endpoint = <&lt9611_a>;
+	data-lanes = <1 2 3 4>;
+};
+
+&i2c4 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_i2c4>;
+	status = "okay";
+
+	hdmi-bridge@3b {
+		compatible = "lontium,lt9611";
+		reg = <0x3b>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_lt9611>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&gpio1 6 GPIO_ACTIVE_HIGH>;
+		vdd-supply = <&reg_lt9611_vdd>;
+		vcc-supply = <&reg_lt9611_vcc>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				lt9611_a: endpoint {
+					remote-endpoint = <&dsi_out>;
+					/* レーン数は dsi_out 側のコメント参照 */
+					data-lanes = <1 2 3 4>;
+				};
+			};
+
+			port@2 {
+				reg = <2>;
+				lt9611_out: endpoint {
+					remote-endpoint = <&hdmi_connector_in>;
+				};
+			};
+		};
+	};
+};
+
+&iomuxc {
+	pinctrl_i2c4: i2c4grp {
+		fsl,pins = <
+			/* ベンダ実績 conf 0x400001c3 (open-drain 有効込み) */
+			MX8MM_IOMUXC_I2C4_SCL_I2C4_SCL		0x400001c3
+			MX8MM_IOMUXC_I2C4_SDA_I2C4_SDA		0x400001c3
+		>;
+	};
+
+	pinctrl_lt9611: lt9611grp {
+		fsl,pins = <
+			/* ベンダ実績 conf 0x19 (irq=GPIO1_IO05, reset=GPIO1_IO06) */
+			MX8MM_IOMUXC_GPIO1_IO05_GPIO1_IO5	0x19
+			MX8MM_IOMUXC_GPIO1_IO06_GPIO1_IO6	0x19
+		>;
+	};
+
+	pinctrl_ecspi2: ecspi2grp {
+		fsl,pins = <
+			/* ベンダ実績 conf 0x140 */
+			MX8MM_IOMUXC_ECSPI2_SCLK_ECSPI2_SCLK	0x140
+			MX8MM_IOMUXC_ECSPI2_MOSI_ECSPI2_MOSI	0x140
+			MX8MM_IOMUXC_ECSPI2_MISO_ECSPI2_MISO	0x140
+		>;
+	};
+
+	pinctrl_ecspi2_cs: ecspi2csgrp {
+		fsl,pins = <
+			MX8MM_IOMUXC_ECSPI2_SS0_GPIO5_IO13	0x40000
+		>;
+	};
+
+	pinctrl_can_int: canintgrp {
+		fsl,pins = <
+			/* 物理 pin22 (RPi GPIO25 相当) = SAI5_RXD3 の GPIO モード */
+			MX8MM_IOMUXC_SAI5_RXD3_GPIO3_IO24	0x140
+		>;
+	};
+
+	pinctrl_usdhc3: usdhc3grp {
+		fsl,pins = <
+			MX8MM_IOMUXC_NAND_WE_B_USDHC3_CLK	0x190
+			MX8MM_IOMUXC_NAND_WP_B_USDHC3_CMD	0x1d0
+			MX8MM_IOMUXC_NAND_DATA04_USDHC3_DATA0	0x1d0
+			MX8MM_IOMUXC_NAND_DATA05_USDHC3_DATA1	0x1d0
+			MX8MM_IOMUXC_NAND_DATA06_USDHC3_DATA2	0x1d0
+			MX8MM_IOMUXC_NAND_DATA07_USDHC3_DATA3	0x1d0
+			MX8MM_IOMUXC_NAND_RE_B_USDHC3_DATA4	0x1d0
+			MX8MM_IOMUXC_NAND_CE2_B_USDHC3_DATA5	0x1d0
+			MX8MM_IOMUXC_NAND_CE3_B_USDHC3_DATA6	0x1d0
+			MX8MM_IOMUXC_NAND_CLE_USDHC3_DATA7	0x1d0
+			MX8MM_IOMUXC_NAND_CE1_B_USDHC3_STROBE	0x190
+		>;
+	};
+
+	pinctrl_usdhc3_100mhz: usdhc3-100mhzgrp {
+		fsl,pins = <
+			MX8MM_IOMUXC_NAND_WE_B_USDHC3_CLK	0x194
+			MX8MM_IOMUXC_NAND_WP_B_USDHC3_CMD	0x1d4
+			MX8MM_IOMUXC_NAND_DATA04_USDHC3_DATA0	0x1d4
+			MX8MM_IOMUXC_NAND_DATA05_USDHC3_DATA1	0x1d4
+			MX8MM_IOMUXC_NAND_DATA06_USDHC3_DATA2	0x1d4
+			MX8MM_IOMUXC_NAND_DATA07_USDHC3_DATA3	0x1d4
+			MX8MM_IOMUXC_NAND_RE_B_USDHC3_DATA4	0x1d4
+			MX8MM_IOMUXC_NAND_CE2_B_USDHC3_DATA5	0x1d4
+			MX8MM_IOMUXC_NAND_CE3_B_USDHC3_DATA6	0x1d4
+			MX8MM_IOMUXC_NAND_CLE_USDHC3_DATA7	0x1d4
+			MX8MM_IOMUXC_NAND_CE1_B_USDHC3_STROBE	0x194
+		>;
+	};
+
+	pinctrl_usdhc3_200mhz: usdhc3-200mhzgrp {
+		fsl,pins = <
+			MX8MM_IOMUXC_NAND_WE_B_USDHC3_CLK	0x196
+			MX8MM_IOMUXC_NAND_WP_B_USDHC3_CMD	0x1d6
+			MX8MM_IOMUXC_NAND_DATA04_USDHC3_DATA0	0x1d6
+			MX8MM_IOMUXC_NAND_DATA05_USDHC3_DATA1	0x1d6
+			MX8MM_IOMUXC_NAND_DATA06_USDHC3_DATA2	0x1d6
+			MX8MM_IOMUXC_NAND_DATA07_USDHC3_DATA3	0x1d6
+			MX8MM_IOMUXC_NAND_RE_B_USDHC3_DATA4	0x1d6
+			MX8MM_IOMUXC_NAND_CE2_B_USDHC3_DATA5	0x1d6
+			MX8MM_IOMUXC_NAND_CE3_B_USDHC3_DATA6	0x1d6
+			MX8MM_IOMUXC_NAND_CLE_USDHC3_DATA7	0x1d6
+			MX8MM_IOMUXC_NAND_CE1_B_USDHC3_STROBE	0x196
+		>;
+	};
+};
+
+/* ECSPI2 + MCP2515 は Cortex-M4 (can-gw ファーム) に譲渡した。Linux から
+ * は rpmsg 経由の CAN netdev (kart-rpmsg-can) として見える。M4 側の
+ * pinmux/CS/INT 設定は Zephyr overlay (data-logger リポジトリ apps/can-gw)
+ * が自前で行うため、Linux 側は完全に disabled でよい。
+ * クロックの取り決め:
+ *  - root gate (TARGET_ROOT) は cmdline clk-imx8mm.mcore_booted=1 で
+ *    Linux が止めなくなる (clk-composite-8m の gate ops 差し替え)
+ *  - CCGR (0x30384080) は M4 起動フローが domain1 always-on (0xC) を
+ *    立てる (Linux clk は bits[1:0] しか触らないため保持される)
+ * 旧 Linux 直結構成 (can0 = spi-imx + mcp251x、PIO 固定の経緯含む) は
+ * git 履歴参照 */
+&ecspi2 {
+	status = "disabled";
+};
+
+/* XPI 実機の eMMC (Samsung 8GB)。/dev/mmcblk2 で見える。 */
+&usdhc3 {
+	assigned-clocks = <&clk IMX8MM_CLK_USDHC3_ROOT>;
+	assigned-clock-rates = <400000000>;
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc3>;
+	pinctrl-1 = <&pinctrl_usdhc3_100mhz>;
+	pinctrl-2 = <&pinctrl_usdhc3_200mhz>;
+	bus-width = <8>;
+	non-removable;
+	status = "okay";
+};
+
+/* ------------------------------------------------------------------ */
+/* Cortex-M4 (remoteproc)                                              */
+/*                                                                     */
+/* /sys/class/remoteproc/remoteproc0 から M4 ファーム (.elf) を起動する */
+/* ための配線。fsl,imx8mm-cm4 は SMC メソッド = ATF SIP 経由で起動する  */
+/* (A53 userspace からの SRC 生叩きでは M4 は起動しない — 実機確認済)。 */
+/* ノードがあるだけでは何も走らない (auto-boot なし、明示 start 待ち)。 */
+/* 共有メモリ配置はベンダ BSP (NXP imx8mm-evk-rpmsg.dts) の実績値。     */
+/* mem=2042M (splash) でも 0xb85 万台は可視域内 (< 0xBFA00000)。        */
+/* M4 コンソールは UART4 = J64 (RDC で M4 ドメイン割当済み、A53 不可視)。*/
+/* ------------------------------------------------------------------ */
+/ {
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		vdev0vring0: vdev0vring0@b8000000 {
+			reg = <0 0xb8000000 0 0x8000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@b8008000 {
+			reg = <0 0xb8008000 0 0x8000>;
+			no-map;
+		};
+
+		rsc_table: rsc-table@b80ff000 {
+			reg = <0 0xb80ff000 0 0x1000>;
+			no-map;
+		};
+
+		vdevbuffer: vdevbuffer@b8400000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0xb8400000 0 0x100000>;
+			no-map;
+		};
+	};
+
+	imx8mm-cm4 {
+		compatible = "fsl,imx8mm-cm4";
+		clocks = <&clk IMX8MM_CLK_M4_DIV>;
+		mbox-names = "tx", "rx", "rxdb";
+		mboxes = <&mu 0 1
+			  &mu 1 1
+			  &mu 3 1>;
+		memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>, <&rsc_table>;
+		syscon = <&src>;
+	};
+};

@@ -1,0 +1,21 @@
+[Unit]
+Description=Mount /data (persistent partition) early, bypassing udev
+# fstab の LABEL=data だと udev の blkid スキャン + by-label シンボリック
+# リンク生成 (A53 実測 ~1.3s) を待ってからのマウントになり、nofail でも
+# ordering は残るため local-fs の到達を遅らせる。devtmpfs のノードは
+# カーネル認識直後から存在するので、cmdline から導出したデバイスパスで
+# 直接マウントする (kart-boot-mount と同じ思想)。
+DefaultDependencies=no
+After=systemd-remount-fs.service
+Before=local-fs.target umount.target
+Conflicts=umount.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# ロジックはスクリプト側 (ExecStart に $ を書くと systemd が先に展開する)
+ExecStart=/usr/sbin/kart-data-mount
+ExecStop=/bin/sh -c "umount /data 2>/dev/null || true"
+
+[Install]
+WantedBy=local-fs.target

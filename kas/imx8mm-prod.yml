@@ -1,0 +1,18 @@
+# i.MX8M Mini 本番イメージ = base + imx8mm (debug-tweaks なし)
+#
+# rpi5-prod.yml に相当。root パスワードはロックされ、アクセスは
+# Tailscale SSH のみになる (README の「Tailscale について」を参照)。
+# eMMC A/B レイアウトと合成して使う:
+#   kas-container build kas/imx8mm-prod.yml:kas/imx8mm-emmc-ab.yml
+header:
+  version: 14
+  includes:
+    - base.yml
+    - imx8mm.yml
+
+target: kart-image
+
+local_conf_header:
+  prod-features: |
+    IMAGE_ROOTFS_EXTRA_SPACE = "0"
+    EXTRA_IMAGE_FEATURES:append = " ssh-server-openssh"

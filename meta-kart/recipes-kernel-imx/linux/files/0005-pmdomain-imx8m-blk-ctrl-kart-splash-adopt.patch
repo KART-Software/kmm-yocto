@@ -1,0 +1,63 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] pmdomain: imx8m-blk-ctrl: SPL スプラッシュ稼働中は LCDIF/DSI ドメインを養子縁組
+
+/chosen に kart,splash-active があるとき (SPL がロゴ表示中に立てる)、
+imx8mm disp blk-ctrl の LCDIF / MIPI-DSI ドメインを:
+
+ - ドメインクロック (lcdif-axi/apb/pix, dsi-pclk/ref) を prepare_enable して
+   恒久ピン。CCF は SPL が有効化したクロックを知らないため、素のままだと
+   mxsfb probe の version 読みの enable/disable 対で共有ゲート CCGR93 が
+   落ち、スキャン中の LCDIF ごと表示が死ぬ
+ - GENPD_FLAG_ALWAYS_ON + 初期状態 ON で登録。power_on/power_off コール
+   バックが呼ばれないため、probe 時の「一旦リセット」も起きない
+
+weston の初回 modeset は通常経路 (ドライバ自身のコントローラリセット) で
+表示を引き継ぐ。CSI 系ドメインと他 SoC・splash 無しブートは従来動作。
+
+0004 (gpcv2) とペア。キオスク用途で表示は常時使用のため電力コストは実質ゼロ。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/pmdomain/imx/imx8m-blk-ctrl.c
++++ b/drivers/pmdomain/imx/imx8m-blk-ctrl.c
+@@ -224,6 +224,7 @@
+ 	for (i = 0; i < bc_data->num_domains; i++) {
+ 		const struct imx8m_blk_ctrl_domain_data *data = &bc_data->domains[i];
+ 		struct imx8m_blk_ctrl_domain *domain = &bc->domains[i];
++		bool adopt;
+ 		int j;
+ 
+ 		domain->data = data;
+@@ -274,7 +275,31 @@
+ 		domain->genpd.power_off = imx8m_blk_ctrl_power_off;
+ 		domain->bc = bc;
+ 
+-		ret = pm_genpd_init(&domain->genpd, NULL, true);
++		/* kart: SPL スプラッシュが LCDIF/DSI を稼働させたまま渡して
++		 * くる。クロックを恒久ピンし、実状態 (ON) で ALWAYS_ON 登録。
++		 * 素のままだと mxsfb probe の clk enable/disable 対で共有
++		 * ゲートが落ちて表示が死ぬ。0004 (gpcv2) とペア */
++		adopt = of_property_read_bool(of_chosen, "kart,splash-active") &&
++			of_device_is_compatible(dev->of_node,
++						"fsl,imx8mm-disp-blk-ctrl") &&
++			(!strcmp(data->name, "dispblk-lcdif") ||
++			 !strcmp(data->name, "dispblk-mipi-dsi"));
++
++		if (adopt) {
++			ret = clk_bulk_prepare_enable(data->num_clks,
++						      domain->clks);
++			if (ret) {
++				dev_warn(dev,
++					 "kart splash: clk pin failed (%d), normal init\n",
++					 ret);
++				adopt = false;
++			} else {
++				dev_info(dev, "kart splash: adopting %s\n",
++					 data->name);
++				domain->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
++			}
++		}
++		ret = pm_genpd_init(&domain->genpd, NULL, !adopt);
+ 		if (ret) {
+ 			dev_err_probe(dev, ret,
+ 				      "failed to init power domain \"%s\"\n",

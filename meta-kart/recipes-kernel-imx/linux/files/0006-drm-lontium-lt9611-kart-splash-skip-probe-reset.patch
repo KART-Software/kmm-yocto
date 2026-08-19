@@ -1,0 +1,40 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] drm/bridge: lontium-lt9611: SPL スプラッシュ稼働中は probe のリセットを抑止
+
+/chosen に kart,splash-active があり (SPL がロゴ表示中に立てる)、かつ
+チップが I2C 応答するなら、probe 時の GPIO ハードリセット (20+20+100ms) を
+省略する。リセットすると SPL が設定した TX/PCR ごと吹き飛び、HDMI 出力が
+即座に落ちてロゴが消える。
+
+チップ状態は SPL 設定のまま温存され、weston の初回 modeset
+(atomic_enable → 全レジスタ再設定) が通常経路で表示を引き継ぐ。
+splash 無しブートでは従来通りリセットする (リセット解除前のチップは
+I2C 無応答なので、応答チェックが自然なフォールバックになる)。
+
+温間再ロックの位相抽選対策として一時期「初回 atomic_enable でハード
+リセット (コールド化)」も入れていたが、黒埋め広 DE ラスタ (充填 87% で
+ロック一意化) に移行して不要になったため撤去した。リセットは可視の
+暗転+白フラッシュを生むので、抽選が消えた今は純粋に有害。
+
+0004/0005 (電源ドメイン養子縁組) とペア。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/gpu/drm/bridge/lontium-lt9611.c
++++ b/drivers/gpu/drm/bridge/lontium-lt9611.c
+@@ -1095,7 +1095,14 @@ static int lt9611_probe(struct i2c_client *client)
+ 	if (ret)
+ 		goto err_of_put;
+ 
+-	lt9611_reset(lt9611);
++	/* kart: SPL スプラッシュ表示中はリセットせず稼働状態を温存する
++	 * (リセットすると TX/PCR ごと吹き飛びロゴが消える)。
++	 * 応答が無ければ通常のリセット経路へ。0004/0005 とペア */
++	if (of_property_read_bool(of_chosen, "kart,splash-active") &&
++	    !lt9611_read_device_rev(lt9611))
++		dev_info(dev, "kart splash: chip alive, skipping reset\n");
++	else
++		lt9611_reset(lt9611);
+ 
+ 	ret = lt9611_read_device_rev(lt9611);
+ 	if (ret) {

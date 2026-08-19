@@ -1,0 +1,5 @@
+uuu_version 1.5.243
+# kart-falcon-bench.uuu — falcon 版 flash.bin を RAM 起動するベンチ専用スクリプト。
+# falcon SPL は SDP 起動でも eMMC の falcon.itb を読む (SDPV 不要/不可)。
+# eMMC には一切書かない。前提: S1 = Serial Download。
+SDP: boot -f ../build/tmp/deploy/images/imx8mm-xpi/flash.bin-imx8mm-xpi-sd

@@ -1,0 +1,45 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] pmdomain: imx: gpcv2: SPL スプラッシュ稼働中は dispmix/mipi を ALWAYS_ON で養子縁組
+
+SPL が表示チェーン (LCDIF/DSIM/LT9611) を初期化してロゴを表示したまま
+カーネルへ渡すとき (/chosen に kart,splash-active)、DISPMIX/MIPI ドメインを
+「最初から ON + GENPD_FLAG_ALWAYS_ON」で登録する。
+
+こうしない場合、ドメインは is_off=true で登録され、blk-ctrl の attach 過程で
+power_down が呼ばれるが、LCDIF が AXI を使用中のため ADB400 ハンドシェイクが
+完了せず "failed to power down ADB400" となる (実測 3 回/ブート)。genpd の
+帳簿と実ハードの状態が乖離し、ブートによっては以後の表示系 probe が全滅して
+GUI が出ない。ALWAYS_ON なら power_down は一切呼ばれず、weston の modeset が
+通常経路で表示を引き継ぐ。
+
+キオスク用途で表示は常時使用のため、実質的な電力コストはない。
+splash 無しブート (プロパティ無し) では完全に従来動作。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/pmdomain/imx/gpcv2.c
++++ b/drivers/pmdomain/imx/gpcv2.c
+@@ -1354,7 +1354,22 @@
+ 		regmap_update_bits(domain->regmap, domain->regs->map,
+ 				   domain->bits.map, domain->bits.map);
+ 
+-	ret = pm_genpd_init(&domain->genpd, NULL, true);
++	/* kart: SPL スプラッシュが表示ドメインを稼働させたまま渡してくる。
++	 * 実ハード状態 (ON) に合わせ ALWAYS_ON で登録し、電源断を禁止する。
++	 * LCDIF 稼働中の ADB400 が静止できず power_down が失敗する問題の根治 */
++	{
++		bool adopt = of_property_read_bool(of_chosen,
++						   "kart,splash-active") &&
++			(!strcmp(domain->genpd.name, "dispmix") ||
++			 !strcmp(domain->genpd.name, "mipi"));
++
++		if (adopt) {
++			dev_info(domain->dev,
++				 "kart splash: adopting running domain\n");
++			domain->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
++		}
++		ret = pm_genpd_init(&domain->genpd, NULL, !adopt);
++	}
+ 	if (ret) {
+ 		dev_err(domain->dev, "Failed to init power domain\n");
+ 		goto out_domain_unmap;

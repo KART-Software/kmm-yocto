@@ -1,0 +1,712 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] imx8mm: kart SPL splash — 電源投入直後に LCDIF/DSIM/LT9611 を直接叩いてロゴ表示
+
+0001-imx8mm-kart-falcon-mode.patch の上に適用する (spl_perform_fixups への
+フック追加のため)。kas/imx8mm-splash.yml + kart-splash.cfg とペア。
+
+方式:
+ - 全レジスタ値は Linux 動作中の XPI 実機ダンプ (2026-08-13) の再現。
+   シーケンスは各カーネルドライバ (gpcv2 / imx8m-blk-ctrl / samsung-dsim /
+   lontium-lt9611) の enable 経路の忠実移植
+ - ロゴは falcon FIT の loadable として FB 物理アドレス 0xBFA00000 へ直接
+   ロードされる (kart-falcon-itb.bb の splash ノード)。SPL はコピー不要
+ - spl_board_init() で表示チェーンを立ち上げ、LT9611 settle (>=100ms) を
+   FIT ロード (~210ms) と重ね、spl_perform_fixups() で HDMI 出力オン
+ - 全ポーリングはタイムアウト付き。表示初期化に失敗してもブートは続行
+---
+diff --git a/board/freescale/imx8mm_evk/Kconfig b/board/freescale/imx8mm_evk/Kconfig
+index 24cc526b0a..ae2ac343b8 100644
+--- a/board/freescale/imx8mm_evk/Kconfig
++++ b/board/freescale/imx8mm_evk/Kconfig
+@@ -12,4 +12,11 @@ config SYS_CONFIG_NAME
+ config IMX_CONFIG
+ 	default "board/freescale/imx8mm_evk/imximage-8mm-lpddr4.cfg"
+ 
++config KART_SPL_SPLASH
++	bool "kart: SPL splash on XPI (LCDIF/DSIM/LT9611 direct init)"
++	depends on SPL_OS_BOOT
++	help
++	  XPI-iMX8MM の表示チェーンを SPL で直接初期化し、falcon FIT が
++	  FB へロードしたロゴを電源投入直後に表示する。
++
+ endif
+diff --git a/board/freescale/imx8mm_evk/Makefile b/board/freescale/imx8mm_evk/Makefile
+index 9fecd8dd8c..df0bb062d6 100644
+--- a/board/freescale/imx8mm_evk/Makefile
++++ b/board/freescale/imx8mm_evk/Makefile
+@@ -9,4 +9,5 @@ obj-y += imx8mm_evk.o
+ ifdef CONFIG_XPL_BUILD
+ obj-y += spl.o
+ obj-$(CONFIG_IMX8M_LPDDR4) += lpddr4_timing.o
++obj-$(CONFIG_KART_SPL_SPLASH) += kart_splash.o
+ endif
+diff --git a/board/freescale/imx8mm_evk/kart_splash.c b/board/freescale/imx8mm_evk/kart_splash.c
+new file mode 100644
+index 0000000000..c13507acf7
+--- /dev/null
++++ b/board/freescale/imx8mm_evk/kart_splash.c
+@@ -0,0 +1,587 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * kart SPL splash: XPI-iMX8MM の電源投入直後スプラッシュ。
++ *
++ * 経路: GPC (DISPMIX/MIPI 電源) → ANATOP/CCM (VIDEO_PLL1 108MHz ほか) →
++ *       DISP blk-ctrl → eLCDIF (1920x792 active / 2200x818 raster @60Hz) →
++ *       Samsung DSIM (4 lane, 648Mbps/lane) → LT9611 (DSI→HDMI, I2C4 @0x3b)
++ *
++ * 定数は全て Linux 動作中の実機レジスタダンプ (2026-08-13) の再現値。
++ * 高クロックラスタの経緯は docs/imx8mm-xpi-bringup/04-pitfalls.md #17。
++ * FB は falcon FIT の splash loadable が直接ロードする (このファイルは
++ * 初期化と出力オンのみ)。全ポーリングはタイムアウト付きで、失敗時は
++ * printf して静かに諦める (ブートは絶対に止めない)。
++ */
++
++#include <cpu_func.h>
++#include <log.h>
++#include <spl.h>
++#include <time.h>
++#include <asm/io.h>
++#include <linux/bitops.h>
++#include <linux/delay.h>
++#include <linux/kernel.h>
++#include <linux/types.h>
++#include "kart_splash.h"
++
++#define SPLASH_FB_ADDR		0xBFA00000UL	/* kart-falcon-itb.bb と一致必須 */
++#define SPLASH_FB_SIZE		(1920 * 792 * 4)
++#define SPLASH_BG_XRGB		0x0010141c	/* weston background-color と同色 */
++
++#define ANATOP_BASE		0x30360000UL
++#define CCM_BASE		0x30380000UL
++#define GPC_BASE		0x303a0000UL
++#define IOMUXC_BASE		0x30330000UL
++#define GPIO1_BASE		0x30200000UL
++#define I2C4_BASE		0x30a50000UL
++#define BLKCTRL_BASE		0x32e28000UL
++#define LCDIF_BASE		0x32e00000UL
++#define DSIM_BASE		0x32e10000UL
++
++static bool splash_ok;		/* prepare 成功時のみ finish が動く */
++
++/* ---------------- 汎用ポーリング ---------------- */
++
++static int poll32(ulong addr, u32 mask, u32 want, int timeout_us)
++{
++	while (timeout_us-- > 0) {
++		if ((readl(addr) & mask) == want)
++			return 0;
++		udelay(1);
++	}
++	printf("splash: poll timeout @%lx (mask %x want %x got %x)\n",
++	       addr, mask, want, readl(addr));
++	return -1;
++}
++
++/* ---------------- クロック (ANATOP/CCM) ----------------
++ * 実機ダンプ: VIDEO_PLL1 FDIV_CTL0=0x00048014 (m=72 p=1 s=4 → 108MHz)
++ * roots: disp_axi 0x11000001 / disp_apb 0x12000003 / lcdif_pixel 0x11000000
++ *        dsi_core 0x11000000 / dsi_phy_ref 0x10000000 / i2c4 0x10000000
++ * gates: CCGR93(disp)=3, CCGR26(i2c4)=3, CCGR11(gpio1)=3
++ */
++
++static int splash_clocks_init(void)
++{
++	/* VIDEO_PLL1 (pll1443x): reset 中に分周設定 → 解除 → lock 待ち → CLKE */
++	writel(0x0, ANATOP_BASE + 0x28);
++	writel(0x00048014, ANATOP_BASE + 0x2c);	/* m=72 p=1 s=4 */
++	writel(0x0, ANATOP_BASE + 0x30);	/* k=0 */
++	writel(0x200, ANATOP_BASE + 0x28);	/* RESETB 解除 */
++	if (poll32(ANATOP_BASE + 0x28, BIT(31), BIT(31), 10000))
++		return -1;
++	writel(0x2200, ANATOP_BASE + 0x28);	/* +CLKE */
++
++	/* クロックルート (target reg 直書き。mux/div はダンプ値) */
++	writel(0x11000001, CCM_BASE + 0x8a00);	/* disp_axi: sys_pll2_1000m /2 */
++	writel(0x12000003, CCM_BASE + 0x8a80);	/* disp_apb: sys_pll1_800m /4 */
++	writel(0x11000000, CCM_BASE + 0xa500);	/* lcdif_pixel: video_pll1 /1 */
++	writel(0x11000000, CCM_BASE + 0xbb00);	/* dsi_core: sys_pll1_266m */
++	writel(0x10000000, CCM_BASE + 0xbb80);	/* dsi_phy_ref: osc_24m */
++	writel(0x10000000, CCM_BASE + 0xae80);	/* i2c4: osc_24m */
++
++	/* ゲート */
++	writel(0x3, CCM_BASE + 0x45d0);		/* disp 共有ゲート */
++	writel(0x3, CCM_BASE + 0x41a0);		/* i2c4 */
++	writel(0x3, CCM_BASE + 0x40b0);		/* gpio1 (保険) */
++
++	return 0;
++}
++
++/* ---------------- 電源 (GPC + DISP blk-ctrl) ----------------
++ * gpcv2.c / imx8m-blk-ctrl.c の power-up 忠実移植。
++ * 最終状態 (ダンプ): SFT_RSTN=0x60 CLK_EN=0x13C0 MIPI_RST=0x20000
++ */
++
++/* BL31 (imx8mm_bl31_setup.c) がブート途中に書くバス/セキュリティ設定を
++ * SPL で先回りして同値にしておく。表示 DMA ストリーミング中に BL31 が
++ * これらを書き換えると、その瞬間に映像が崩壊する (SPL ホールド実験で
++ * ジャンプ時刻の崩壊を実測特定)。特に TZASC (TZC380) は GPR28 bit0 で
++ * 有効化されており、region0 の属性変更が DDR 読み出しに直撃する */
++static void splash_preempt_bl31(void)
++{
++	static const ulong aipstz[] = {
++		0x301f0000UL, 0x305f0000UL, 0x309f0000UL,
++	};
++	int i, j;
++
++	/* CSU: 全 CSL ペアを BL31 と同じ 0x00ff00ff (全許可) に */
++	for (i = 0; i < 64; i++)
++		writel(0x00ff00ff, 0x303e0000UL + i * 4);
++
++	/* TZASC region0: SP_ALL | SIZE_4G | EN (bl31_tzc380_setup と同値) */
++	writel(0xf000003f, 0x32f80108UL);
++
++	/* AIPSTZ1-3: MPR=0x77777777, OPACR=0 (imx_aipstz_init と同値)。
++	 * AIPSTZ4 (0x32df0000) は DISPMIX 内のため power_init 後に書く */
++	for (i = 0; i < 3; i++) {
++		writel(0x77777777, aipstz[i]);
++		writel(0x77777777, aipstz[i] + 0x04);
++		for (j = 0; j < 5; j++)
++			writel(0x0, aipstz[i] + 0x40 + j * 4);
++	}
++}
++
++static int splash_power_init(void)
++{
++	/* A53 ドメインマッピング: BL31 (imx_gpc_init) と同値の全 mix 割当 */
++	writel(0xffff, GPC_BASE + 0x0ec);
++
++	/* DISPMIX power up (PGC 26) */
++	printf("[map] ");
++	setbits_le32(GPC_BASE + 0x0f8, BIT(10));
++	if (poll32(GPC_BASE + 0x0f8, BIT(10), 0, 10000))
++		return -1;
++	clrbits_le32(GPC_BASE + 0x800 + 26 * 0x40, BIT(0));	/* PGC_CTRL PCR */
++	udelay(5);
++	/* ADB400 handshake 要求 → blk-ctrl バスクロック+リセット解除 → 猶予 */
++	setbits_le32(GPC_BASE + 0x1fc, BIT(7));
++	printf("[hsk] ");
++	setbits_le32(BLKCTRL_BASE + 0x04, BIT(12));	/* bus clk_en */
++	setbits_le32(BLKCTRL_BASE + 0x00, BIT(6));	/* bus rstn 解除 */
++	udelay(10);
++
++	/* MIPI power up (PGC 16) */
++	printf("[blk] ");
++	setbits_le32(GPC_BASE + 0x0f8, BIT(0));
++	if (poll32(GPC_BASE + 0x0f8, BIT(0), 0, 10000))
++		return -1;
++	clrbits_le32(GPC_BASE + 0x800 + 16 * 0x40, BIT(0));
++	udelay(5);
++
++	/* blk-ctrl: LCDIF (clk 6,7) / MIPI DSI (rstn 5, clk 8,9, phy 17) */
++	printf("[mipi] ");
++	setbits_le32(BLKCTRL_BASE + 0x04, BIT(6) | BIT(7) | BIT(8) | BIT(9));
++	setbits_le32(BLKCTRL_BASE + 0x00, BIT(5));
++	setbits_le32(BLKCTRL_BASE + 0x08, BIT(17));	/* DSI PHY reset 解除 */
++	udelay(10);
++
++	/* AIPSTZ4 (DISPMIX 内) も BL31 同値に先回り */
++	writel(0x77777777, 0x32df0000UL);
++	writel(0x77777777, 0x32df0004UL);
++	{
++		int j;
++
++		for (j = 0; j < 5; j++)
++			writel(0x0, 0x32df0040UL + j * 4);
++	}
++
++	return 0;
++}
++
++/* ---------------- eLCDIF ----------------
++ * ダンプ再現: 1920x792 active, htotal 2200 (hsw44 hbp168 hfp68),
++ * vtotal 818 (vsw5 vbp17 vfp4), 108MHz, 32bpp XRGB → 24bit バス
++ */
++
++static void splash_lcdif_init(void)
++{
++	/* SFTRST/CLKGATE 解除 (POR 状態 0xC0000000 から) */
++	writel(BIT(31), LCDIF_BASE + 0x08);	/* CTRL_CLR: SFTRST */
++	udelay(10);
++	writel(BIT(30), LCDIF_BASE + 0x08);	/* CTRL_CLR: CLKGATE */
++	udelay(10);
++
++	writel(0x00070000, LCDIF_BASE + 0x10);	/* CTRL1: BYTE_PACKING=0x7 */
++	/* [二分探索A] CTRL2 は書かない (v3 相当) */
++	writel(0x03180780, LCDIF_BASE + 0x30);	/* TRANSFER_COUNT: 792x1920 */
++	writel(SPLASH_FB_ADDR, LCDIF_BASE + 0x40);	/* CUR_BUF */
++	writel(SPLASH_FB_ADDR, LCDIF_BASE + 0x50);	/* NEXT_BUF */
++	writel(0x10300005, LCDIF_BASE + 0x70);	/* VDCTRL0 */
++	writel(0x00000332, LCDIF_BASE + 0x80);	/* VDCTRL1: vtotal 818 */
++	writel(0x00B00898, LCDIF_BASE + 0x90);	/* VDCTRL2: hsw44 htotal2200 */
++	writel(0x00D40016, LCDIF_BASE + 0xa0);	/* VDCTRL3: waits 212/22 */
++	writel(0x00040780, LCDIF_BASE + 0xb0);	/* VDCTRL4: sync on, 1920 */
++
++	writel(0x000A0F20, LCDIF_BASE + 0x00);	/* CTRL (RUN 以外) */
++	writel(BIT(0), LCDIF_BASE + 0x04);	/* CTRL_SET: RUN */
++}
++
++/* ---------------- Samsung DSIM ----------------
++ * samsung-dsim.c (imx8mm, exynos5433 レイアウト) の init/enable 移植。
++ * PLL 0x008086C2 = p2 m108 s1 → 648Mbps/lane。
++ */
++
++static int splash_dsim_init(void)
++{
++	writel(0x1, DSIM_BASE + 0x0c);		/* SWRST */
++	udelay(100);
++
++	writel(500, DSIM_BASE + 0xa0);		/* PLLTMR */
++	writel(0x008086C2, DSIM_BASE + 0x94);	/* PLLCTRL + EN */
++	if (poll32(DSIM_BASE + 0x04, BIT(31), BIT(31), 30000))
++		return -1;
++	writel(0x91F80009, DSIM_BASE + 0x10);	/* CLKCTRL: esc/byte/HS req */
++
++	writel(0x000000AF, DSIM_BASE + 0xa4);	/* PHYCTRL (ULPS exit) */
++	writel(0x00000408, DSIM_BASE + 0xb4);	/* PHYTIMING lpx/hs_exit */
++	writel(0x03150B05, DSIM_BASE + 0xb8);	/* PHYTIMING1 clk */
++	writel(0x00040907, DSIM_BASE + 0xbc);	/* PHYTIMING2 hs */
++
++	/* FIFO ポインタ初期化 (kernel は 10ms x2。まず忠実に) */
++	writel(0x01555500, DSIM_BASE + 0x4c);
++	mdelay(10);
++	writel(0x0155551F, DSIM_BASE + 0x4c);
++	mdelay(10);
++
++	writel(0x2A80707F, DSIM_BASE + 0x18);	/* CONFIG: video/burst/4lane+en */
++
++	/* データ 4 レーン stop state && (clk stop || HS ready) */
++	{
++		int t = 30000;
++		u32 s;
++
++		while (t-- > 0) {
++			s = readl(DSIM_BASE + 0x04);
++			if ((s & 0xF) == 0xF && (s & (BIT(8) | BIT(10))))
++				break;
++			udelay(1);
++		}
++		if (t <= 0) {
++			printf("splash: DSIM lane stop-state timeout (%x)\n", s);
++			return -1;
++		}
++	}
++
++	writel(0x01E00000, DSIM_BASE + 0x1c);	/* ESCMODE: stop_state_cnt */
++	writel(0x00FFFFFF, DSIM_BASE + 0x14);	/* TIMEOUT */
++
++	return 0;
++}
++
++static void splash_dsim_video_on(void)
++{
++	writel(0xF0040011, DSIM_BASE + 0x24);	/* MVPORCH */
++	writel(0x002D0078, DSIM_BASE + 0x28);	/* MHPORCH */
++	writel(0x0140001B, DSIM_BASE + 0x2c);	/* MSYNC */
++	writel(0x03180780, DSIM_BASE + 0x20);	/* MDRESOL 1920x792 */
++	setbits_le32(DSIM_BASE + 0x20, BIT(31));	/* MAIN_STAND_BY */
++}
++
++/* ---------------- I2C4 (mxc i2c 直叩き) ---------------- */
++
++#define I2CR	(I2C4_BASE + 0x8)
++#define I2SR	(I2C4_BASE + 0xc)
++#define I2DR	(I2C4_BASE + 0x10)
++#define I2CR_IEN	0x80
++#define I2CR_MSTA	0x20
++#define I2CR_MTX	0x10
++#define I2CR_TXAK	0x08
++#define I2CR_RSTA	0x04
++#define I2SR_IBB	0x20
++#define I2SR_IIF	0x02
++#define I2SR_RXAK	0x01
++
++static int i2c_wait_busy(int busy)
++{
++	int t = 5000;
++
++	while (t-- > 0) {
++		u8 s = readb(I2SR);
++
++		if (busy ? (s & I2SR_IBB) : !(s & I2SR_IBB))
++			return 0;
++		udelay(1);
++	}
++	return -1;
++}
++
++static int i2c_tx(u8 byte)
++{
++	int t = 5000;
++	u8 s;
++
++	writeb(byte, I2DR);
++	while (t-- > 0) {
++		s = readb(I2SR);
++		if (s & I2SR_IIF)
++			break;
++		udelay(1);
++	}
++	writeb(0, I2SR);
++	if (t <= 0 || (s & I2SR_RXAK))
++		return -1;
++	return 0;
++}
++
++static int i2c_stop(void)
++{
++	writeb(I2CR_IEN, I2CR);
++	return i2c_wait_busy(0);
++}
++
++static void splash_i2c_init(void)
++{
++	/* I2C4 パッド (SION|ALT0, conf はベンダ実績 0x1c3) */
++	writel(0x10, IOMUXC_BASE + 0x22C);
++	writel(0x10, IOMUXC_BASE + 0x230);
++	writel(0x1c3, IOMUXC_BASE + 0x494);
++	writel(0x1c3, IOMUXC_BASE + 0x498);
++	printf("[pad] ");
++	/* 注意: i.MX の I2C レジスタは 8/16-bit アクセスのみ。32-bit write は
++	 * AIPS エラー応答で SPL が即死する (実測で特定した罠) */
++	writeb(0x2A, I2C4_BASE + 0x4);	/* IFDR: 24MHz/64 = 375kHz */
++	printf("[ifdr] ");
++	writeb(0, I2CR);
++	udelay(50);
++	writeb(I2CR_IEN, I2CR);
++	udelay(50);
++}
++
++static int i2c_write_reg(u8 addr, u8 reg, u8 val)
++{
++	int ret = -1;
++
++	writeb(I2CR_IEN | I2CR_MSTA | I2CR_MTX, I2CR);
++	if (i2c_wait_busy(1))
++		goto out;
++	if (i2c_tx(addr << 1) || i2c_tx(reg) || i2c_tx(val))
++		goto out;
++	ret = 0;
++out:
++	if (i2c_stop())
++		ret = -1;
++	return ret;
++}
++
++static int i2c_read_reg(u8 addr, u8 reg, u8 *val)
++{
++	int ret = -1;
++
++	writeb(I2CR_IEN | I2CR_MSTA | I2CR_MTX, I2CR);
++	if (i2c_wait_busy(1))
++		goto out;
++	if (i2c_tx(addr << 1) || i2c_tx(reg))
++		goto out;
++	writeb(I2CR_IEN | I2CR_MSTA | I2CR_MTX | I2CR_RSTA, I2CR);
++	udelay(10);
++	if (i2c_tx((addr << 1) | 1))
++		goto out;
++	writeb(I2CR_IEN | I2CR_MSTA | I2CR_TXAK, I2CR);	/* rx, 1 byte NACK */
++	readb(I2DR);					/* dummy read で転送開始 */
++	{
++		int t = 5000;
++
++		while (t-- > 0 && !(readb(I2SR) & I2SR_IIF))
++			udelay(1);
++		writeb(0, I2SR);
++		if (t <= 0)
++			goto out;
++	}
++	i2c_stop();
++	*val = readb(I2DR);
++	return 0;
++out:
++	i2c_stop();
++	return ret;
++}
++
++/* ---------------- LT9611 (DSI→HDMI ブリッジ) ----------------
++ * lontium-lt9611.c の atomic_enable 経路移植。0xPPRR = ページ PP のレジスタ RR。
++ * モード固定値: pclk 108000kHz → 0x812d=0x99 (postdiv2), pcr_m=40。
++ * シンクは DVI (EDID 拡張なし) → 0x82d6=0x0c, infoframe 省略。
++ */
++
++static u8 lt_page = 0xff;
++
++static int lt_wr(u16 pagereg, u8 val)
++{
++	u8 page = pagereg >> 8;
++
++	if (page != lt_page) {
++		if (i2c_write_reg(0x3b, 0xff, page))
++			return -1;
++		lt_page = page;
++	}
++	return i2c_write_reg(0x3b, pagereg & 0xff, val);
++}
++
++static int lt_seq(const u16 *regs, const u8 *vals, int n)
++{
++	int i;
++
++	for (i = 0; i < n; i++)
++		if (lt_wr(regs[i], vals[i]))
++			return -1;
++	return 0;
++}
++
++static void splash_lt9611_reset(void)
++{
++	/* GPIO1_IO06 (active high)。pad は POR 既定が GPIO/ALT0 だが明示 */
++	writel(0x0, IOMUXC_BASE + 0x040);
++	writel(0x19, IOMUXC_BASE + 0x2A8);
++	setbits_le32(GPIO1_BASE + 0x4, BIT(6));		/* GDIR out */
++
++	setbits_le32(GPIO1_BASE + 0x0, BIT(6));
++	mdelay(20);
++	clrbits_le32(GPIO1_BASE + 0x0, BIT(6));
++	mdelay(20);
++	setbits_le32(GPIO1_BASE + 0x0, BIT(6));
++	mdelay(100);
++}
++
++/* TX PLL / PCR のリセット一式 + ロック確認 (ベンダ lt9611.c の txpll 移植)。
++ * mainline はロック未確認 + 適応 M で、SPL 文脈では確率的に白画面になる
++ * (実測)。M 固定 (0x8326 bit7) とアナログリセット + 6 回リトライで決定化 */
++static int splash_lt9611_pll_lock(void)
++{
++	int i;
++	u8 lock = 0;
++
++	for (i = 0; i < 6; i++) {
++		mdelay(2);
++		if (i2c_write_reg(0x3b, 0xff, 0x82) ||
++		    i2c_read_reg(0x3b, 0x15, &lock))
++			return -1;
++		lt_page = 0x82;
++		if (lock & 0x80) {
++			printf("[pll-lock %d] ", i);
++			return 0;
++		}
++		/* 未ロック時のみベンダ式リセット一式で再スタート */
++		lt_wr(0x8011, 0x5a);	/* pcr clk reset */
++		lt_wr(0x8011, 0xfa);
++		lt_wr(0x8018, 0xdc);	/* pll analog reset */
++		lt_wr(0x8018, 0xfc);
++		lt_wr(0x8016, 0xf1);	/* pll cal reset */
++		lt_wr(0x8016, 0xf3);
++		mdelay(5);
++	}
++	printf("[pll-NOLOCK %02x] ", lock);
++	return -1;	/* 出力は有効化しない (白画面より暗転を優先) */
++}
++
++static int splash_lt9611_init(void)
++{
++	static const u16 r[] = {
++		/* power_on */
++		0x8101, 0x821b, 0x821c, 0x82cb, 0x82cc, 0x8251, 0x8258,
++		0x8259, 0x829e, 0x8004, 0x8006, 0x800a, 0x800b, 0x800d, 0x8011,
++		/* mipi_input_digital (4lane=0) */
++		0x8300, 0x830a, 0x824f, 0x8250, 0x8302, 0x8306,
++		/* pll_setup (txpll init + 108MHz: 0x812d=0x99) */
++		0x8123, 0x8124, 0x8125, 0x8126, 0x812c, 0x812f,
++		0x8126, 0x8127, 0x8128, 0x812a, 0x812d,
++		0x82e3, 0x82e4, 0x82e5, 0x82de, 0x82de, 0x8016, 0x8016,
++		/* mipi_video_setup (2200x818 / 1920x792, hsw44 hbp168 hfp68,
++		 * vsw5 vbp17 vfp4) */
++		0x830d, 0x830e, 0x830f, 0x8310, 0x8311, 0x8312, 0x8313,
++		0x8314, 0x8315, 0x8316, 0x8317, 0x8318, 0x8319, 0x831a, 0x831b,
++		/* pcr_setup (sync 両負 = 0x13, pcr_m 40) */
++		0x831d,
++		0x830b, 0x830c, 0x8348, 0x8349, 0x8321, 0x8324, 0x8325,
++		0x832a, 0x834a, 0x832d, 0x8331,
++		0x8326, 0x8011, 0x8011,
++		/* mipi_input_analog */
++		0x8106, 0x810a, 0x810b, 0x8111, 0x8115, 0x8116, 0x811c, 0x8120,
++		/* hdmi_tx_digital (DVI) + tx_phy */
++		0x82d6, 0x82d7,
++		0x8130, 0x8131, 0x8132, 0x8133, 0x8134, 0x8135, 0x8136,
++		0x8137, 0x813f, 0x8140, 0x8141, 0x8142, 0x8143, 0x8144,
++	};
++	static const u8 v[] = {
++		/* power_on */
++		0x18, 0x69, 0x78, 0x69, 0x78, 0x01, 0x0a,
++		0x80, 0xf7, 0xf0, 0xf0, 0x80, 0x40, 0xef, 0xfa,
++		/* mipi_input_digital */
++		0x00, 0x00, 0x80, 0x10, 0x0a, 0x0a,
++		/* pll_setup */
++		0x40, 0x64, 0x80, 0x55, 0x37, 0x01,
++		0x55, 0x66, 0x88, 0x20, 0x99,
++		0x00, 0xd2, 0xf0, 0x20, 0xe0, 0xf1, 0xf3,
++		/* mipi_video_setup */
++		0x03, 0x32, 0x03, 0x18, 0x08, 0x98, 0x07,
++		0x80, 0x05, 0x2c, 0x04, 0x16, 0x44, 0x00, 0xd4,
++		/* pcr_setup */
++		0x13,
++		0x01, 0x10, 0x00, 0x81, 0x4a, 0x71, 0x30,
++		0x01, 0x40, 0x38, 0x08,
++		0x28, 0x5a, 0xfa,
++		/* mipi_input_analog */
++		0x40, 0xfe, 0xbf, 0x40, 0xfe, 0xbf, 0x03, 0x03,
++		/* hdmi_tx_digital + tx_phy */
++		0x0c, 0x04,
++		0x6a, 0x44, 0x4a, 0x0b, 0x00, 0x00, 0x00,
++		0x44, 0x0f, 0xa0, 0xa0, 0xa0, 0xa0, 0x0a,
++	};
++	u8 rev = 0;
++
++	printf("[i2c] ");
++	splash_i2c_init();
++	printf("[rst] ");
++	splash_lt9611_reset();
++
++	printf("[probe] ");
++	if (i2c_write_reg(0x3b, 0xff, 0x80) || i2c_write_reg(0x3b, 0xee, 0x01) ||
++	    i2c_read_reg(0x3b, 0x02, &rev)) {
++		printf("splash: LT9611 not responding\n");
++		return -1;
++	}
++	lt_page = 0x80;
++	printf("[rev %02x] ", rev);
++
++	return lt_seq(r, v, ARRAY_SIZE(r));
++}
++
++/* ---------------- エントリポイント ---------------- */
++
++void kart_splash_prepare(void)
++{
++	ulong start = get_timer(0);
++	u32 *p = (u32 *)SPLASH_FB_ADDR;
++	int i;
++
++	/* 進捗印字はバスストール発生時の切り分け線 (シリアルは即時 flush) */
++	printf("splash: fb ");
++	for (i = 0; i < 1920 * 792; i++)
++		p[i] = SPLASH_BG_XRGB;
++	flush_dcache_range(SPLASH_FB_ADDR, SPLASH_FB_ADDR + SPLASH_FB_SIZE);
++
++	printf("clk ");
++	splash_preempt_bl31();
++	if (splash_clocks_init())
++		return;
++	printf("pwr ");
++	if (splash_power_init())
++		return;
++	/* 順序はカーネルの modeset と同一にする:
++	 * DSIM 初期化 (stop state まで) → LCDIF 開始 → DSIM standby。
++	 * LCDIF を先に走らせて DSIM を後から初期化すると、ピクセル入力
++	 * FIFO が流入中に初期化されて経路が壊れ、タイミングだけ正常で
++	 * 映像が黒のまま固まる (実測で特定) */
++	/* 単発初期化 (E0): コールドハードへの 1 回ロック。
++	 * カーネルのコールド modeset が常に位相整列する事実に合わせる */
++	printf("lcdif ");
++	splash_lcdif_init();
++	printf("dsim ");
++	if (splash_dsim_init())
++		return;
++	splash_dsim_video_on();
++	printf("lt9611 ");
++	if (splash_lt9611_init())
++		return;
++
++	/* settle (カーネルドライバ実績の 100ms) + TX PLL ロック確認。
++	 * 出力オンは finish() = FIT ロード後 (ロゴが FB に載った後) に行う */
++	mdelay(100);
++
++	splash_ok = true;
++	printf("ready (%lu ms)\n", get_timer(start));
++}
++
++bool kart_splash_active(void)
++{
++	return splash_ok;
++}
++
++void kart_splash_finish(void)
++{
++	if (!splash_ok)
++		return;
++
++	flush_dcache_range(SPLASH_FB_ADDR, SPLASH_FB_ADDR + SPLASH_FB_SIZE);
++	if (lt_wr(0x8130, 0xea))	/* HDMI 出力オン */
++		return;
++	printf("splash: logo on\n");
++}
+diff --git a/board/freescale/imx8mm_evk/kart_splash.h b/board/freescale/imx8mm_evk/kart_splash.h
+new file mode 100644
+index 0000000000..727974e469
+--- /dev/null
++++ b/board/freescale/imx8mm_evk/kart_splash.h
+@@ -0,0 +1,18 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++#ifndef __KART_SPLASH_H
++#define __KART_SPLASH_H
++
++#ifdef CONFIG_KART_SPL_SPLASH
++/* 表示チェーン立ち上げ (LT9611 出力オン手前まで)。spl_board_init() から */
++void kart_splash_prepare(void);
++/* FIT ロード済みロゴ画素のキャッシュフラッシュ。spl_perform_fixups() から */
++void kart_splash_finish(void);
++/* スプラッシュが点灯済みか (カーネルへの /chosen 通知に使う) */
++bool kart_splash_active(void);
++#else
++static inline void kart_splash_prepare(void) {}
++static inline void kart_splash_finish(void) {}
++static inline bool kart_splash_active(void) { return false; }
++#endif
++
++#endif
+diff --git a/board/freescale/imx8mm_evk/spl.c b/board/freescale/imx8mm_evk/spl.c
+index 6095b1f0b6..3b9bc9151d 100644
+--- a/board/freescale/imx8mm_evk/spl.c
++++ b/board/freescale/imx8mm_evk/spl.c
+@@ -28,6 +28,8 @@
+ #include <power/pmic.h>
+ #include <power/pca9450.h>
+ 
++#include "kart_splash.h"
++
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+ int spl_board_boot_device(enum boot_device boot_dev_spl)
+@@ -65,6 +67,9 @@ static void spl_dram_init(void)
+ void spl_board_init(void)
+ {
+ 	arch_misc_init();
++
++	/* kart splash: FIT ロードと LT9611 settle を重ねるためここで開始 */
++	kart_splash_prepare();
+ }
+ 
+ #ifdef CONFIG_SPL_LOAD_FIT
+@@ -220,12 +225,28 @@ void spl_perform_fixups(struct spl_image_info *spl_image)
+ 
+ 	/* /memory を実 DRAM 構成で更新 (bootargs は DTB に焼き込み済み) */
+ 	spl_fixup_fdt(fdt);
++
++	/* スプラッシュ点灯中をカーネルへ通知 — カーネル側パッチ (gpcv2 /
++	 * imx8m-blk-ctrl / lt9611) がこれを見て表示ドメインを養子縁組し、
++	 * probe 時の電源正規化・リセットでロゴを消さないようにする */
++	if (kart_splash_active()) {
++		int off;
++
++		fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
++		off = fdt_path_offset(fdt, "/chosen");
++		if (off >= 0)
++			fdt_setprop_empty(fdt, off, "kart,splash-active");
++	}
++
+ 	flush_dcache_range((ulong)fdt,
+-			   (ulong)fdt + fdt_totalsize(fdt) + 64);
++			   (ulong)fdt + fdt_totalsize(fdt) + 128);
+ 
+ 	kart_emit_bl33_shim(KART_FALCON_SHIM_ADDR, (ulong)fdt,
+ 			    KART_FALCON_KERNEL_ADDR);
+ 
++	/* ロゴは FIT の loadable として FB へ直接ロード済み。出力オンのみ */
++	kart_splash_finish();
++
+ 	printf("Falcon: shim@%lx fdt@%p kernel@%lx\n",
+ 	       KART_FALCON_SHIM_ADDR, fdt, KART_FALCON_KERNEL_ADDR);
+ }

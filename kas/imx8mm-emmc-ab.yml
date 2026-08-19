@@ -1,0 +1,21 @@
+# i.MX8MM eMMC A/B ブートフラグメント (boot-nvme.yml / boot-sdcard.yml に相当)
+#
+# imx8mm-dev.yml と : で合成する:
+#   kas-container build kas/imx8mm-dev.yml:kas/imx8mm-emmc-ab.yml
+# ( = ./scripts/build.sh imx8mm --emmc )
+#
+# これを付けない素の imx8mm-dev.yml は machine デフォルトの wks
+# (シングルスロット、SD 向け root=mmcblk1p2) で、EVK の SD ブート
+# 持ち込み用。この違いは RPi5 の boot-*.yml 必須と同じ構図。
+header:
+  version: 14
+
+local_conf_header:
+  boot-emmc-ab: |
+    WKS_FILE = "kart-imx8mm-emmc-ab.wks"
+    IMAGE_LINK_NAME = "${IMAGE_BASENAME}-${MACHINE}-emmc"
+    # slot A の extlinux が指す root。slot B へは OTA がコピー時に p6 へ
+    # 書き換える (RPi5 の CMDLINE_ROOT_PARTITION に相当)。
+    # UBOOT_EXTLINUX_ROOT を直接ではなく間接変数で渡す理由は
+    # u-boot-fslc_%.bbappend のコメントを参照。
+    KART_EXTLINUX_ROOT = "root=/dev/mmcblk2p5"

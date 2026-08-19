@@ -5,13 +5,15 @@
 #   ./scripts/build.sh <target> [options]
 #
 # Targets:
-#   prod   RPi5 本番 (NVMe boot)
-#   dev    RPi5 開発 (debug-tweaks, ブート方式の指定が必要)
-#   qemu   QEMU 開発
+#   prod    RPi5 本番 (NVMe boot)
+#   dev     RPi5 開発 (debug-tweaks, ブート方式の指定が必要)
+#   qemu    QEMU 開発
+#   imx8mm  i.MX8M Mini EVK 開発 (XPI-iMX8MM 移行の足場)
 #
 # Options:
 #   --sdcard     SD カードブート (dev 用)
 #   --nvme       NVMe ブート (dev 用)
+#   --emmc       eMMC A/B レイアウト (imx8mm 用; 省略時は SD 持ち込み用シングルスロット)
 #
 # アプリ (C++ 版) は常にイメージに含まれる（レシピが SRCREV 固定で取得）。
 
@@ -26,19 +28,21 @@ BOOT=""
 
 for arg in "$@"; do
     case "$arg" in
-        prod|dev|qemu) TARGET="$arg" ;;
+        prod|dev|qemu|imx8mm) TARGET="$arg" ;;
         --sdcard)      BOOT="sdcard" ;;
         --nvme)        BOOT="nvme" ;;
+        --emmc)        BOOT="emmc" ;;
+        --netboot)     BOOT="netboot" ;;
         *)
             echo "Unknown argument: $arg" >&2
-            echo "Usage: $0 <prod|dev|qemu> [--sdcard|--nvme]" >&2
+            echo "Usage: $0 <prod|dev|qemu|imx8mm> [--sdcard|--nvme]" >&2
             exit 1
             ;;
     esac
 done
 
 if [ -z "$TARGET" ]; then
-    echo "Usage: $0 <prod|dev|qemu> [--sdcard|--nvme]" >&2
+    echo "Usage: $0 <prod|dev|qemu|imx8mm> [--sdcard|--nvme]" >&2
     exit 1
 fi
 
@@ -59,6 +63,13 @@ case "$TARGET" in
         KAS_CONFIG="kas/local-dev.yml:kas/boot-${BOOT}.yml"
         ;;
     qemu) KAS_CONFIG="kas/qemu-dev.yml" ;;
+    imx8mm)
+        case "$BOOT" in
+            emmc)    KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-emmc-ab.yml" ;;
+            netboot) KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-netboot.yml" ;;
+            *)       KAS_CONFIG="kas/imx8mm-dev.yml" ;;
+        esac
+        ;;
 esac
 
 # --- Build ---

@@ -5,8 +5,8 @@ Documentation=https://tailscale.com/kb/
 # succeeds instead of failing "network unreachable" and backing off ~40s.
 # network-online is fast here because wait-online runs with --any (kart-image.bb).
 Wants=network-online.target
-After=network-online.target data.mount
-Requires=data.mount
+After=network-online.target kart-data-mount.service
+Requires=kart-data-mount.service
 
 [Service]
 Environment=TS_LOGS_DIR=/data/tailscale

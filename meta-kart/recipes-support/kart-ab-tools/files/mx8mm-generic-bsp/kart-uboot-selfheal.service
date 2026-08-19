@@ -1,0 +1,16 @@
+[Unit]
+Description=Repair U-Boot A copy after ROM fallback boot
+# 非クリティカル: 失敗してもシステムは B copy で正常動作しており、
+# 次回起動時に再試行される。
+# After=kmm: basic.target 直後は dbus/networkd/weston 等のスタート集中で
+# 4 コアが飽和する (systemd-analyze plot 実測)。このサービスは「boot 中の
+# どこかで一度」動けばよいので、GUI 表示 (kmm READY) 後に退避して
+# 起動嵐から CPU を返す。
+After=kmm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/kart-uboot-selfheal
+
+[Install]
+WantedBy=multi-user.target

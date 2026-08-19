@@ -1,0 +1,6 @@
+[Unit]
+Description=Delayed start of systemd-resolved
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl start systemd-resolved.service

@@ -2,8 +2,8 @@
 Description=Kart Machine Manager Application
 # Direct start: the app shows the GUI immediately, so it must be ordered
 # after the compositor and CAN are ready (the old kmm-start notifier did this).
-After=weston.service can0-up.service data.mount
-Requires=weston.service data.mount
+After=weston.service can0-up.service kart-data-mount.service
+Requires=weston.service kart-data-mount.service
 Wants=can0-up.service
 
 [Service]

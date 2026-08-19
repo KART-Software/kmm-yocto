@@ -1,0 +1,16 @@
+# i.MX8M Mini 開発イメージ = base + imx8mm + debug-tweaks
+#
+# A/B ブートは未実装 (RPi5 の tryboot 相当を U-Boot bootcount で作り直す
+# 必要がある — docs/imx8mm-migration-design.md) ため、boot-*.yml に相当する
+# フラグメントはまだ無く、このファイル単体でビルド可能。
+header:
+  version: 14
+  includes:
+    - base.yml
+    - imx8mm.yml
+
+target: kart-image
+
+local_conf_header:
+  dev-features: |
+    EXTRA_IMAGE_FEATURES:append = " debug-tweaks ssh-server-openssh"

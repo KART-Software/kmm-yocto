@@ -1,0 +1,116 @@
+#!/bin/sh
+# kart-uboot-update <flash.bin> — U-Boot (imx-boot) を更新する。
+#
+# 方式: B 面に一つ前の版を残す。
+#   1. いまの A copy (動作実績あり) を B copy へ退避
+#   2. 新版を A copy へ書く
+#   結果: A = 新版、B = 直前まで動いていた版 (フォールバック先 & ロールバック元)
+#
+# 全書き込みが header-last: 先に IVT セクタを潰し、本体 → IVT の順で書く。
+# どの瞬間に電源断しても、書きかけの面は「IVT 不正」として ROM に無視され、
+# もう片方の健全な面で起動する (中途半端に正当な面が存在する時間がゼロ)。
+#
+# 実機検証済みの ROM 挙動 (i.MX8MM, 2026-08-12):
+#   - A の IVT が無効なら、ROM は同一起動内で SIT (sector 0x41) 経由の
+#     B copy (sector 0x1042) へ inline フォールバック (イベントログ 0x51)
+#   - SRC_GPR10 の PSB はソフトから立てても次回起動に影響しない (全リセットで
+#     クリア)。「B を試し起動してから昇格」は 8MM では不可能 — だからこの
+#     単純な方式にしている (docs/imx8mm-xpi-bringup/04-pitfalls.md #19)
+#
+# 救えない物: IVT が正当なまま起動しないバイナリ (両面とも新版にはしないので
+# B の前版で立ち上がるが、A を直すまで毎回フォールバック)。U-Boot 更新は
+# ベンチ検証してから配布すること。最終復旧は UUU/SDP。
+# (busybox 構文のみ)
+set -eu
+
+A_SECTOR=66             # 0x42
+B_SECTOR=4162           # 0x1042
+AREA_SECTORS=4030       # 2015KiB (env 4MiB との間の余白込み上限)
+
+[ $# -eq 1 ] || { echo "Usage: kart-uboot-update <flash.bin>" >&2; exit 1; }
+NEW="$1"
+[ -f "$NEW" ] || { echo "ERROR: $NEW not found" >&2; exit 1; }
+
+size=$(wc -c < "$NEW")
+max=$(( AREA_SECTORS * 512 ))
+if [ "$size" -gt "$max" ]; then
+    echo "ERROR: $NEW is ${size}B > copy area ${max}B (wks の再設計が必要)" >&2
+    exit 1
+fi
+# IVT の正当性を事前検査 (tag 0xd1, version 0x41) — ゴミファイルの書き込み防止
+# (od ではなく hexdump: この busybox の od は -A/-t/-N 非対応)
+ivt=$(hexdump -n 4 -e '4/1 "%02x"' "$NEW")
+case "$ivt" in
+    d1????41) ;;
+    *) echo "ERROR: $NEW has no valid IVT header (got: $ivt)" >&2; exit 1 ;;
+esac
+
+BASE_DEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
+[ -n "$BASE_DEV" ] || { echo "ERROR: cannot determine base device" >&2; exit 1; }
+
+# フォールバック起動 (B copy) 中の update は禁止。B 起動は事故の痕跡であり、
+# まず selfheal / kart-uboot-rollback で A を修復して正規状態に戻すのが先
+# (boot 時に走る selfheal と本ツールが A へ同時書き込みするレースの入口も塞ぐ)
+active=$(kart-uboot-status | sed -n 's/^UBOOT_ACTIVE_COPY=//p')
+if [ "$active" = "B" ]; then
+    echo "ERROR: fallback boot 中 (B copy で起動している)。update は禁止。" >&2
+    echo "       kart-uboot-selfheal が boot 時に A を修復済みのはず — reboot で" >&2
+    echo "       A 起動に戻ってから update すること (未修復なら kart-uboot-rollback)。" >&2
+    exit 1
+fi
+
+# 相互排他: update / rollback / selfheal の同時実行を禁止。flock なので
+# プロセスがどう死んでも (SIGKILL 含む) カーネルが自動解放し、残留しない
+exec 9> /run/kart-uboot.lock
+if ! flock -n 9; then
+    echo "ERROR: another kart-uboot operation is in progress" >&2
+    exit 1
+fi
+TMP=$(mktemp); SRC=$(mktemp)
+trap 'rm -f "$TMP" "$SRC"' EXIT
+
+# header-last 書き込み: $1=書き込み先セクタ, $2=ソースファイル (512B 境界),
+# $3=セクタ数。IVT 潰し → 本体 (2 セクタ目以降) → IVT、の順。
+write_header_last() {
+    dst="$1"; src="$2"; cnt="$3"
+    dd if=/dev/zero of="$BASE_DEV" bs=512 seek="$dst" count=1 2>/dev/null
+    sync
+    dd if="$src" of="$BASE_DEV" bs=512 skip=1 seek=$(( dst + 1 )) count=$(( cnt - 1 )) 2>/dev/null
+    sync
+    dd if="$src" of="$BASE_DEV" bs=512 seek="$dst" count=1 2>/dev/null
+    sync
+    dd if="$BASE_DEV" of="$TMP" bs=512 skip="$dst" count="$cnt" 2>/dev/null
+    if ! cmp -s "$TMP" "$src"; then
+        echo "ERROR: read-back verification FAILED at sector $dst" >&2
+        exit 1
+    fi
+}
+
+# A が不正 (前回 update の電源断後など) なら退避しない — 壊れた A を
+# B へ複写すると唯一の健全コピーを潰してしまう。B は現状のまま温存する
+dd if="$BASE_DEV" of="$SRC" bs=512 skip="$A_SECTOR" count="$AREA_SECTORS" 2>/dev/null
+a_ivt=$(hexdump -n 4 -e '4/1 "%02x"' "$SRC")
+case "$a_ivt" in
+    d1????41)
+        echo "Step 1/2: backing up current A copy -> B copy (前版として温存)..."
+        write_header_last "$B_SECTOR" "$SRC" "$AREA_SECTORS"
+        echo "  B copy verified."
+        ;;
+    *)
+        echo "Step 1/2: SKIPPED — A copy is invalid (IVT: $a_ivt)."
+        echo "  壊れた A は退避せず、B copy (現在の起動元) をそのまま温存する。"
+        ;;
+esac
+
+echo "Step 2/2: writing $NEW (${size}B) -> A copy..."
+cp "$NEW" "$SRC"
+rem=$(( size % 512 ))
+if [ "$rem" -ne 0 ]; then
+    dd if=/dev/zero bs=1 count=$(( 512 - rem )) 2>/dev/null >> "$SRC"
+fi
+write_header_last "$A_SECTOR" "$SRC" $(( (size + 511) / 512 ))
+echo "  A copy verified."
+
+echo "Done: A = 新版、B = 直前までの版。次回起動から新 U-Boot。"
+echo "  A が壊れた場合は ROM が B (前版) で自動起動する。"
+echo "  前版に戻すには: kart-uboot-rollback"

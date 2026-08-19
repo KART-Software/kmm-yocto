@@ -1,0 +1,24 @@
+# i.MX8M Mini machine fragment (XPI-iMX8MM)
+#
+# machine は meta-kart/conf/machine/imx8mm-xpi.conf (正式定義)。
+# EVK (imx8mm-lpddr4-evk) 流用時代のパッチワーク (MACHINE_FEATURES 削り、
+# DTB リネームトリック、extlinux 引数等) は machine conf に吸収済み。
+# 背景は docs/imx8mm-migration-design.md と docs/imx8mm-xpi-bringup/07。
+header:
+  version: 14
+
+machine: imx8mm-xpi
+
+repos:
+  meta-freescale:
+    url: https://github.com/Freescale/meta-freescale.git
+    branch: scarthgap
+    layers:
+      .:
+
+local_conf_header:
+  imx8mm-eula: |
+    # imx-boot が使う DDR トレーニングファームウェア (firmware-imx) は
+    # NXP EULA 配布のため明示的な同意が必要 (ライセンス同意はビルド環境の
+    # 意思表示なので machine conf ではなくここに置く)
+    ACCEPT_FSL_EULA = "1"

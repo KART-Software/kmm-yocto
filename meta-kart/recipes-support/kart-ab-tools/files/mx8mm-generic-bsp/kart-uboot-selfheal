@@ -1,0 +1,20 @@
+#!/bin/sh
+# kart-uboot-selfheal — ROM フォールバック (B copy 起動) を検出したら、
+# いま動いている B の内容で A copy を修復する。boot 時に service として実行。
+#
+# 原則:「A が不正な状態は例外なく異常 (事故の痕跡)」— 意図的に A を壊して
+# B 運用することは無い設計なので、B 起動 = 要修復と機械的に判断してよい
+# (docs/imx8mm-xpi-bringup/04-pitfalls.md #19)。
+# 修復後、次回起動から通常のプライマリ (A) 起動に戻る。
+# フォールバック起動は無症状 (GUI も何もかも普通に動く) なので、
+# 人間の気づきに頼らずここで冗長性を回復する。
+set -eu
+
+active=$(kart-uboot-status | sed -n 's/^UBOOT_ACTIVE_COPY=//p')
+if [ "$active" != "B" ]; then
+    exit 0
+fi
+
+echo "fallback boot detected (running from B copy); repairing A copy..."
+kart-uboot-rollback
+echo "A copy repaired. Next boot returns to primary (A)."
