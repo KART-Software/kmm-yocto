@@ -92,7 +92,7 @@ RAM 起動、attach を安全に試せる)で全経路を通した:
 → **「M4 先住 → Linux attach → can0 稼働」は完全に成立**。imx_rproc は
 稼働中 M4 を probe 時に検出して attach する(`imx_rproc_attach` 実在)。
 
-### SPL 起動の壁 — 電源ドメイン(2026-08-19、実機で確定)
+### SPL 起動の壁 — SPL は TCM で走る(2026-08-19、実機で確定)
 
 falcon.itb に M4 loadable を積み、**SPL で M4 を起動**しようとしたら
 **デッドハング**した(コンソールが `falcon_args...default` の直後で沈黙)。
@@ -116,6 +116,31 @@ falcon.itb に M4 loadable を積み、**SPL で M4 を起動**しようとし�
 - **結論: M4 の TCM 配置+起動は、TCM 外(OCRAM `0x920000`)で走る
   ATF(BL31)側でやる**。SPL は loadable を DDR に運ぶだけ、BL31 が
   DDR→TCM コピー + SRC 解除する。
+
+### BL31 版 M4 起動 — 実装・実機実証済み(2026-08-19)
+
+上記の設計を `kas/imx8mm-m4.yml` として実装し、cold boot で全 chain が
+全自動で成立した(手動介入ゼロ):
+
+- **SPL**: M4 loadable を DDR ステージング `0x46000000` にロード
+- **BL31**(imx-atf パッチ、`bl31_platform_setup`): ①`0xB80FF000` ゼロ化
+  ②DDR→TCML コピー(`flush_dcache_range` 込み)③`SRC_M4RCR` で M4 解除
+  → `NOTICE: kart: Cortex-M4 released from BL31`
+- **M4**: `rsc_table published to 0xB80FF000 (attach mode)` → CAN gw 起動
+- **Linux**: `attaching → is now attached → kart-can channel bound (ept 0x400)`
+  → **can0 UP、kmm active**
+
+**重要な落とし穴 — DDR の rsc_table 残存**。DDR は warm reboot で消えないため、
+前回の LOAD 起動が書いた `0xB80FF000` の version=1 が残っていると、M4 の
+「version==1 なら Linux が書いた → publish スキップ」判定が誤爆し、古い
+vring da/status で attach が不成立になる(`state=attached` だが can0 出ず、
+M4 の peer が 0xffffffff のまま)。**BL31 が M4 起動直前に `0xB80FF000` を
+ゼロ化**して、M4 に必ず fresh table を publish させることで解決。
+= 「M4 の publish 条件」と「DDR は消えない」の相互作用。
+
+remoteproc(Linux が起動)との違い: BL31 起動では **M4 が Linux より前に居る**
+ので Linux は attach するだけ。M4 が Linux ライフサイクル外に居るため、
+「Linux 再起動をまたぐ CAN 常駐」の土台になる。
 
 ## 3. リソーステーブル
 

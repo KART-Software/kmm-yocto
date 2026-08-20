@@ -1,0 +1,37 @@
+# Cortex-M4 オーバーレイ — 必ず imx8mm-falcon.yml の後ろに付ける:
+#
+#   kas-container build kas/imx8mm-prod.yml:kas/imx8mm-emmc-ab.yml:kas/imx8mm-falcon.yml:kas/imx8mm-m4.yml
+#   (splash も付ける場合は falcon の後、m4 の前後どちらでも可)
+#
+# M4 ファームは falcon.itb に埋め込まず、boot パーティション上の独立ファイル
+# m4-fw.img (ヘッダ付きコンテナ: magic K4FW + size + CRC32 + version) にする。
+# 起動チェーン:
+#   SPL  : m4-fw.img を FAT から読み検証 → DDR ステージング (0x46000000) へ
+#          (u-boot パッチ 0011。SPL は TCM 内で実行されるため TCM に直接
+#          置けない — pitfalls #27)
+#   BL31 : ベクタゲート → rsc_table ゼロ化 → DDR→TCML コピー → SRC 解除
+#          (imx-atf パッチ 0001-...-bl31-start-m4)
+#   Linux: 稼働中 M4 に attach、can0 は既存の can0-up.service が bringup
+#
+# 独立ファイルにする狙いは「Zephyr だけ更新したい人が Yocto に関わらない」—
+# M4 更新は m4-fw.img の scp + reboot で完結する (data-logger-zephyr の
+# scripts/install.sh)。設計: docs/imx8mm-xpi-bringup/12-m4-standalone-bin-design.md
+#
+# 前提: M4 ファーム (現行は data-logger-zephyr の apps/can-gw) は rsc_table を
+# 0xB80FF000 に自己 publish する版 (attach では Linux が書かないため)。
+# 実証は docs/imx8mm-xpi-bringup/10-cortex-m4.md。
+#
+# この overlay を付けない falcon ビルドには影響しない (m4-fw.img が無ければ
+# SPL は無言スキップ、BL31 はベクタ不正で何もしない。同一 flash.bin で両対応)。
+header:
+  version: 14
+
+local_conf_header:
+  m4: |
+    KART_M4:pn-kart-falcon-itb = "1"
+    # SPL に m4-fw.img のファイル読み + 検証 + DDR ステージングを追加
+    SRC_URI:append:pn-u-boot-fslc = " file://0011-imx8mm-kart-spl-m4-file-read.patch"
+    # BL31 に M4 起動 (rsc ゼロ化 → DDR→TCML コピー → SRC 解除) を追加
+    SRC_URI:append:pn-imx-atf = " file://0001-imx8mm-kart-bl31-start-m4.patch"
+    # 既定の m4-fw.img (kart-falcon-itb が生成) を boot パーティションへ
+    IMAGE_BOOT_FILES:append = " m4-fw.img"

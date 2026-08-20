@@ -153,19 +153,42 @@ M4 loadable を積み SPL で起動しようとしたら**デッドハング**
 自己上書き**して即ハング(電源ドメインではない — 当初の誤診を訂正)。DDR 経由の
 memcpy も、その memcpy コード自体が TCM にあり途中で消えるので不可。bootaux が
 成功したのは U-Boot proper が DDR で走るから。**M4 の TCM 配置+起動は TCM 外
-(OCRAM `0x920000`)で走る ATF(BL31)側でやる**のが正解。詳細は
-[learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §「SPL 起動の壁」。
+(OCRAM `0x920000`)で走る ATF(BL31)側でやる**のが正解 → ④ で実装・実証済み。
+
+**④ BL31 版 M4 起動 — 実装・実機実証済み(2026-08-19)**。kas overlay
+`imx8mm-m4.yml` を付けると、cold boot で以下が全自動で成立する
+(※ M4 の運び方はその後 falcon.itb 埋め込み → **boot パーティション上の
+独立ファイル m4-fw.img** に変更した — [12](12-m4-standalone-bin-design.md)。
+BL31 側の仕組みは不変):
+
+1. **SPL**: falcon.itb の M4 loadable を **DDR ステージング `0x46000000`**
+   にロード(TCM に置かない = 自己上書き回避)
+2. **BL31**(`imx-atf` パッチ `0001-...-bl31-start-m4`、OCRAM で走る):
+   `bl31_platform_setup` で ① **`0xB80FF000` をゼロ化**(下記 rsc_table 残存
+   対策)② DDR→TCML コピー ③ `SRC_M4RCR` で M4 解除。A53 コンソールに
+   `NOTICE: kart: Cortex-M4 released from BL31 (SP=... PC=...)`
+3. **M4**: `rsc_table published to 0xB80FF000 (attach mode)` → CAN gw 起動
+4. **Linux**: `attaching to imx-rproc → is now attached →
+   kart-can channel bound (ept 0x400)` → **can0 UP、kmm active、restart 0**
+
+**踏んだバグ: DDR の rsc_table 残存**。DDR は warm reboot で消えないため、
+前回の LOAD 起動が書いた `0xB80FF000` の version=1 が残っていると、M4 が
+「Linux が書いた」と誤判定して publish をスキップ → 古い vring da/status で
+attach が不成立(state=attached になるが can0 が出ない)。**BL31 が M4 起動
+直前に `0xB80FF000` をゼロ化**して、M4 に必ず fresh table を publish させる。
+
+構成: `kas/imx8mm-m4.yml`(`KART_M4` + BL31 パッチ)、
+`meta-kart/recipes-bsp-imx/kart-falcon-itb`(M4 loadable を DDR staging へ)、
+`meta-kart/recipes-bsp-imx/imx-atf/files/0001-...-bl31-start-m4.patch`。
+firmware の rsc_table 自己 publish は data-logger-zephyr の can-gw。
 
 概念の詳細は [learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §2-3。
 
 ## 未踏 (次にやるなら)
 
-- **M4 起動を ATF(BL31)側で実装**: SPL は M4 loadable を DDR(`0x46000000`)
-  に運ぶだけ(falcon.itb 設定済み)。BL31 は OCRAM(`0x920000`)で走る = TCM を
-  書いても自分は消えないので、BL31 の plat 初期化で **DDR→TCML コピー + SRC 解除**
-  (`SRC_M4RCR`: NON_SCLR_RST クリア + M4_ENABLE セット。GPC 操作は不要)。
-  falcon.itb の M4 loadable(DDR staging 版)と firmware の attach 対応
-  (0xB80FF000 自己 publish)は実証済みで流用可。SPL 起動アプローチ
-  (旧 0011 パッチ)は「SPL が TCM で走る」ため原理的に不可。
-- 用途の本命は CAN 早期化・Linux 再起動をまたぐ常駐 (ECSPI2 の
-  MCP2515 は既に M4 所有に移済 = can-gw)。次は「Linux 落ちても CAN 生存」
+- **CAN bitrate**: BL31 起動の cold boot で M4 が `set_bitrate 1000000 rc=-34`
+  (ERANGE)を返す。can0 は UP・bound するが 1Mbps がぴったり設定できていない
+  可能性(MCP2515 12MHz osc の分周端)。CAN 実通信検証で詰める。
+- **Linux 落ちても CAN 生存**: M4 は BL31 起動で Linux ライフサイクル外に居る。
+  Linux 再起動中に M4 を止めない(remoteproc detach / stop 抑止)を検証すれば
+  「Linux 再起動をまたぐ CAN 常駐」が成立する。

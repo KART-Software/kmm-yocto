@@ -41,6 +41,7 @@ disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿し
 | [09-boot-sequence.md](09-boot-sequence.md) | ブートシーケンス完全解説(初学者向け・図解・用語辞典付き) |
 | [10-cortex-m4.md](10-cortex-m4.md) | Cortex-M4 の使い方 (remoteproc・ベアメタル雛形・デバッグ手法) |
 | [11-splash-optimization.md](11-splash-optimization.md) | スプラッシュ最適化 — 暗転ゼロ(seamless takeover)+ ロード実質ゼロ(1bit 手続き描画)・実測 timing |
+| [12-m4-standalone-bin-design.md](12-m4-standalone-bin-design.md) | M4 ファーム分離配布 — FIT loadable を使わず SPL がファイルとして読む(Yocto 非接触の M4 更新。実機検証済み) |
 
 関連: [../imx8mm-migration-design.md](../imx8mm-migration-design.md)(移行の設計判断)、
 `meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi-kart.dts`(XPI 用 [DT](00-glossary.md#g-dt))。
