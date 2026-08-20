@@ -31,6 +31,11 @@
    ブートスプラッシュのバトンパス(SPL→カーネル→コンポジタ)、データ駆動 vs 手続き描画、
    コードとデータで配布経路が違う話、**一般化: 表示帯域とバトンパス(SoC/EL 非依存)**
 
+6. [U-Boot の weak フックとパッチの作り方](06-uboot-weak-hooks-and-patching.md)
+   — weak シンボル(箱は用意済み・中身だけ差し替え)、`spl_board_*` フック規約と
+   探し方、devtool / git / diff -u によるパッチ生成(直書きしない)、
+   quilt 適用順と patch-fuzz QA の掟
+
 ## 関連する既存ドキュメント(実務側)
 
 - `docs/imx8mm-xpi-bringup/` — bring-up の実務記録(pitfalls 集は #26 が本件)
