@@ -15,6 +15,12 @@
   U-Boot 本体を RAM に読み込む小さなプログラム。「SPL バナーが出た = DDR 初期化成功」。
 - <a id="g-u-boot"></a>**U-Boot** — 組み込み用ブートローダ本体。`u-boot=>` プロンプトでコマンドを打てる。
   カーネルを読んで起動する。今回の自作版は **2025.01**、ベンダ版は **2018.03**。
+- <a id="g-booti"></a>**booti** — U-Boot のカーネル起動コマンド(arm64 の生 `Image` 用。
+  bootm=uImage/FIT、bootz=32bit zImage の兄弟)。`booti <kernel> <initrd|-> <dtb>` で
+  Image ヘッダ検査(magic `ARM\x64`)→ 再配置 → DTB fixup/後始末 →
+  **x0=DTB・x1〜x3=0 の入場規約でジャンプ**する。netboot(03/06)と extlinux 経路が
+  使用。falcon はこれをシム 8 命令に切り詰めた代替([09](09-boot-sequence.md) ③)。
+  pitfalls #4 の「Image magic エラー」はこのヘッダ検査。
 - <a id="g-imx-boot"></a><a id="g-flash-bin"></a>**imx-boot / flash.bin** — SPL + U-Boot(+ ATF)を 1 つにまとめた i.MX 用の
   ブートローダイメージファイル。これを eMMC/SD の決まったオフセットに置く。
 - <a id="g-atf"></a><a id="g-bl31"></a>**ATF(Arm Trusted Firmware)/ BL31** — Arm の セキュアファームウェア層。
