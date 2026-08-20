@@ -1,6 +1,6 @@
 # M4 CAN ゲートウェイ (rpmsg チャネル "kart-can") を CAN netdev rpcan0 に
 # 見せる out-of-tree カーネルモジュール。M4 側ファームは別リポジトリ
-# data-logger-imx8mm-cortex-m4 の apps/can-gw。
+# data-logger-zephyr (https://github.com/KART-Software/data-logger-zephyr) の apps/can-gw。
 #
 # recipes-kernel-imx/ 配下なので meta-freescale がある構成でしか読まれない
 # (layer.conf の BBFILES_DYNAMIC) — RPi5/QEMU ビルドには影響しない。

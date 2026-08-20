@@ -198,7 +198,7 @@ MCP2515(ECSPI2)は **Cortex-M4 に譲渡**してあり、M4 上の CAN ゲート
 (`kart-rpmsg-can`)と繋がり、通常の `can0`(SocketCAN)として見える。
 
 - カーネルは `clk-imx8mm.mcore_booted=1`(machine conf)で M4 のルートクロックを維持
-- M4 ファームは別リポジトリ `data-logger-imx8mm-cortex-m4`(Zephyr west workspace)
+- M4 ファームは別リポジトリ [data-logger-zephyr](https://github.com/KART-Software/data-logger-zephyr)(Zephyr west workspace)
 - ロード:`remoteproc` で ELF を start(`/sys/class/remoteproc/remoteproc0/`)
 - 仕組み・掟(RDC/CCGR の 3 点セット、MU write × M4 read 衝突と NO_NOTIFY 回避)は
   [10-cortex-m4.md](docs/imx8mm-xpi-bringup/10-cortex-m4.md) と `learning/`
