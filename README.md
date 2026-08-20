@@ -7,8 +7,9 @@ Geniatech **XPI-iMX8MM**(NXP i.MX8M Mini、RPi 互換フォームファクタ SB
 
 > 前身は Raspberry Pi 5 ターゲット。RPi5 のビルド系(`kas/rpi5*.yml`・
 > EEPROM/NVMe 手順)は残しているが、**現行の製品ターゲットは XPI-iMX8MM**。
-> 本 README はそちらを主に記述する。RPi5 固有の手順は git 履歴と
-> `kas/rpi5-prod.yml` を参照。
+> 本 README はそちらを主に記述する。RPi5 時代の完全な状態はタグ
+> [`rpi5-final`](https://github.com/KART-Software/kmm-yocto/tree/rpi5-final)、
+> 当時のドキュメントは [docs/archive/rpi5/](docs/archive/rpi5/) を参照。
 
 ## 概要
 
@@ -121,6 +122,17 @@ kas-container build \
 全段の図解・実測タイムライン・用語辞典は
 [09-boot-sequence.md](docs/imx8mm-xpi-bringup/09-boot-sequence.md)。
 
+各区間の実測(コールドブート N=5、2026-08-13):
+
+| 区間 | 所要 |
+|---|---|
+| 電源 → SPL 最初の出力(ROM + eMMC 読込 + DDR training) | ~1.1s |
+| SPL(env 読取 + カーネル一式ロード + シム設置) | 0.25s |
+| ATF(BL31) | 0.015s |
+| カーネル起動 | 0.68s |
+| ユーザー空間 → GUI(systemd・weston・kmm) | 2.9s |
+| **合計(電源 → GUI)** | **≈4.9s** |
+
 要点:
 
 - **Falcon Mode**:SPL が eMMC の `falcon.itb`(ATF+カーネル+DTB)を直接読んで
@@ -186,7 +198,7 @@ MCP2515(ECSPI2)は **Cortex-M4 に譲渡**してあり、M4 上の CAN ゲート
 (`kart-rpmsg-can`)と繋がり、通常の `can0`(SocketCAN)として見える。
 
 - カーネルは `clk-imx8mm.mcore_booted=1`(machine conf)で M4 のルートクロックを維持
-- M4 ファームは別リポジトリ `data-logger-imx8mm-cortex-m4`(Zephyr west workspace)
+- M4 ファームは別リポジトリ [data-logger-zephyr](https://github.com/KART-Software/data-logger-zephyr)(Zephyr west workspace)
 - ロード:`remoteproc` で ELF を start(`/sys/class/remoteproc/remoteproc0/`)
 - 仕組み・掟(RDC/CCGR の 3 点セット、MU write × M4 read 衝突と NO_NOTIFY 回避)は
   [10-cortex-m4.md](docs/imx8mm-xpi-bringup/10-cortex-m4.md) と `learning/`

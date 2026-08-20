@@ -460,7 +460,7 @@
 
 /* ECSPI2 + MCP2515 は Cortex-M4 (can-gw ファーム) に譲渡した。Linux から
  * は rpmsg 経由の CAN netdev (kart-rpmsg-can) として見える。M4 側の
- * pinmux/CS/INT 設定は Zephyr overlay (data-logger リポジトリ apps/can-gw)
+ * pinmux/CS/INT 設定は Zephyr overlay (data-logger-zephyr の apps/can-gw)
  * が自前で行うため、Linux 側は完全に disabled でよい。
  * クロックの取り決め:
  *  - root gate (TARGET_ROOT) は cmdline clk-imx8mm.mcore_booted=1 で

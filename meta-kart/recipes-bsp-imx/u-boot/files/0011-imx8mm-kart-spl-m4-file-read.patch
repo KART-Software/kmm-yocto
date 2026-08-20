@@ -1,0 +1,101 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] imx8mm: kart SPL — M4 ファーム (m4-fw.img) をファイルとして読む
+
+M4 ファームを falcon.itb への FIT loadable 埋め込みから外し、boot パーティション
+上のただのファイル m4-fw.img にする。SPL は falcon ロード後 (jump 直前の
+spl_board_prepare_for_boot) に FAT から読み、magic/size/CRC32 を検証して
+DDR ステージング (0x46000000) へ置く。TCML への配置と SRC 解除は従来通り
+BL31 が行う (BL31 は置き方に無関心 — 契約はステージング番地のみ)。
+
+狙いは「Zephyr だけ更新したい人が Yocto に関わらない」— M4 更新が
+scp + reboot で完結する。ファイル無しは M4 なし構成として正常 (無言スキップ)、
+検証不合格は警告 + スキップ (壊れたファームは走らない。ステージングは
+ゼロ化済みなので BL31 のベクタゲートが弾き、DDR 残存も効かない)。
+
+設計と検証マトリクス: kmm-yocto docs/imx8mm-xpi-bringup/12-m4-standalone-bin-design.md
+
+Upstream-Status: Inappropriate [kart product-specific]
+---
+--- a/arch/arm/mach-imx/spl.c
++++ b/arch/arm/mach-imx/spl.c
+@@ -372,3 +372,80 @@
+ 	return 0;
+ }
+ #endif
++
++#if defined(CONFIG_SPL_OS_BOOT) && defined(CONFIG_SPL_FS_FAT)
++#include <fat.h>
++#include <mmc.h>
++#include <part.h>
++#include <u-boot/crc.h>
++/*
++ * kart: M4 ファーム (m4-fw.img) を boot パーティションのファイルとして読み、
++ * 検証して DDR ステージングへ置く。TCML への配置と SRC 解除は BL31 が行う
++ * (SPL は TCM 内で実行されるため直接置けない — kmm-yocto pitfalls #27)。
++ * 設計: kmm-yocto docs/imx8mm-xpi-bringup/12-m4-standalone-bin-design.md
++ *
++ * ファイル形式 (16B ヘッダ + payload):
++ *   0x00 magic "K4FW" / 0x04 payload 長 (LE32) / 0x08 payload の CRC32 (LE32)
++ *   0x0C version (LE32, 表示用) / 0x10 payload = zephyr.bin (先頭がベクタ)
++ *
++ * ファイル無し = M4 なし構成 (正常、無言)。壊れていれば警告して M4 スキップ
++ * (ステージングは無効のままなので BL31 のゲートが弾く)。
++ */
++#define KART_M4_IMG_NAME	"m4-fw.img"
++#define KART_M4_STAGING		0x46000000UL	/* BL31 パッチ KART_M4_STAGING と一致必須 */
++#define KART_M4_SCRATCH		0x45f00000UL	/* img (ヘッダ付き) の一時読み込み先 */
++#define KART_M4_MAGIC		0x5746344bUL	/* "K4FW" (LE) */
++#define KART_M4_MAX_PAYLOAD	0x20000UL	/* TCML 128KB */
++
++void spl_board_prepare_for_boot(void)
++{
++	struct disk_partition info;
++	struct blk_desc *desc;
++	struct mmc *mmc;
++	u32 size, crc;
++	int part = 0, i;
++	long len;
++
++	/* stale ステージングの無効化 (DDR は warm reboot で消えない — pitfalls #28) */
++	writel(0, KART_M4_STAGING);
++	writel(0, KART_M4_STAGING + 4);
++	flush_dcache_range(KART_M4_STAGING, KART_M4_STAGING + 64);
++
++	mmc = find_mmc_device(1);	/* SPL の DM では eMMC = dev 1 (mmc_env.c の分岐参照) */
++	if (!mmc)
++		return;
++	desc = mmc_get_blk_desc(mmc);
++	if (!desc)
++		return;
++	/* falcon と同じ「MBR bootable フラグの立ったパーティション」を使う */
++	for (i = 1; i <= 4; i++) {
++		if (part_get_info(desc, i, &info))
++			continue;
++		if (info.bootable) {
++			part = i;
++			break;
++		}
++	}
++	if (!part || fat_register_device(desc, part))
++		return;
++
++	len = file_fat_read(KART_M4_IMG_NAME, (void *)KART_M4_SCRATCH,
++			    0x10 + KART_M4_MAX_PAYLOAD);
++	if (len < 0x10)
++		return;		/* 無ファイル = M4 なし (正常) */
++
++	size = readl(KART_M4_SCRATCH + 4);
++	crc = readl(KART_M4_SCRATCH + 8);
++	if (readl(KART_M4_SCRATCH) != KART_M4_MAGIC ||
++	    size > KART_M4_MAX_PAYLOAD || (long)(0x10 + size) > len ||
++	    crc32(0, (void *)(KART_M4_SCRATCH + 0x10), size) != crc) {
++		printf("kart: %s invalid (len=%ld) — M4 skipped\n",
++		       KART_M4_IMG_NAME, len);
++		return;
++	}
++	memcpy((void *)KART_M4_STAGING, (void *)(KART_M4_SCRATCH + 0x10), size);
++	flush_dcache_range(KART_M4_STAGING, KART_M4_STAGING + size);
++	printf("kart: %s staged (%u bytes, ver %u)\n",
++	       KART_M4_IMG_NAME, size, readl(KART_M4_SCRATCH + 12));
++}
++#endif /* CONFIG_SPL_OS_BOOT && CONFIG_SPL_FS_FAT */

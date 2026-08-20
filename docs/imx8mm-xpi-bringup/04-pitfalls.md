@@ -634,7 +634,7 @@ devmem ポーリングして最終値を取る) で追い込み、ベアメタ�
    無改造**で MU write が消える
 3. M4→Linux の kick は従来通り (安全側と実証済み)
 
-実装は data-logger リポ can-gw (e2b2516)。診断ツール: kmm-yocto
+実装は data-logger-zephyr の can-gw (55d76b0)。診断ツール: kmm-yocto
 m4/clk-test (CCGR/read 生還のブレッドクラム実験)。
 
 ### 併発していた 2 つの罠 (同日の調査で判明)
@@ -668,3 +668,58 @@ m4/clk-test (CCGR/read 生還のブレッドクラム実験)。
    ENODEV で即死してフリを防ぐ。
    ※調査中に can-gw へ入れた誤 pinmux (0x303301F8/1FC = ECSPI1_MOSI/MISO
    を誤って ALT0 化) は実機で 0x5 に復旧済み・コードからも削除済み。
+
+## 27. SPL は TCM 内で実行される — M4 を TCM にロードすると自己上書きでハング (ボードをブリック)
+
+falcon.itb に M4 loadable を積み、**SPL で M4 を起動**しようとしたら、SPL が
+loadable を TCML (0x007E0000) に書く段階で**デッドハング**した
+(コンソールが `spl: falcon_args_file not set ... falling back to default` の
+直後で沈黙、`Falcon: shim@...` に到達せず)。WDOG 60s でリセットするが同じ所で
+再ハング → SDP にも落ちず、eMMC の valid IVT を BootROM が毎回ロードするため
+**遠隔復旧不可(S1=Serial 物理切替が必要)**になった。
+
+真因(2 転して確定): 最初「電源ドメイン OFF」と誤診したが、実際は
+**SPL 自身が TCM の中で実行されている**。flash.bin の IVT entry = **`0x007E1000`**
+(実測。`dd ... skip=66 | hexdump` の offset 4)、imx8mm の TCM は
+`0x7E0000`〜`0x820000`(ATF `IMX_TCM_BASE=0x7E0000 / SIZE=0x40000`)。
+M4 loadable を TCML(`0x007E0000`)に書くと**走行中の SPL(`0x7E1000`)を
+自己上書き**して即ハングする。
+
+- **電源ドメインは無関係だった**。imx8mm の ATF `IMX_SIP_SRC_M4_START` は
+  SRC 書き込みのみ(GPC 電源ドメイン操作も IOMUXC_GPR も無し)= M4 ドメインは
+  元々 ON。#24 の「TCM ロードは devmem で可能」も正しい(Linux/U-Boot proper が
+  TCM 外で走るから)。
+- **DDR 経由でも SPL では不可**: SPL が DDR→TCM へ memcpy しても、その memcpy
+  コード自体が TCM にあり途中で消える。TCM 配置は **TCM 外で走るコード**から
+  しかできない。
+- `bootaux` が動くのは U-Boot proper が **DDR(`0x40200000`)で走る**から
+  (TCM を書いても自分は消えない)。
+- **教訓: M4 の TCM 配置+起動は、OCRAM(`0x920000`)で走る ATF(BL31)側で
+  やる**。SPL は loadable を DDR に運ぶだけ、BL31 が DDR→TCM コピー + SRC 解除。
+  復旧は flash.bin から M4 コードを外し、falcon.itb も no-M4 版に戻して行った。
+- 詳細: [learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §「SPL 起動の壁」。
+
+## 28. attach で state=attached なのに can0 が出ない — DDR の rsc_table 残存で M4 が publish をスキップ
+
+BL31 起動(loadable)で M4 を先住させ Linux が attach する構成で、
+`remoteproc state = attached`・dmesg `is now attached` まで行くのに
+**can0 が現れない**(M4 の periodic stats で `peer 0xffffffff started=0`
+のまま)。
+
+真因: **DDR は warm reboot で消えない**。can-gw firmware は「rsc_table を
+`0xB80FF000` に自己 publish するが、既に version==1 の有効テーブルがあれば
+Linux が LOAD 時に書いたものとみなして上書きしない」判定をしている。ところが
+前回の remoteproc LOAD 起動が書いた version=1 が DDR に残っていると、
+BL31 起動の M4 が「Linux が書いた」と誤爆して publish をスキップ → 古い
+vring da/status のテーブルで attach が噛み合わず、rpmsg が張られない。
+
+- 見分け方: M4 UART に `rsc_table published to 0xB80FF000 (attach mode)` が
+  **出ていれば publish 済み(正常)、出ていなければスキップ(この罠)**。
+  `devmem 0xb80ff000 32` が `0x1` でも、それが「今回 M4 が書いた」保証はない。
+- 解決: **BL31 が M4 起動直前に `0xB80FF000` をゼロ化**して、M4 に必ず fresh
+  table を publish させる(imx-atf の kart-bl31-start-m4 パッチ)。
+- 教訓: 「firmware の状態判定」と「DDR は起動を跨いで残る」の組合せは、
+  cold boot でも前回値が効いて誤動作する。跨いで残る領域の状態判定は、
+  書く側(ここでは BL31)が明示的に初期化してから使う。
+- 詳細: [10-cortex-m4.md](10-cortex-m4.md) ④、
+  [learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §「BL31 版 M4 起動」。

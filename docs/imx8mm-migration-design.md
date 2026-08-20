@@ -2,7 +2,7 @@
 
 2026-08-04 作成。**起動時間短縮を目的とした SoC 変更の実現性検討**。実装判断はまだ下していない。
 
-現行 RPi5 の実測は [boot-timing.md](boot-timing.md) を参照（電源→GUI 8.59s、うちファーム段 7.00s）。
+現行 RPi5 の実測は [boot-timing.md](archive/rpi5/boot-timing.md) を参照（電源→GUI 8.59s、うちファーム段 7.00s）。
 
 ## 結論
 
@@ -25,7 +25,7 @@ Pi5 のブートローダは VPU 上で動く署名検証付きクローズド�
 内訳は EEPROM ロード 1.65s / SDRAM トレーニング 1.83s / RP1 ファーム 0.67s / PCIe 0.63s /
 DTB+overlay+EDID 1.11s / カーネル読込 0.50s。設定ノブは総当たりで検証済みだが
 `force_eeprom_read=0`・`disable_poe_fan=1`・`hdmi_ignore_edid`・`NET_INSTALL_ENABLED=0` は
-**全て ±0**（[research ログ §14](boot-optimization-research.md)）。
+**全て ±0**（[research ログ §14](archive/rpi5/boot-optimization-research.md)）。
 
 ### i.MX8M Mini のブートローダ段
 

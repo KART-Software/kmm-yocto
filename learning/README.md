@@ -10,7 +10,9 @@
 
 1. [ARM のブートチェーンと ATF](01-arm-boot-and-atf.md)
    — 特権レベル(EL0〜EL3)、BootROM→SPL→BL31→U-Boot→Linux、
-   ATF/BL31 とは、SMC と syscall の違い、`IMX_SIP_SRC_M4_START`
+   ATF/BL31 とは、SMC と syscall の違い、`IMX_SIP_SRC_M4_START`、
+   **EL 遷移の仕組み(例外で上・ERET で下、SMC は EL3 直行)**、
+   BL33 は常駐しない、EL2 入場が安全な理由
 
 2. [RDC とドメイン](02-rdc-and-domains.md)
    — RDC(リソースドメインコントローラ)とは、MDA/PDAP、
@@ -30,6 +32,11 @@
    — FB とは、**なぜ表示中の FB への書き込みは激遅なのか(表示 DMA の帯域競合)**、
    ブートスプラッシュのバトンパス(SPL→カーネル→コンポジタ)、データ駆動 vs 手続き描画、
    コードとデータで配布経路が違う話、**一般化: 表示帯域とバトンパス(SoC/EL 非依存)**
+
+6. [U-Boot の weak フックとパッチの作り方](06-uboot-weak-hooks-and-patching.md)
+   — weak シンボル(箱は用意済み・中身だけ差し替え)、`spl_board_*` フック規約と
+   探し方、devtool / git / diff -u によるパッチ生成(直書きしない)、
+   quilt 適用順と patch-fuzz QA の掟
 
 ## 関連する既存ドキュメント(実務側)
 

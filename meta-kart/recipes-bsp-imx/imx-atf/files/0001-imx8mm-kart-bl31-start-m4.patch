@@ -1,0 +1,76 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] imx8mm: kart BL31 — falcon loadable の Cortex-M4 を起動
+
+falcon.itb に M4 ファームが loadable として積まれている場合
+(kas/imx8mm-m4.yml)、SPL がそれを DDR ステージング (0x46000000) に置く。
+BL31 は OCRAM で実行される = TCM を上書きしても自己破壊しないので、
+bl31_platform_setup で DDR -> TCML へコピーし M4 を起動する (SPL は TCM 内で
+実行されるため TCM に置けない — pitfalls #27)。M4 起動前に rsc_table 領域
+(0xB80FF000) をクリアして、M4 に fresh なテーブルを publish させる (前回起動の
+残存 version=1 で M4 が publish をスキップし attach 不成立になるのを防ぐ)。
+M4 起動 = SRC_M4RCR の M4C_NON_SCLR_RST クリア + M4_ENABLE セット。
+
+Upstream-Status: Inappropriate [kart product-specific]
+
+See docs/imx8mm-xpi-bringup/10-cortex-m4.md.
+---
+--- a/plat/imx/imx8m/imx8mm/imx8mm_bl31_setup.c
++++ b/plat/imx/imx8m/imx8mm/imx8mm_bl31_setup.c
+@@ -286,6 +286,48 @@
+ 	enable_mmu_el3(0);
+ }
+ 
++/*
++ * kart: falcon loadable の Cortex-M4 を BL31 (OCRAM 実行) から起動する。
++ * SPL は TCM 内で実行されるため M4 を TCM に置けない (自己上書き)。BL31 は
++ * OCRAM で走るので TCM を安全に書ける。DDR ステージング (falcon.its の M4
++ * load=0x46000000) から TCML へコピーし、SRC_M4RCR で reset 解除する。
++ * loadable が無い falcon ビルドでは DDR のベクタが不正 → 何もしない。
++ */
++#define KART_M4_STAGING	0x46000000UL
++#define KART_M4_TCML	IMX_TCM_BASE		/* 0x7E0000 (A53/EL3 view) */
++#define KART_M4_TCML_SZ	0x00020000UL		/* TCML 128KB (bin 実測 ~37KB 包含) */
++static void kart_start_m4(void)
++{
++	uint32_t sp = mmio_read_32(KART_M4_STAGING);
++	uint32_t pc = mmio_read_32(KART_M4_STAGING + 4);
++	unsigned int i;
++
++	/* loadable が載っているか = ベクタ妥当性 (SP は TCMU 域, PC は TCML 域) */
++	if (!(sp >= 0x20000000U && sp < 0x20020000U &&
++	      pc >= 0x1ffe0000U && pc < 0x20000000U && (pc & 1U)))
++		return;
++
++	for (i = 0; i < KART_M4_TCML_SZ; i += 4)
++		mmio_write_32(KART_M4_TCML + i, mmio_read_32(KART_M4_STAGING + i));
++	flush_dcache_range(KART_M4_TCML, KART_M4_TCML_SZ);
++
++	/*
++	 * rsc_table 領域 (DT rsc-table@b80ff000) をクリアする。attach 起動では
++	 * Linux はここを「読む」側なので、M4 firmware 自身が fresh なテーブルを
++	 * publish する必要がある。ところが M4 は「version==1 なら Linux が書いた」
++	 * と判定してスキップするため、前回起動の残存 version=1 が DDR に残っていると
++	 * 古いテーブル (古い vring da/status) を使って attach が不成立になる。
++	 * BL31 (= M4 起動は常にこちら) が起動直前にクリアし、M4 に publish させる。
++	 */
++	for (i = 0; i < 0x100; i += 4)
++		mmio_write_32(0xB80FF000UL + i, 0);
++	flush_dcache_range(0xB80FF000UL, 0x100);
++
++	mmio_clrsetbits_32(IMX_SRC_BASE + SRC_M4RCR,
++			   SRC_SCR_M4C_NON_SCLR_RST_MASK, SRC_SCR_M4_ENABLE_MASK);
++	NOTICE("kart: Cortex-M4 released from BL31 (SP=%08x PC=%08x)\n", sp, pc);
++}
++
+ void bl31_platform_setup(void)
+ {
+ 	generic_delay_timer_init();
+@@ -300,6 +342,8 @@
+ 	plat_gic_init();
+ 
+ 	imx_gpc_init();
++
++	kart_start_m4();
+ }
+ 
+ entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)

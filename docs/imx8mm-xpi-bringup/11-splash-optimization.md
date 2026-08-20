@@ -152,7 +152,7 @@ crop・帯版はこの原理で OTA(falcon.itb)だけで配れる。
 
 ## ⑥ 配布の現実 — flash.bin は OTA 不可
 
-手続き描画・出力前倒しは **SPL コード = `flash.bin`**。[OTA](../ab-ota.md) は rootfs + falcon.itb + U-Boot env
+手続き描画・出力前倒しは **SPL コード = `flash.bin`**。[OTA](../archive/rpi5/ab-ota.md) は rootfs + falcon.itb + U-Boot env
 しか触らないので、**この最適化は OTA では配れない**。更新には eMMC のブートローダ書き換えが要る。
 
 - **falcon 版 flash.bin は [UUU](00-glossary.md#g-uuu-universal-update-utility) で RAM 起動できない**
@@ -227,6 +227,6 @@ kiosk-shell は `background-image` 非対応なので、根治するなら **kmm
 - [08-falcon.md](08-falcon.md) — Falcon Mode(この最適化の前提)
 - [04-pitfalls.md](04-pitfalls.md) #22/#23 — SPL 表示チェーン確立(LCDIF/DSIM/LT9611 の高クロックラスタ)
 - [09-boot-sequence.md](09-boot-sequence.md) — 電源→GUI のブートシーケンス全体
-- [../ab-ota.md](../ab-ota.md) — OTA(flash.bin を触らない理由)
+- [A/B OTA (archive/rpi5)](../archive/rpi5/ab-ota.md) — OTA(flash.bin を触らない理由)
 - `imx8mm-xpi-bench` skill — 電源(DP100)/シリアル/UUU/eMMC flash.bin 書き込みの操作手順
 - コミット `b3f4903` — 実装一式

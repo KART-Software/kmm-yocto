@@ -2,7 +2,7 @@
 /*
  * kart-rpmsg-can — Cortex-M4 CAN ゲートウェイを SocketCAN の candev として見せる
  *
- * M4 側ファーム (data-logger-imx8mm-cortex-m4 apps/can-gw、テスト用は
+ * M4 側ファーム (data-logger-zephyr の apps/can-gw、テスト用は
  * m4/can-sim) が rpmsg チャネル "kart-can" を NS 告知すると本ドライバが
  * bind し、rpcan0 を CAN デバイスとして登録する。以後 SocketCAN と
  * `ip link`/netlink がそのまま使える。

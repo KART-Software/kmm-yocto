@@ -7,11 +7,28 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 
 DEPENDS = "u-boot-tools-native dtc-native"
 
+FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
+# m4-fw.bin = data-logger-zephyr (https://github.com/KART-Software/data-logger-zephyr) の
+# apps/can-gw を west でビルドした Cortex-M4 バイナリ (zephyr.bin) を
+# prebuilt 同梱。KART_M4 のとき m4-fw.img に包んで boot パーティションへ配る。
+#   provenance: data-logger-zephyr commit bcab881 (rsc_table を 0xB80FF000 に
+#   自己 publish する attach 対応込み。SPL/BL31 先住起動 = Linux attach で必須)
+SRC_URI = "file://m4-fw.bin"
+
 # SPL スプラッシュのロゴは u-boot 側 (SPL) に 1bit マスクで埋め込み済み
 # (scripts/gen-splash-raw.py → kart_splash_logo.h、0010 パッチ)。falcon.itb に
 # ロゴ画像は不要。KART_SPLASH は splash ビルドの印 (kas/imx8mm-splash.yml が "1"):
 # mem=2042M と /chosen kart,splash-active を付けるかの分岐に使う
 KART_SPLASH ?= ""
+
+# KART_M4 は M4 ビルドの印 (kas/imx8mm-m4.yml が "1")。m4-fw.bin をヘッダ付き
+# コンテナ m4-fw.img (magic K4FW + size + CRC32 + version) に包んで deploy し、
+# boot パーティションに置く (IMAGE_BOOT_FILES は kas/imx8mm-m4.yml が append)。
+# SPL がファイルとして読み検証して DDR ステージングへ、BL31 が TCML コピー +
+# SRC 解除で Linux より前に M4 を起動し、Linux は attach する。
+# falcon.itb には埋め込まない (M4 更新を Yocto 非依存にするため —
+# 設計 docs/imx8mm-xpi-bringup/12-m4-standalone-bin-design.md、実証 10 ④)。
+KART_M4 ?= ""
 
 inherit deploy nopackages
 
@@ -55,6 +72,21 @@ do_compile() {
         splash_args=" mem=2042M clk_ignore_unused pd_ignore_unused"
     else
         splash_args=""
+    fi
+
+    # M4 ファーム: falcon.itb には埋め込まず、ヘッダ付きコンテナ m4-fw.img を
+    # 生成して boot パーティションに置く (SPL がファイルとして読み検証 →
+    # DDR ステージング 0x46000000 → BL31 が TCML コピー + SRC 解除)。
+    # ヘッダ: magic "K4FW" + payload長 + CRC32 + version (各 LE32)。
+    # 形式は SPL パッチ 0011-imx8mm-kart-spl-m4-file-read と一致必須。
+    # version には SOURCE_DATE_EPOCH を入れる (表示用)。
+    if [ -n "${KART_M4}" ]; then
+        python3 -c "
+import struct, zlib
+payload = open('${WORKDIR}/m4-fw.bin', 'rb').read()
+hdr = b'K4FW' + struct.pack('<III', len(payload), zlib.crc32(payload) & 0xffffffff, ${@d.getVar('SOURCE_DATE_EPOCH') or '0'})
+open('${B}/m4-fw.img', 'wb').write(hdr + payload)
+"
     fi
 
     # スロット毎の falcon.itb (bootargs の root= だけが差分)
@@ -191,5 +223,8 @@ do_deploy() {
     install -m 0644 ${B}/falcon-b.itb ${DEPLOYDIR}/falcon-b.itb
     install -m 0644 ${B}/u-boot.itb ${DEPLOYDIR}/u-boot.itb
     install -m 0644 ${B}/args ${DEPLOYDIR}/args
+    if [ -n "${KART_M4}" ]; then
+        install -m 0644 ${B}/m4-fw.img ${DEPLOYDIR}/m4-fw.img
+    fi
 }
 addtask deploy after do_compile before do_build
