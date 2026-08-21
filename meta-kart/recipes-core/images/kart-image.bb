@@ -299,11 +299,18 @@ EOF
     # マウントする (kart-data-mount と同じ思想)。falcon+splash ブートは
     # 起動が速く、udev の by-label リンク生成前にこのユニットが走って
     # LABEL 解決に失敗する (実測)。root=/dev/mmcblk2p5 -> p1, p6 -> p2
+    #
+    # さらに imx は /boot を平常時 ro でマウントする。実行時に /boot へ書くのは
+    # authkey 削除 (tailscale-autoconnect が remount で対応) と m4-fw.img 更新
+    # (data-logger-zephyr の install.sh、同) だけで、OTA は非アクティブ面の
+    # 別マウント。vfat はジャーナル無しなので、平常時 dirty ゼロ + 誤書き込み
+    # EROFS 化の価値が大きい。RPi5 は kart-eeprom-setup 等が /boot に書くため
+    # rw のまま据え置き。
     case "${WKS_FILE}" in
         *imx8mm*)
             sed -i '/^Before=tailscale-autoconnect.service/a After=kmm.service' \
                 ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
-            sed -i 's|^ExecStart=.*|ExecStart=/bin/sh -c '"'"'R=$$(sed "s/.*root=\\([^ ]*\\)p[56].*/\\1/" /proc/cmdline); if grep -q "root=[^ ]*p6" /proc/cmdline; then P=2; else P=1; fi; mount $${R}p$$P /boot'"'"'|' \
+            sed -i 's|^ExecStart=.*|ExecStart=/bin/sh -c '"'"'R=$$(sed "s/.*root=\\([^ ]*\\)p[56].*/\\1/" /proc/cmdline); if grep -q "root=[^ ]*p6" /proc/cmdline; then P=2; else P=1; fi; mount -o ro $${R}p$$P /boot'"'"'|' \
                 ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
             ;;
     esac

@@ -11,6 +11,24 @@ set -u
 KEY_FILE=/boot/tailscale.authkey
 SOCK=/run/tailscale/tailscaled.sock
 
+# キー削除。imx では /boot が ro マウント (kart-boot-mount が -o ro) なので、
+# ro のときだけ rw に開けて削除し、sync して ro へ戻す。rw 運用の機種 (RPi5)
+# ではそのまま消す。削除は冪等 (電源断で残っても次ブートで再試行するだけ)。
+remove_key() {
+    opts=$(awk '$2 == "/boot" { print $4 }' /proc/mounts)
+    case "$opts" in
+        ro|ro,*)
+            mount -o remount,rw /boot
+            rm -f "$KEY_FILE"
+            sync
+            mount -o remount,ro /boot
+            ;;
+        *)
+            rm -f "$KEY_FILE"
+            ;;
+    esac
+}
+
 [ -f "$KEY_FILE" ] || exit 0
 
 # tailscaled is Type=simple: unit "started" does not mean the socket is ready.
@@ -24,7 +42,7 @@ done
 
 # Already connected (e.g. state restored from /data)? Drop the key and stop.
 if tailscale status --json 2>/dev/null | grep -q '"BackendState"[[:space:]]*:[[:space:]]*"Running"'; then
-    rm -f "$KEY_FILE"
+    remove_key
     exit 0
 fi
 
@@ -36,7 +54,7 @@ fi
 # が根絶され、resolved の起動タイミングにも依存しなくなる。板から
 # tailnet 名で他ノードを引く用途は無い (接続は常にこちらから IP 指定)。
 if tailscale up --authkey="$(cat "$KEY_FILE")" --hostname="$(hostname)" --ssh --accept-dns=false; then
-    rm -f "$KEY_FILE"
+    remove_key
     echo "tailscale-autoconnect: connected; auth key removed from boot partition"
 else
     echo "tailscale-autoconnect: 'tailscale up' failed; auth key kept for retry" >&2
