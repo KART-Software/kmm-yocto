@@ -184,6 +184,65 @@ firmware の rsc_table 自己 publish は data-logger-zephyr の can-gw。
 
 概念の詳細は [learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §2-3。
 
+## M4 のクロック確認手順 (2026-08-23 実測)
+
+M4 のコアクロックは Linux の clk ツリーに現れない (`clk_summary` に m4 は無い)
+ので、**CCM レジスタ直読み**で確認する。
+
+```sh
+devmem 0x30388080 32     # CCM_TARGET_ROOT1 = ARM_M4_CLK_ROOT
+```
+
+デコード: bit28=ENABLE / bits26:24=MUX / bits18:16=PRE_PODF (÷N+1) /
+bits5:0=POST_PODF (÷N+1)。MUX の対応表はカーネルソース
+`drivers/clk/imx/clk-imx8mm.c` の `imx8mm_m4_sels[]`:
+
+| MUX | ソース | 周波数 |
+|---|---|---|
+| 0 | osc_24m | 24MHz |
+| 1 | sys_pll2_200m | 200MHz |
+| 4 | sys_pll1_800m | 800MHz |
+
+実測値の読み方:
+
+- `0x11000000` = ENABLE + MUX1 = **200MHz** — **ブートデフォルト。M4 が起動して
+  いない時に見える値**
+- `0x14000001` = ENABLE + MUX4 + POST_PODF1 = 800÷2 = **400MHz (定格上限)** —
+  Zephyr 稼働時の値
+
+### ⚠️ 罠: M4 不在時に読むと「200MHz で動いている」ように見える
+
+M4 クロックは **Zephyr の SoC init が自分で設定する**
+(`zephyr/soc/nxp/imx/imx8m/m4_mini/soc.c`: `CLOCK_SetRootDivider(kCLOCK_RootM4,
+1, 2)` + `SysPll1` = 400MHz)。つまり:
+
+- M4 稼働中 → 400MHz (ファームが設定済み)
+- M4 不在 (BL31 が M4 を起動しなかった等) → ブートデフォルト 200MHz が残る
+
+2026-08-23 に「M4 は 200MHz で動いている、倍にできる」と誤診したのは、
+stock BL31 (M4 起動パッチ抜きビルド) で **M4 が起動していない板**のレジスタを
+読んだため。クロックを読む前に必ず M4 の稼働をセットで確認する:
+
+```sh
+cat /sys/class/remoteproc/remoteproc0/state    # attached であること
+ip -s link show can0                            # rx が増えていること (can-gw 稼働時)
+```
+
+タイマー整合の傍証: can0 の RX レート実測 (10 秒間のカウンタ差分) が
+60 frames/s (= ADC 0x700/0x701 の 30Hz×2) ぴったりなら、Zephyr の
+`SYS_CLOCK` 前提と実クロックが一致している (ズレていれば周期が 2 倍/半分になる)。
+
+参考 — A53 側の確認は cpufreq sysfs で足りる:
+
+```sh
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq        # 現在値
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies  # 1.2/1.6/1.8GHz
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor        # schedutil (負荷連動)
+```
+
+起動時は SPL が安全電圧で 1.2GHz 起動 → cpufreq probe 後に schedutil が
+1.8GHz まで昇圧する。起動区間の 1.8GHz 化は kmm-yocto#10。
+
 ## 未踏 (次にやるなら)
 
 - **CAN bitrate**: BL31 起動の cold boot で M4 が `set_bitrate 1000000 rc=-34`
