@@ -86,12 +86,43 @@ HW ガイド本文の記述が正:
 | pin3 | UART2_TXD | → host RXD |
 | pin4 | NC | |
 
-115200 8N1、3.3V。**コンソールは UART2 = `ttymxc1`**(RPi 互換 pin8/10 の UART1 とは
-分離されていて衝突しない良設計)。
+115200 8N1、3.3V。**コンソールは UART2 = `ttymxc1`**(40 ピンヘッダの UART とは
+別コネクタなので衝突しない)。
 
 > ⚠️ **HW ガイドのピンアサインは実物と食い違いがあった**(ユーザー確認済み)。
 > 上表は最終的に UART 出力が取れた実配置。J63/J64 の取り違えや TX/RX の
 > クロスは実機で合わせ込む前提。
+
+## 40 ピンヘッダの UART(J62)— ガイドの機能名と実パッドが交差している
+
+HW ガイドの J62 表は「UART1_TXD」等の**機能名**で書かれているが、i.MX8MM の
+パッド多重化の制約上、実配線のパッドは別機能の名前を持つ。**ガイドの機能名を
+そのまま信じて DTS の専用パッドを疑うと嵌まる**(2026-08 GPS 接続で実証)。
+詳細は [04-pitfalls #29](04-pitfalls.md)。
+
+| J62 ピン | ガイド表記 | 実際の i.MX パッド | 検証状態 |
+|---|---|---|---|
+| **16** | UART1_CTS | **UART3_RXD 専用パッド**(ALT0=UART3 RX / ALT1=UART1 CTS) | ✅ ジャンパループバック+GPS NMEA 受信で実証 |
+| **18** | UART1_RTS | **UART3_TXD 専用パッド**(ALT0=UART3 TX / ALT1=UART1 RTS) | ✅ 同上 |
+| 8 | UART1_TXD | UART1_TXD 専用パッドのはずだが… | ❌ **不通**。専用パッド/SAI2(ALT4)両構成+パッド総当たりで検出ゼロ。実配線されていない疑い(DNP?) |
+| 10 | UART1_RXD | 同上 | ❌ 同上 |
+| 36 | UART3_RXD | ECSPI1_SCLK パッド(ALT1=UART3 RX)と推定 | 未検証(UART3 4 線は ECSPI1 パッド群でしか出せないため) |
+| 37 | UART3_TXD | ECSPI1_MOSI パッド(ALT1=UART3 TX)と推定 | 未検証 |
+| 11 | UART3_RTS | ECSPI1_SS0 パッド(ALT1)と推定 | 未検証 |
+| 13 | UART3_CTS | ECSPI1_MISO パッド(ALT1)と推定 | 未検証 |
+
+背景(i.MX8MM の制約、`imx8mm-pinfunc.h` より):
+
+- **UART1_RTS/CTS の専用パッドは存在しない** → 出すなら UART3_RXD/TXD 専用パッド(ALT1)
+  か SAI2 パッド(ALT4)。XPI は前者を pin16/18 に配線している。
+- **UART3 の RX/TX/RTS/CTS 4 線フルセットは ECSPI1 パッド群(ALT1)でしか出せない**
+  (UART3_RXD/TXD 専用パッドには RTS/CTS が無い)。
+- 結果、ガイド表の「UART1 の CTS/RTS」= 実は UART3 の RX/TX 専用パッド、という交差が生まれる。
+
+**GPS(u-blox、9600 8N1)の実配線**: モジュール TXO → **pin16**(UART3_RXD)、
+RXI → **pin18**(UART3_TXD)。DTS は `pinctrl_uart3`(UART3_RXD/TXD 専用パッド
+ALT0 + daisy 0x504=2)のままで `/dev/ttymxc2` に NMEA が流れる。ZOE-M8Q で
+fix(quality=2、衛星 11 機)まで実証済み。
 
 ## 電源
 

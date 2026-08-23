@@ -723,3 +723,50 @@ vring da/status のテーブルで attach が噛み合わず、rpmsg が張ら�
   書く側(ここでは BL31)が明示的に初期化してから使う。
 - 詳細: [10-cortex-m4.md](10-cortex-m4.md) ④、
   [learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §「BL31 版 M4 起動」。
+
+## 29. HW ガイド J62 表の UART 機能名は実パッドと交差している — 「pin36/37=UART3」を信じて 2 日誤診
+
+GPS を「ガイド表の UART3 RXD/TXD = pin36/37」に配線しても無音。ジャンパ
+短絡ループバックも不通で、「SoC の uart3 RX 故障」とまで誤診した(後述 #30 の
+ツール問題も重なった)。真相は**ガイドの機能名と実パッドの交差**:
+
+- i.MX8MM に UART1_RTS/CTS の専用パッドは無い → ガイドの「pin16/18 =
+  UART1_CTS/RTS」に実配線されているのは **UART3_RXD/TXD 専用パッド**(ALT1 が
+  UART1 CTS/RTS)。つまり DTS が `pinctrl_uart3`(専用パッド)で出した UART3 は
+  **pin16/18 に出ていた**。
+- ガイドの「pin36/37 = UART3 RXD/TXD」は ECSPI1_SCLK/MOSI パッド(ALT1)の推定
+  (UART3 4 線は ECSPI1 パッド群でしか出せない)。
+- さらに「pin8/10 = UART1 TXD/RXD」は、UART1 を出せる全構成(専用パッド /
+  SAI2 ALT4)+候補パッド総当たりスキャンでも不通 — **実配線されていない疑い**。
+
+決着手順(再利用可能): ① UTS.LOOP(base+0xB4 bit12)の内部ループバックで
+UART ブロック+ドライバを陽性対照込みで検証 → ② ピン 2 本のジャンパ短絡で
+物理ループバック → ③ 通らなければ SION 自己読み(出力パッド)+ pull 切替
+(入力パッド)でパッド単体を検証 → ④ それでも通らなければ「ヘッダ⇔パッド対応」
+自体を疑い、pinfunc.h の ALT 表から配線候補パッドを逆引きする。
+
+教訓: **ベンダの 40 ピン表は「機能名」であって「パッド名」ではない**。
+pinfunc.h で「その機能をどのパッドが出せるか」を逆引きし、候補パッド全部を
+試すこと。正解表は [01-hardware.md](01-hardware.md) §J62 UART。
+
+## 30. busybox の cat/dd は ttymxc から読めない(即 EOF)— 全ループバック試験が偽陰性
+
+上記 #29 のデバッグを 2 日遅らせた第二の罠。この板の busybox 1.36 では
+`cat /dev/ttymxc2` や `dd if=/dev/ttymxc2` が、**データが届いていても 0 秒で
+EOF(0 バイト)を返す**。termios が raw / min=1 でも起きる。このため
+「ループバック不通」に見えた試験の多くが、実は**受信済みデータを読めていない
+だけ**だった(/proc/tty/driver/IMX-uart の rx カウンタは増えていた)。
+
+- 使える読み方: シェルの `read` ビルトイン(poll してから read するため正常)。
+  ```sh
+  exec 3<>/dev/ttymxc2
+  stty 9600 raw -echo clocal <&3
+  read -t 3 L <&3 && echo "$L"
+  ```
+- UART の生死判定は tty を介さず **/proc/tty/driver/IMX-uart の tx/rx カウンタ**
+  を一次証拠にする(ドライバ IRQ が受けた文字数。読み手の問題と切り離せる)。
+- ポートは open している間しか受信しない(last close で shutdown)。fd を
+  `exec 3<>` で保持してから送受信すること。UTS.LOOP も open 中に立てる
+  (open がレジスタを再初期化するため)。
+- 教訓: **陰性結果を出す前に、テスト手順そのものを既知動作系で陽性対照にかける**。
+  console(ttymxc1、RX 動作実証済み)で同じ手順を流した瞬間に手順の欠陥が発覚した。
