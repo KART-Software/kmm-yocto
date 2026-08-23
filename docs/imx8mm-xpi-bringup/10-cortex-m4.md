@@ -232,7 +232,9 @@ ip -s link show can0                            # rx が増えていること (c
 60 frames/s (= ADC 0x700/0x701 の 30Hz×2) ぴったりなら、Zephyr の
 `SYS_CLOCK` 前提と実クロックが一致している (ズレていれば周期が 2 倍/半分になる)。
 
-参考 — A53 側の確認は cpufreq sysfs で足りる:
+## A53 のクロック確認手順 (SPL overdrive 1.8GHz の検証、2026-08-24 実測)
+
+定常運転の確認は cpufreq sysfs で足りる:
 
 ```sh
 cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq        # 現在値
@@ -240,8 +242,67 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies  # 1.2/1.
 cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor        # schedutil (負荷連動)
 ```
 
-起動時は SPL が安全電圧で 1.2GHz 起動 → cpufreq probe 後に schedutil が
-1.8GHz まで昇圧する。起動区間の 1.8GHz 化は kmm-yocto#10。
+**起動時クロック (SPL が設定した値)** は事後の sysfs では見えない (cpufreq
+probe 後は kernel が上書きする) ので、以下を組み合わせて検証した
+(u-boot パッチ 0012 = SPL overdrive、kmm-yocto#10):
+
+### 1. SPL 自身の検証ログ
+
+```
+kart: A53 1.8GHz (VDD_ARM 1.00V)
+```
+
+このメッセージは「BD71847 BUCK2 への書き込みが**読み戻し一致**し、かつ
+`intpll_configure()` が **ARM PLL の LOCK ビット待ちを通過**した」場合にのみ
+出る。失敗時は各段のメッセージ (`VDD_ARM set failed` 等) で 1.2GHz 続行。
+※初版は REGLOCK を知らず "set failed" になった — BD718xx は電圧レジスタが
+REGLOCK_VREG (0x2F, bit4) でロックされているのがデフォルトで、書く前に解除が要る。
+
+### 2. ARM PLL レジスタの実値デコード (kernel の設定値との同一性)
+
+```sh
+D=$(devmem 0x30360088 32)   # ANAMIX ARM_PLL_DIV_CTL (GNRL_CTL=0x84 は周波数によらず一定なので注意)
+M=$(( (D >> 12) & 0x3FF )); P=$(( (D >> 4) & 0x3F )); S=$(( D & 0x7 ))
+echo "$(( (24 * M / P) >> S )) MHz"
+```
+
+- 1.8GHz OPP 時: `0x000E1030` = 24×225÷3÷2⁰ = **1800MHz**
+- 1.2GHz 固定時 (governor=powersave): `0x0012C031` = 24×300÷3÷2¹ = **1200MHz**
+
+読む前に **governor を切り替えて値が追従することを先に確認する** (デコード
+手法の陽性/陰性対照)。SPL パッチが書く値は u-boot の MHZ(1800) テーブル
+そのもので、kernel の 1.8GHz OPP 設定値とバイナリ一致する。
+⚠ devmem と `scaling_cur_freq` の読み取りは別時刻 — ssh コマンド自体の負荷で
+schedutil が昇圧するので、「アイドルのはずが 1800」に見えることがある。
+固定 governor (powersave/performance) で読むこと。
+
+### 3. VDD_ARM 電圧 (regulator sysfs)
+
+```sh
+for r in /sys/class/regulator/regulator.*; do
+  [ "$(cat $r/name)" = "buck2" ] && cat $r/microvolts
+done
+```
+
+1.8GHz 時 **1000000** (=1.00V、SPL が書いたのと同じ BUCK2_VOLT_RUN)、
+1.6GHz 時 950000。kernel OPP 表 (imx8mm.dtsi) と一致していること。
+
+### 4. タイミングによる物理効果の確認
+
+fresh boot 後 uptime ~15s 時点で:
+
+```sh
+cut -d" " -f1 /proc/uptime
+cat /sys/devices/system/cpu/cpu0/cpufreq/stats/time_in_state   # 単位 10ms
+```
+
+`uptime − time_in_state 合計 = cpufreq 有効化前の区間`。SPL 1.2GHz 起動では
+**2.2s**、1.8GHz 起動で **1.6〜1.8s** (×0.73 ≈ CPU バウンド分が 1.2/1.8 倍に
+なる予測と整合)。GUI 到達 (`systemctl show kmm.service -p
+ActiveEnterTimestampMonotonic`) は平均 3.33s→2.98s (n=3/5)。
+
+限界: 以上はレジスタ実値・電圧実値・時間効果の 3 点によるもので、ブート中の
+クロックを周波数カウンタで直接測ったわけではない。
 
 ## 未踏 (次にやるなら)
 
