@@ -134,7 +134,25 @@ IMAGE_ROOTFS_EXTRA_SPACE = "0"
 # Ensure systemd is used
 IMAGE_INSTALL:append = " systemd-serialgetty"
 
-ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;netboot_mask_networkd;"
+# シリアル getty を autologin 化 (全機種・prod 含む)。prod は root がロック
+# (debug-tweaks なし = shadow が `root:*`) なので、これが無いとシリアルは
+# 「プロンプトは出るが誰も入れない」= 非常口として空振りになる (2026-08 実測)。
+# 物理的に J63/UART へ触れる人は eMMC 抜去等で何でもできるため、
+# 「物理アクセス = root」を素直に認める設計判断。テンプレート単位の drop-in
+# なので imx (ttymxc1) / RPi5 (ttyAMA 系) の全インスタンスに効く。
+# ExecStart は poky の systemd-serialgetty (agetty -8 -L %I <baud> $TERM) に
+# --autologin root を足した形。ログアウトしても Restart=always で即 root
+# シェルが再生成される (ログアウトに意味は無くなる)。
+serial_getty_autologin() {
+    mkdir -p ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/serial-getty@.service.d
+    cat > ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/serial-getty@.service.d/autologin.conf << EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root -8 -L %I 115200 \$TERM
+EOF
+}
+
+ROOTFS_POSTPROCESS_COMMAND += "create_data_mount;order_timesyncd_after_network;mask_journal_catalog_update;netboot_mask_networkd;serial_getty_autologin;"
 
 # ---------------------------------------------------------------------------
 # netboot (NFS root) 専用: systemd-networkd スタックを丸ごと mask する。
