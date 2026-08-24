@@ -20,7 +20,7 @@
 # インターフェース階層にあり、1 ルール内の複数 ATTRS{} は同一親でないと
 # マッチしない。そのためインターフェース番号は udev が tty に付与する
 # ENV{ID_USB_INTERFACE_NUM} で照合する。
-SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b|048c", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="kart-a53-console", GROUP="dialout", MODE="0660"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b|048c", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="kart-m4-uart", GROUP="dialout", MODE="0660"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048c", ENV{ID_USB_INTERFACE_NUM}=="04", SYMLINK+="kart-teensy-diag", GROUP="dialout", MODE="0660"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="117e", SYMLINK+="kart-canable", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b|048c", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="kart-a53-console", GROUP="dialout", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048b|048c", ENV{ID_USB_INTERFACE_NUM}=="02", SYMLINK+="kart-m4-uart", GROUP="dialout", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="048c", ENV{ID_USB_INTERFACE_NUM}=="04", SYMLINK+="kart-teensy-diag", GROUP="dialout", MODE="0666"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16d0", ATTRS{idProduct}=="117e", SYMLINK+="kart-canable", GROUP="dialout", MODE="0666"
