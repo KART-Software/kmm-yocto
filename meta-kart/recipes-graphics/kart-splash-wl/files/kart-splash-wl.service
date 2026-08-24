@@ -1,0 +1,19 @@
+[Unit]
+Description=Kart splash (SPL と同じロゴを GUI 表示まで継続表示)
+# After=weston は張らない: READY (=初回フレーム後) を待ってから fork では
+# ロゴ不在期間が 100ms+ 残る (2026-08-25 カメラ実測)。並行起動して wayland
+# ソケット出現を 10ms ポーリングで掴み、weston の初回フレームにロゴを
+# 間に合わせる。PartOf で weston 再起動時は共に再起動。
+PartOf=weston.service
+
+[Service]
+User=kart
+Group=kart
+Environment=XDG_RUNTIME_DIR=/run/wayland
+Environment=WAYLAND_DISPLAY=wayland-1
+ExecStart=/usr/bin/kart-splash-wl
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -194,13 +194,57 @@ SPL(banner 相対、シリアル実測):
 
 ---
 
-## ⑧ 残課題 — weston カーテンの 0.5s
+## ⑧ weston カーテンの 0.5s — kart-splash-wl で解決 (2026-08-24)
 
 seamless takeover は「SPL ロゴ → カーネル DRM」の暗転を消す。だが **weston(kiosk-shell)が起動
-(kernel+3.04s)して自分の背景色 `#10141c` で画面を塗り、kmm が初回フレームを描く(kernel+3.54s)まで
-の ~0.5s** は、ロゴが消えて無地の紺になる。これはコンポジタ領域でカーネルパッチでは覆えない。
-kiosk-shell は `background-image` 非対応なので、根治するなら **kmm の初回フレームをロゴにする(app 側)**
-か、この 0.5s を許容する。
+して自分の背景色 `#10141c` で画面を塗り、kmm が初回フレームを描くまでの ~0.5s** は、ロゴが消えて
+無地の紺になる(Web カメラ 10fps 実測: SPL ロゴ 2.4s → 暗転 0.5s → GUI)。
+
+### 検討した選択肢と決着
+
+- **kiosk-shell に background-image をパッチで足す** — 当初の本命だったが、weston 13 の
+  kiosk-shell 背景は `weston_curtain` = **単色専用**で、compositor 内部から任意画像バッファを
+  surface に貼る公開 API が無い(SHM buffer は wl_client 前提)。renderer 直叩きの大工事に
+  なるため撤回。
+- **kmm の初回フレームをロゴに(app 側)** — Qt 初期化の後にしか描けないので 0.5s の
+  後半しか縮まない。
+- **採用: 専用スプラッシュクライアント `kart-splash-wl`**(`recipes-graphics/kart-splash-wl/`)。
+  SPL と同一の絵(BG `#10141c` + 白ロゴ、`kart_splash_logo.h` を u-boot と FILESEXTRAPATHS で
+  単一ソース共用、同一座標)を描くだけの極小 wl_shm クライアント(C 約 200 行、Qt 不使用)。
+  weston 直後に起動し、**kiosk-shell は最後にマップされた surface を前面に置く**ため、
+  kmm 表示で自然に背面へ隠れる。
+
+### 結果 (カメラ実測)
+
+暗転 **0.5s → 約 60ms の一瞬き**。遷移は「SPL ロゴ → 一瞬 → クライアント版ロゴ
+(同一の絵)→ GUI」となり、6fps タイルでは暗転コマゼロ。副次効果: クライアントは
+常駐なので **kmm が再起動する間もロゴが出る**(ダークトーン画面の根絶)。
+
+### 残る ~60ms の正体と、hold-first-repaint パッチの試行と撤回 (2026-08-25)
+
+残る一瞬き (30fps 解析で Y 132→118 の 2 フレーム谷) はコンポジションの内容では
+なく **weston 初回 KMS コミットのモードセット瞬断**: weston は初回に自分の知らない
+plane/CRTC を一度リセットする (state_invalid) 設計で、imx の LCDIF/DSIM は同一
+モードでも fastset せず CRTC を disable→enable するため、DSI→LT9611→パネルの
+信号が数十 ms 途切れる。
+
+これを消そうと「最初のクライアントがマップされるまで初回リペイントを保留する」
+kiosk-shell/libweston パッチ (hold-first-repaint) を実装・実機比較したが、
+**hold あり Y→118 / なし Y→120 の同型 2 フレーム谷**で肉眼・計測とも区別不能
+(hold が消せるのは紺カーテンのフレームだけで、splash-wl 導入後それは元々
+1-3 フレームしかなく、モードセット瞬断に埋もれていた)。利得ゼロのパッチを
+weston コアに抱える価値は無いと判断し**撤回**した。
+
+根絶するなら (将来課題): weston drm-backend の「既存 KMS 状態の継承」
+(state_invalid をやめ現状を取り込んで pageflip で入る) か、LCDIF/DSIM の
+fastset 実装。どちらも重く、表示チェーンは位相抽選 (#17/#22/#23) の前科がある
+リスク地帯なので、60ms は受容が現実解。
+
+### 測定手法 (再利用可)
+
+`imx8mm-xpi-bench` skill の Web カメラ節そのまま: 録画(bg)→ dp100 cycle →
+`ffprobe signalstats` の YAVG 遷移で区間時刻を出す(SPL ロゴ Y~115 / 暗転 Y~75 /
+GUI Y~145)→ `fps=6 tile` のモンタージュで目視。
 
 ---
 

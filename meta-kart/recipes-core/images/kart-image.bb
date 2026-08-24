@@ -73,6 +73,7 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
     libubootenv-bin \
     kart-edid-firmware \
     kart-udev-slim \
+    kart-splash-wl \
 "
 
 # udev ダイエット (mx8mm のみ、RPi5 は据え置き):
