@@ -770,3 +770,32 @@ EOF(0 バイト)を返す**。termios が raw / min=1 でも起きる。この�
   (open がレジスタを再初期化するため)。
 - 教訓: **陰性結果を出す前に、テスト手順そのものを既知動作系で陽性対照にかける**。
   console(ttymxc1、RX 動作実証済み)で同じ手順を流した瞬間に手順の欠陥が発覚した。
+
+## 31. Linux の gpio-mxc probe が M4 の割り込み設定を消す — cold boot 限定で CAN 沈黙
+
+BL31 起動 (M4 が Linux より先) の cold boot でのみ、CAN の物理送受信が
+「TX 1 発だけ成功して沈黙・RX 全滅・エラーなし」になる。try.sh (remoteproc、
+Linux 起動後ロード) では全く再現しない。
+
+真因: **GPIO3 バンクを RDC で M4 の縄張りにしたのに、Linux dts で gpio3 を
+disabled にし忘れていた**。Linux の gpio-mxc は probe 時に IMR (割り込みマスク) を
+全クリアするため、M4 (can-gw) が先に設定した MCP2515 INT (GPIO3_IO24) の
+エッジ割り込みが Linux ブートの瞬間に消える。以降 INT は Low に張り付いたまま
+M4 に一度も配送されず、TX 完了も RX 通知も届かない。
+
+- 症状の読み方: `adc->can 1` で停止 (can_send の**投入**成功 1 回のみ =
+  完了割り込み不達で TX バッファが空かず以降 -EAGAIN)、CANINTF には要因が
+  溜まり INT=Low 固定、なのに rx_err=0。
+- 切り分けに使った道具: `apps/int-diag` (data-logger-zephyr) — M4 側から
+  INT レベル / エッジカウンタ / MCP2515 レジスタ (raw SPI) を直読みする。
+  「CANINTF に要因あり + INT=Low + エッジ配送は動く (クリア後に edges++)」で
+  ハード全部無罪を証明し、起動順へ疑いを絞った。
+- 修正: Linux dts で `&gpio3 { status = "disabled"; }` (利用者ゼロを確認の上)。
+- 教訓 2 点: ①「RDC で許可を足す」は A53 を締め出さない — バンクを渡すなら
+  Linux 側の無効化まで含めて 1 セット。②ペリフェラルを他コアに渡す変更は、
+  「相手コアが先に起動する経路」で必ず検証する (remoteproc ロードでは
+  起動順バグは構造的に発火しない)。
+- 併発していた別バグ: Zephyr mcp2515 ドライバは TX バッファを 1 本しか使わない
+  (MCP2515_TX_CNT=1) ため、K_NO_WAIT の 2 連投で 2 フレーム目 (0x701) が毎回
+  -EAGAIN で消えていた。can-gw 側で「バッファ空き待ちのみ」の K_MSEC(5) に変更
+  (callback 方式なので ACK 不在でもブロックしない)。

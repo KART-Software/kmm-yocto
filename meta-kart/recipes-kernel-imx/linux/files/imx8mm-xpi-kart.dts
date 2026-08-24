@@ -311,6 +311,16 @@
 	/delete-node/ ir-receiver;	/* gpio1 13 を掴む */
 };
 
+/* GPIO3 バンクは RDC で M4 の縄張り (MCP2515 INT=IO24 / ADS8688 CS=IO21)。
+ * Linux の gpio-mxc は probe 時に IMR を全クリアするため、有効なままだと
+ * 「M4 (falcon 起動、Linux より先) が設定した INT 割り込みを Linux ブートが
+ * 消す」— cold boot でのみ CAN 物理送受信が死ぬ (try.sh ロードでは無症状)
+ * という時限バグになる (2026-08-24 実測、pitfalls #31)。Linux 側の利用者は
+ * 無い (leds は上で削除済み) ので丸ごと無効化する */
+&gpio3 {
+	status = "disabled";
+};
+
 /* HDMI コネクタは LT9611 の出力へ */
 &hdmi_connector_in {
 	remote-endpoint = <&lt9611_out>;
