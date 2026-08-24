@@ -45,7 +45,7 @@ new file mode 100644
 index 0000000000..c13507acf7
 --- /dev/null
 +++ b/board/freescale/imx8mm_evk/kart_splash.c
-@@ -0,0 +1,587 @@
+@@ -0,0 +1,590 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * kart SPL splash: XPI-iMX8MM の電源投入直後スプラッシュ。
@@ -74,7 +74,10 @@ index 0000000000..c13507acf7
 +
 +#define SPLASH_FB_ADDR		0xBFA00000UL	/* kart-falcon-itb.bb と一致必須 */
 +#define SPLASH_FB_SIZE		(1920 * 792 * 4)
-+#define SPLASH_BG_XRGB		0x0010141c	/* weston background-color と同色 */
++#define SPLASH_BG_XRGB		0x00000000	/* 真っ黒 (weston background-color / kart-splash-wl と同色)。
++ * 黒にする理由: weston 初回コミットのモードセット瞬断 (~60ms) 中はパネルが
++ * 黒を表示するため、背景も黒なら瞬断は「ロゴが一瞬消える」だけになり
++ * 全画面の明滅として知覚されない (docs 11 §8) */
 +
 +#define ANATOP_BASE		0x30360000UL
 +#define CCM_BASE		0x30380000UL

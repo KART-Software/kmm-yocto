@@ -1,0 +1,116 @@
+From: kart <kart@localhost>
+Subject: [PATCH] imx8mm: kart: SPL で A53 を 1.8GHz overdrive にする
+
+ブート中の A53 は SPL の clock_init が設定した 1.2GHz のまま kernel の
+cpufreq probe (uptime ~2.2s) まで走る。GUI 表示 (kmm active = ~3.25s) の
+クリティカルパスの約 68% が定格の 2/3 のクロックという実測 (kmm-yocto#10)。
+
+XPI の PMIC は BD71847@I2C1-0x4b で、EVK 用の power_init_board は
+PCA9450 を探して "No pmic" スキップになっている (= SPL は電圧を触って
+おらず、BD71847 デフォルトの VDD_ARM で 1.2GHz が動いている)。
+
+1.8GHz には VDD_ARM 1.00V が必要 (kernel OPP 表と同値)。順序が安全性の要:
+  1. BD71847 BUCK2 (VDD_ARM) を 1.00V へ (dm_i2c 直叩き、読み戻し検証付き)
+  2. buck の ramp を待つ
+  3. ARM PLL を 1.2->1.8GHz (切替中は A53 を SYS_PLL1_800M へ退避)
+どこかで失敗したら 1.2GHz のまま続行する (安全側フォールバック)。
+kernel 側は cpufreq probe 後に OPP 管理へ移行するだけなので整合する
+(1.8GHz@1.00V は OPP 表の正規エントリ)。
+
+注: このパッチは bbappend 経由のため kas フラグメントのパッチ (falcon 等)
+より先=素のソースに適用される。行番号は素の v2025.01+fslc 基準。
+
+Upstream-Status: Inappropriate [kart board-specific]
+---
+--- a/arch/arm/include/asm/arch-imx8m/clock.h
++++ b/arch/arm/include/asm/arch-imx8m/clock.h
+@@ -277,3 +277,4 @@
+ int enable_i2c_clk(unsigned char enable, unsigned int i2c_num);
+ int set_clk_enet(enum enet_freq type);
+ void hab_caam_clock_enable(unsigned char enable);
++int kart_a53_set_mhz(ulong mhz);
+--- a/arch/arm/mach-imx/imx8m/clock_imx8mm.c
++++ b/arch/arm/mach-imx/imx8m/clock_imx8mm.c
+@@ -946,3 +946,17 @@
+
+ 	return -EINVAL;
+ }
++
++/* kart: SPL から A53 クロックを変更する公開ラッパ。VDD_ARM (BD71847 BUCK2)
++ * を対象 OPP の電圧へ上げてから呼ぶこと。切替中は A53 を SYS_PLL1_800M へ
++ * 退避し、ARM PLL の再ロック後に復帰する (clock_init と同じ作法)。
++ * intpll_configure が失敗しても PLL は旧設定のままなので復帰は常に安全。 */
++int kart_a53_set_mhz(ulong mhz)
++{
++	int ret;
++
++	clock_set_target_val(CORE_SEL_CFG, CLK_ROOT_SOURCE_SEL(0));
++	ret = intpll_configure(ANATOP_ARM_PLL, MHZ(mhz));
++	clock_set_target_val(CORE_SEL_CFG, CLK_ROOT_SOURCE_SEL(1));
++	return ret;
++}
+--- a/board/freescale/imx8mm_evk/spl.c
++++ b/board/freescale/imx8mm_evk/spl.c
+@@ -102,6 +102,53 @@
+ 	return 0;
+ }
+
++/* kart 専用 include。ファイル先頭でなくここに置くのは、include ブロックを
++ * 触ると後続の splash/m4 パッチ (kas フラグメント側) が fuzz するため */
++#include <power/bd71837.h>
++#include <i2c.h>
++
++/* kart: XPI の PMIC は BD71847@I2C1-0x4b (EVK の PCA9450 は不在で上の
++ * power_init_board は "No pmic" スキップになる)。A53 の 1.8GHz overdrive
++ * には VDD_ARM (BUCK2) を kernel OPP と同じ 1.00V に上げる必要がある。
++ * 電圧を先に上げ、読み戻し検証が通ってから ARM PLL を切り替える。
++ * どの段で失敗しても 1.2GHz のまま続行 (ブート可否には影響しない)。 */
++static void kart_a53_overdrive(void)
++{
++	struct udevice *bus, *dev;
++	u8 val = 0x1e;	/* 0.70V + 0x1e * 10mV = 1.00V */
++	u8 chk = 0;
++	u8 lock = 0;
++
++	if (uclass_get_device_by_seq(UCLASS_I2C, 0, &bus)) {
++		puts("kart: no i2c1, A53 stays 1.2GHz\n");
++		return;
++	}
++	if (dm_i2c_probe(bus, 0x4b, 0, &dev)) {
++		puts("kart: no BD71847, A53 stays 1.2GHz\n");
++		return;
++	}
++	/* BD718xx は電圧レジスタが REGLOCK_VREG でロックされている (kernel の
++	 * bd718x7 ドライバも probe 時に解除する)。解除失敗は次の read-back で
++	 * 検出されるのでここでは戻り値を見ない。kernel は自前で unlock するため
++	 * ロックは戻さなくてよい */
++	if (dm_i2c_read(dev, BD718XX_REGLOCK, &lock, 1) == 0) {
++		lock &= ~BD718XX_REGLOCK_VREG;
++		dm_i2c_write(dev, BD718XX_REGLOCK, &lock, 1);
++	}
++	if (dm_i2c_write(dev, BD718XX_BUCK2_VOLT_RUN, &val, 1) ||
++	    dm_i2c_read(dev, BD718XX_BUCK2_VOLT_RUN, &chk, 1) || chk != val) {
++		puts("kart: VDD_ARM set failed, A53 stays 1.2GHz\n");
++		return;
++	}
++	/* BD71847 buck ramp ~1.25mV/us: 0.90->1.00V = 80us + margin */
++	udelay(200);
++
++	if (kart_a53_set_mhz(1800))
++		puts("kart: ARM PLL 1800 failed, A53 stays 1.2GHz\n");
++	else
++		puts("kart: A53 1.8GHz (VDD_ARM 1.00V)\n");
++}
++
+ void board_init_f(ulong dummy)
+ {
+ 	struct udevice *dev;
+@@ -136,6 +183,8 @@
+
+ 	power_init_board();
+
++	kart_a53_overdrive();
++
+ 	/* DDR initialization */
+ 	spl_dram_init();
+

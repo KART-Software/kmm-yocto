@@ -184,6 +184,126 @@ firmware の rsc_table 自己 publish は data-logger-zephyr の can-gw。
 
 概念の詳細は [learning/03](../../learning/03-m4-coprocessor-rpmsg.md) §2-3。
 
+## M4 のクロック確認手順 (2026-08-23 実測)
+
+M4 のコアクロックは Linux の clk ツリーに現れない (`clk_summary` に m4 は無い)
+ので、**CCM レジスタ直読み**で確認する。
+
+```sh
+devmem 0x30388080 32     # CCM_TARGET_ROOT1 = ARM_M4_CLK_ROOT
+```
+
+デコード: bit28=ENABLE / bits26:24=MUX / bits18:16=PRE_PODF (÷N+1) /
+bits5:0=POST_PODF (÷N+1)。MUX の対応表はカーネルソース
+`drivers/clk/imx/clk-imx8mm.c` の `imx8mm_m4_sels[]`:
+
+| MUX | ソース | 周波数 |
+|---|---|---|
+| 0 | osc_24m | 24MHz |
+| 1 | sys_pll2_200m | 200MHz |
+| 4 | sys_pll1_800m | 800MHz |
+
+実測値の読み方:
+
+- `0x11000000` = ENABLE + MUX1 = **200MHz** — **ブートデフォルト。M4 が起動して
+  いない時に見える値**
+- `0x14000001` = ENABLE + MUX4 + POST_PODF1 = 800÷2 = **400MHz (定格上限)** —
+  Zephyr 稼働時の値
+
+### ⚠️ 罠: M4 不在時に読むと「200MHz で動いている」ように見える
+
+M4 クロックは **Zephyr の SoC init が自分で設定する**
+(`zephyr/soc/nxp/imx/imx8m/m4_mini/soc.c`: `CLOCK_SetRootDivider(kCLOCK_RootM4,
+1, 2)` + `SysPll1` = 400MHz)。つまり:
+
+- M4 稼働中 → 400MHz (ファームが設定済み)
+- M4 不在 (BL31 が M4 を起動しなかった等) → ブートデフォルト 200MHz が残る
+
+2026-08-23 に「M4 は 200MHz で動いている、倍にできる」と誤診したのは、
+stock BL31 (M4 起動パッチ抜きビルド) で **M4 が起動していない板**のレジスタを
+読んだため。クロックを読む前に必ず M4 の稼働をセットで確認する:
+
+```sh
+cat /sys/class/remoteproc/remoteproc0/state    # attached であること
+ip -s link show can0                            # rx が増えていること (can-gw 稼働時)
+```
+
+タイマー整合の傍証: can0 の RX レート実測 (10 秒間のカウンタ差分) が
+60 frames/s (= ADC 0x700/0x701 の 30Hz×2) ぴったりなら、Zephyr の
+`SYS_CLOCK` 前提と実クロックが一致している (ズレていれば周期が 2 倍/半分になる)。
+
+## A53 のクロック確認手順 (SPL overdrive 1.8GHz の検証、2026-08-24 実測)
+
+定常運転の確認は cpufreq sysfs で足りる:
+
+```sh
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq        # 現在値
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies  # 1.2/1.6/1.8GHz
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor        # schedutil (負荷連動)
+```
+
+**起動時クロック (SPL が設定した値)** は事後の sysfs では見えない (cpufreq
+probe 後は kernel が上書きする) ので、以下を組み合わせて検証した
+(u-boot パッチ 0012 = SPL overdrive、kmm-yocto#10):
+
+### 1. SPL 自身の検証ログ
+
+```
+kart: A53 1.8GHz (VDD_ARM 1.00V)
+```
+
+このメッセージは「BD71847 BUCK2 への書き込みが**読み戻し一致**し、かつ
+`intpll_configure()` が **ARM PLL の LOCK ビット待ちを通過**した」場合にのみ
+出る。失敗時は各段のメッセージ (`VDD_ARM set failed` 等) で 1.2GHz 続行。
+※初版は REGLOCK を知らず "set failed" になった — BD718xx は電圧レジスタが
+REGLOCK_VREG (0x2F, bit4) でロックされているのがデフォルトで、書く前に解除が要る。
+
+### 2. ARM PLL レジスタの実値デコード (kernel の設定値との同一性)
+
+```sh
+D=$(devmem 0x30360088 32)   # ANAMIX ARM_PLL_DIV_CTL (GNRL_CTL=0x84 は周波数によらず一定なので注意)
+M=$(( (D >> 12) & 0x3FF )); P=$(( (D >> 4) & 0x3F )); S=$(( D & 0x7 ))
+echo "$(( (24 * M / P) >> S )) MHz"
+```
+
+- 1.8GHz OPP 時: `0x000E1030` = 24×225÷3÷2⁰ = **1800MHz**
+- 1.2GHz 固定時 (governor=powersave): `0x0012C031` = 24×300÷3÷2¹ = **1200MHz**
+
+読む前に **governor を切り替えて値が追従することを先に確認する** (デコード
+手法の陽性/陰性対照)。SPL パッチが書く値は u-boot の MHZ(1800) テーブル
+そのもので、kernel の 1.8GHz OPP 設定値とバイナリ一致する。
+⚠ devmem と `scaling_cur_freq` の読み取りは別時刻 — ssh コマンド自体の負荷で
+schedutil が昇圧するので、「アイドルのはずが 1800」に見えることがある。
+固定 governor (powersave/performance) で読むこと。
+
+### 3. VDD_ARM 電圧 (regulator sysfs)
+
+```sh
+for r in /sys/class/regulator/regulator.*; do
+  [ "$(cat $r/name)" = "buck2" ] && cat $r/microvolts
+done
+```
+
+1.8GHz 時 **1000000** (=1.00V、SPL が書いたのと同じ BUCK2_VOLT_RUN)、
+1.6GHz 時 950000。kernel OPP 表 (imx8mm.dtsi) と一致していること。
+
+### 4. タイミングによる物理効果の確認
+
+fresh boot 後 uptime ~15s 時点で:
+
+```sh
+cut -d" " -f1 /proc/uptime
+cat /sys/devices/system/cpu/cpu0/cpufreq/stats/time_in_state   # 単位 10ms
+```
+
+`uptime − time_in_state 合計 = cpufreq 有効化前の区間`。SPL 1.2GHz 起動では
+**2.2s**、1.8GHz 起動で **1.6〜1.8s** (×0.73 ≈ CPU バウンド分が 1.2/1.8 倍に
+なる予測と整合)。GUI 到達 (`systemctl show kmm.service -p
+ActiveEnterTimestampMonotonic`) は平均 3.33s→2.98s (n=3/5)。
+
+限界: 以上はレジスタ実値・電圧実値・時間効果の 3 点によるもので、ブート中の
+クロックを周波数カウンタで直接測ったわけではない。
+
 ## 未踏 (次にやるなら)
 
 - **CAN bitrate**: BL31 起動の cold boot で M4 が `set_bitrate 1000000 rc=-34`

@@ -5,6 +5,7 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 SRC_URI += " \
     file://kart-ab.cfg \
     file://kart-uboot-slim.cfg \
+    file://0012-imx8mm-kart-spl-a53-overdrive-1800mhz.patch \
 "
 
 # extlinux の root= の差し替え口。machine include (imx8mm-evk.inc) が

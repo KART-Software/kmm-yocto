@@ -311,6 +311,16 @@
 	/delete-node/ ir-receiver;	/* gpio1 13 を掴む */
 };
 
+/* GPIO3 バンクは RDC で M4 の縄張り (MCP2515 INT=IO24 / ADS8688 CS=IO21)。
+ * Linux の gpio-mxc は probe 時に IMR を全クリアするため、有効なままだと
+ * 「M4 (falcon 起動、Linux より先) が設定した INT 割り込みを Linux ブートが
+ * 消す」— cold boot でのみ CAN 物理送受信が死ぬ (try.sh ロードでは無症状)
+ * という時限バグになる (2026-08-24 実測、pitfalls #31)。Linux 側の利用者は
+ * 無い (leds は上で削除済み) ので丸ごと無効化する */
+&gpio3 {
+	status = "disabled";
+};
+
 /* HDMI コネクタは LT9611 の出力へ */
 &hdmi_connector_in {
 	remote-endpoint = <&lt9611_out>;
@@ -370,7 +380,50 @@
 	};
 };
 
+/* UART1 (ttymxc0)。「uart3 SoC RX 故障」誤診 (実際は busybox cat/dd の
+ * 偽 EOF — docs/04-pitfalls #30) の回避策として追加したが、ガイド表記の
+ * pin8/10 は実測不通 (UART1 全構成+パッド総当たりで検出ゼロ、実配線されて
+ * いない疑い — 04-pitfalls #29)。ヘッダで使えないため削除候補 */
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart1>;
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+	status = "okay";
+};
+
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart3>;
+	/* PIO 固定。「DMA RX 不達」は busybox cat/dd の偽 EOF による誤診で、
+	 * DMA が悪い証拠は無かった (docs/04-pitfalls #30)。PIO のまま GPS NMEA
+	 * 受信を実証済みで、9600bps に DMA は不要なのでこのままにする */
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+	status = "okay";
+};
+
 &iomuxc {
+	/* GPS 用 UART3 (ttymxc2、9600 8N1)。UART3_RXD/TXD 専用パッドは 40 ピン
+	 * ヘッダの **pin16/18** に出ている (ガイド表記は「UART1_CTS/RTS」だが
+	 * i.MX8MM のパッド多重化で交差 — docs/01-hardware.md §J62 UART、
+	 * ジャンパループバック+GPS NMEA 受信で実測確定)。ガイドの「pin36/37 =
+	 * UART3」は ECSPI1_SCLK/MOSI パッド (ALT1) の推定で未検証。
+	 * 配線: GPS TXO→pin16 (UART3_RXD)、RXI→pin18 (UART3_TXD) */
+	pinctrl_uart1: uart1grp {
+		fsl,pins = <
+			MX8MM_IOMUXC_UART1_RXD_UART1_DCE_RX	0x140
+			MX8MM_IOMUXC_UART1_TXD_UART1_DCE_TX	0x140
+		>;
+	};
+
+	pinctrl_uart3: uart3grp {
+		fsl,pins = <
+			MX8MM_IOMUXC_UART3_RXD_UART3_DCE_RX	0x140
+			MX8MM_IOMUXC_UART3_TXD_UART3_DCE_TX	0x140
+		>;
+	};
+
 	pinctrl_i2c4: i2c4grp {
 		fsl,pins = <
 			/* ベンダ実績 conf 0x400001c3 (open-drain 有効込み) */
