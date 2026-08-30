@@ -14,6 +14,7 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 # 6GB→4GB (3GB+1GB、ベンダーの board_phys_sdram_size と同じ割り付け)。
 SRC_URI:append:imx8mp-debix = " \
     file://debix.cfg \
+    file://debix-ab.cfg \
     file://debix-lpddr4_timing.c \
     file://0001-imx8mp-debix-4gb-dram-size.patch \
 "
@@ -21,3 +22,10 @@ SRC_URI:append:imx8mp-debix = " \
 do_configure:prepend:imx8mp-debix() {
     cp ${WORKDIR}/debix-lpddr4_timing.c ${S}/board/freescale/imx8mp_evk/lpddr4_timing.c
 }
+
+# extlinux の root= の差し替え口 (8MM の u-boot-fslc_%.bbappend と同じ理由で
+# 間接変数にする)。kas/imx-emmc-ab.yml が KART_EXTLINUX_ROOT を設定する。
+# NXP BSP の machine include は extlinux 変数を use-mainline-bsp 限定で定義するため、
+# 8MP 用は imx8mp-debix.conf で定義し、root だけここで張る。
+KART_EXTLINUX_ROOT ??= "root=/dev/mmcblk2p2"
+UBOOT_EXTLINUX_ROOT:default:imx8mp-debix = "${KART_EXTLINUX_ROOT}"
