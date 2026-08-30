@@ -249,8 +249,9 @@ U-Boot の bootcount + upgrade_available + altbootcmd で実装した。
   失敗すれば bootlimit 超過で altbootcmd が旧スロットへ恒久フォールバック。
   upgrade_available=0 の通常運転では bootcount を保存しないため eMMC 摩耗なし
 - `kart-ab-tools` — i.MX 版 kart-ab-commit / kart-ab-status を
-  `files/mx8mm-generic-bsp/` に追加（FILESPATH のオーバーライド探索で
-  自動選択）。出力キーは RPi5 版と互換
+  `files/imx-generic-bsp/` に追加（FILESPATH のオーバーライド探索で
+  自動選択。8MM/8MP 共通で、imx-boot のセクタ定数と env の場所は
+  レシピの machine 別変数から do_install で埋める）。出力キーは RPi5 版と互換
 - extlinux の root= は slot A が p5 を指してビルドされる
   (`UBOOT_EXTLINUX_ROOT`)。**OTA が BOOTB へコピーする際に p6 へ sed する**
   (RPi5 と同じ方式) — ota-update.sh の i.MX 対応は未着手

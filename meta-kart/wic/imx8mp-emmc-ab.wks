@@ -1,0 +1,29 @@
+# DEBIX Infinity (i.MX8MP) eMMC A/B (U-Boot bootcount) image layout
+#
+#  (32KiB)  imx-boot      SPL + BL31 + U-Boot の A copy (BootROM の固定オフセット、IMX_BOOT_SEEK=32)
+#  (4MiB)   imx-boot      B copy — 8MN/8MP の ROM は SIT 表ではなく fuse IMG_CNTN_SET1_OFFSET
+#                         (bank2 word1 bits 22:19) が示す固定オフセットへフォールバックする。
+#                         未ヒューズ (=0) で 4MiB。A の IVT が不正なとき ROM が自動で B を起動
+#                         (U-Boot arch/arm/mach-imx/imx8m/soc.c arch_spl_mmc_get_uboot_raw_sector)
+#  (7MiB)   kart-env.bin  U-Boot 環境 (NXP defconfig の CONFIG_ENV_OFFSET=0x700000、16KiB)
+#  p1 BOOTA   vfat 256M   Image + DTB + extlinux (slot A)
+#  p2 BOOTB   vfat 256M   slot B (初回 OTA まで空)
+#  p3 KARTRSV vfat   4M   予約 (p5/p6/p7 の番号を RPi5 / 8MM と揃えるための詰め物)
+#  p4 (extended)
+#  p5 roota   ext4        rootfs slot A  <- extlinux の root=
+#  p6 rootb   ext4        rootfs slot B
+#  p7 data    ext4 128M   共有永続データ (kart-data-mount が p7 をマウント)
+#
+# スロット選択・OTA の試行/確定/フォールバックは 8MM と同じ U-Boot env 方式
+# (recipes-bsp-imx/kart-uboot-env/files/kart-ab-env.txt)。
+# B copy (4MiB〜) と env (7MiB) の間は 3MiB。imx-boot は 1.5MB 程度。
+part u-boot-a --source rawcopy --sourceparams="file=imx-boot" --ondisk mmcblk2 --no-table --align 32
+part u-boot-b --source rawcopy --sourceparams="file=imx-boot" --ondisk mmcblk2 --no-table --align 4096
+part env --source rawcopy --sourceparams="file=kart-env.bin" --ondisk mmcblk2 --no-table --align 7168
+part /boot --source bootimg-partition --ondisk mmcblk2 --fstype=vfat --label BOOTA --align 8192 --fixed-size 256M --use-uuid --active
+part --ondisk mmcblk2 --fstype=vfat --label BOOTB --align 4096 --fixed-size 256M --use-uuid
+part --ondisk mmcblk2 --fstype=vfat --label KARTRSV --align 4096 --fixed-size 4M
+part / --source rootfs --ondisk mmcblk2 --fstype=ext4 --label roota --align 4096 --fixed-size 1536M --use-uuid
+part --ondisk mmcblk2 --fstype=ext4 --label rootb --align 4096 --fixed-size 1536M --use-uuid
+part --ondisk mmcblk2 --fstype=ext4 --label data --align 4096 --fixed-size 128M
+bootloader --ptable msdos

@@ -1,0 +1,19 @@
+# i.MX8M Plus 開発イメージ = base + imx8mp + debug-tweaks
+#
+# スキャフォールド段階 (EVK machine 流用) なので boot レイアウトのフラグメントは
+# まだ無く、このファイル単体でビルド可能。A/B (eMMC) は imx8mm-emmc-ab.yml を
+# 8MP のパーティション/ブート構造に合わせて起こし直す (DEBIX は DIP スイッチで
+# eMMC/SD 切替、UUU 書込は DIP=001)。
+#
+#   kas-container build kas/imx8mp-dev.yml
+header:
+  version: 14
+  includes:
+    - base.yml
+    - imx8mp.yml
+
+target: kart-image
+
+local_conf_header:
+  dev-features: |
+    EXTRA_IMAGE_FEATURES:append = " debug-tweaks ssh-server-openssh"

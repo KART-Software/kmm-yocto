@@ -12,16 +12,26 @@ SRC_URI = "file://kart-ab-env.txt"
 
 inherit deploy nopackages
 
-COMPATIBLE_MACHINE = "(mx8mm-generic-bsp)"
+COMPATIBLE_MACHINE = "(mx8mm-generic-bsp|imx8mp-debix)"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
-# u-boot-fslc の CONFIG_ENV_SIZE (kart-ab.cfg) と一致させること
+# U-Boot の CONFIG_ENV_SIZE と一致させること (8MM: kart-ab.cfg の 0x2000、
+# 8MP: NXP defconfig 既定の 0x4000)
 KART_ENV_SIZE = "0x2000"
+KART_ENV_SIZE:imx8mp-debix = "0x4000"
 
 # initial env は u-boot-fslc:do_deploy が置く。ファイル名は
 # ${UBOOT_CONFIG} (この machine では sd 固定) が付く。
 KART_INITIAL_ENV = "u-boot-fslc-initial-env-sd"
-do_compile[depends] += "u-boot-fslc:do_deploy"
+KART_INITIAL_ENV:imx8mp-debix = "u-boot-imx-initial-env-sd"
+KART_UBOOT_DEPLOY = "u-boot-fslc:do_deploy"
+KART_UBOOT_DEPLOY:imx8mp-debix = "u-boot-imx:do_deploy"
+do_compile[depends] += "${KART_UBOOT_DEPLOY}"
+# SIT (ROM の secondary image table) は 8MM/8MQ のみ。8MN/8MP は fuse で
+# 決まる固定オフセット (未ヒューズ = 4MiB) へフォールバックするため不要
+# (meta-kart/wic/imx8mp-emmc-ab.wks のコメント参照)。
+KART_MAKE_SIT = "1"
+KART_MAKE_SIT:imx8mp-debix = "0"
 
 do_compile() {
     # --- Secondary Image Table (SIT) ---
@@ -32,6 +42,7 @@ do_compile() {
     # wic の --align は KiB 単位で sector 0x41 (32.5KiB) を直接指せないため、
     # sector 0x40 (32KiB) 起点の 1KiB ブロブ (先頭 512B は零) にして
     # --align 32 で配置する。docs.u-boot.org/en/v2021.07/imx/misc/psb.html
+    if [ "${KART_MAKE_SIT}" = "1" ]; then
     dd if=/dev/zero of=${B}/kart-sit.bin bs=512 count=2 2>/dev/null
     # sector 0x41 内 offset 0x08: magic 0x00112233 (LE) / 0x0C: firstSectorNumber 0x1000 (LE)
     # seek=520 = 512 (先頭パディング) + 8 (SIT 内オフセット)。
@@ -39,6 +50,7 @@ do_compile() {
     printf '\063\042\021\000\000\020\000\000' | \
         dd of=${B}/kart-sit.bin bs=1 seek=520 conv=notrunc 2>/dev/null
     test "$(wc -c < ${B}/kart-sit.bin)" = "1024"
+    fi
 
     # --- U-Boot environment ---
     # initial env + kart 追加分を連結し、重複キーは後勝ちでマージする
@@ -59,7 +71,9 @@ do_compile() {
 
 do_deploy() {
     install -m 0644 ${B}/kart-env.bin ${DEPLOYDIR}/kart-env.bin
-    install -m 0644 ${B}/kart-sit.bin ${DEPLOYDIR}/kart-sit.bin
+    if [ -f ${B}/kart-sit.bin ]; then
+        install -m 0644 ${B}/kart-sit.bin ${DEPLOYDIR}/kart-sit.bin
+    fi
     # 検証・デバッグ用にテキストも残す
     install -m 0644 ${B}/kart-env.txt ${DEPLOYDIR}/kart-env.txt
 }

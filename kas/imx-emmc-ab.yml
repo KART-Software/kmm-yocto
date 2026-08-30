@@ -1,0 +1,18 @@
+# i.MX eMMC A/B ブートフラグメント (8MM XPI / 8MP DEBIX 共通。RPi5 の boot-*.yml に相当)
+#
+#   kas-container build kas/imx8mm-dev.yml:kas/imx-emmc-ab.yml   (= build.sh imx8mm --emmc)
+#   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml   (= build.sh imx8mp --emmc)
+#
+# 付けない素の *-dev.yml は machine デフォルトの wks (シングルスロット、SD 持ち込み用)。
+# パーティションレイアウトは machine ごとに違う (imx-boot の B copy 位置や env
+# オフセットが SoC の BootROM 仕様で決まる) ため、wks の実体は machine conf の
+# KART_EMMC_AB_WKS が指す。スロット番号 (boot p1/p2, root p5/p6, data p7) は共通。
+header:
+  version: 14
+local_conf_header:
+  boot-emmc-ab: |
+    WKS_FILE = "${KART_EMMC_AB_WKS}"
+    IMAGE_LINK_NAME = "${IMAGE_BASENAME}-${MACHINE}-emmc"
+    # slot A の extlinux が指す root。slot B へは OTA がコピー時に p6 へ書き換える
+    # (RPi5 の CMDLINE_ROOT_PARTITION に相当)。U-Boot bbappend の間接変数経由。
+    KART_EXTLINUX_ROOT = "root=/dev/mmcblk2p5"

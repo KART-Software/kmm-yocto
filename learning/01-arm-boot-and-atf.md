@@ -44,6 +44,28 @@ EL3  セキュアモニタ (ATF/BL31)   ← 一番強い、SoC の土台
 - **falcon モード**(この製品):SPL が U-Boot 本体を飛ばして **直接カーネルを
   起動**する高速化。`falcon.itb` に ATF+カーネル+DTB を詰めてある。
 
+### 2.1 BootROM の冗長ブート — ブートローダ自体の A/B は ROM の機能
+
+BootROM は次段(SPL を含む flash.bin)を固定オフセットから読み、先頭の **IVT**
+(目次ヘッダ)を検証する。不正なら**予備コピー(B copy)**を探しに行き、それも
+駄目なら Serial Download(USB)に落ちる。これが「U-Boot 自体を安全に更新する」
+土台で、B copy の探し方が世代で違う:
+
+| SoC | 一次イメージ | B copy の位置決め |
+|---|---|---|
+| i.MX8MM / 8MQ | 33KiB | **SIT(Secondary Image Table)** — 一次イメージ直前(sector 0x41)に置く 20B の表。`firstSectorNumber` が示すセクタ + 一次オフセットに B がある |
+| i.MX8MN / 8MP | 32KiB | **ヒューズ `IMG_CNTN_SET1_OFFSET`**(OCOTP bank2 word1 bits 22:19)で決まる固定位置。未ヒューズ(0)= **4MiB**、1=2MiB、2=1MiB、n≥3 = 1MiB×2^n、>10 で無効(U-Boot `arch/arm/mach-imx/imx8m/soc.c` の `arch_spl_mmc_get_uboot_raw_sector`) |
+
+どちらの世代も「B で起動した」事実は ROM のイベントログ(0x9e0 にポインタ、
+イベント ID 0x51)から読める。SRC_GPR10 の PERSIST_SECONDARY_BOOT ビットは
+ROM が B を選んだときに立つ**出力**で、ソフトから立てて B を試すことはできない
+(リセットで消える)。運用上の帰結:
+
+- B copy は「ROM が勝手に使う保険」。更新は必ず **A を書く → 起動確認 → B にも
+  コピー**(B は常に前版か同版)という順序で、A が壊れた回だけ B が動く
+- B で起動したことを検出したら、その起動内で A を修復しておく(次の電源投入で
+  A に戻るため、放置すると次回また B 起動になる)
+
 ## 3. ATF / BL31 とは
 
 **ATF = ARM Trusted Firmware**。ARM 公式のセキュアブート初期化ファーム。

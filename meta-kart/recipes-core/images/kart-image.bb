@@ -56,25 +56,40 @@ IMAGE_INSTALL:append:qemuarm64 = " \
 "
 
 # ---------------------------------------------------------------------------
+# i.MX 共通 (imx-generic-bsp = 8MM XPI / 8MP DEBIX): SocketCAN、eMMC A/B ツール、
+# U-Boot env 操作。機種固有分は下の各ブロックに置く。
+# ---------------------------------------------------------------------------
+IMAGE_INSTALL:append:imx-generic-bsp = " \
+    can-utils \
+    can-setup \
+    kernel-modules \
+    kart-ab-tools \
+    libubootenv-bin \
+"
+
+# ---------------------------------------------------------------------------
 # i.MX8M Mini specific packages (machine imx8mm-xpi)
 # CAN は SoC 非内蔵のため RPi5 と同じく MCP2515 (SPI) を使う。
-# rpi-eeprom / kart-ab-tools / kart-eeprom-setup は RPi 専用なので含めない。
+# rpi-eeprom / kart-eeprom-setup は RPi 専用なので含めない。
 # オーバーライドは素の mx8mm ではなく mx8mm-generic-bsp であること
 # (meta-freescale の machine-overrides-extender が変換する。素の mx8mm は
 # OVERRIDES に無く、append が黙って捨てられる)。
 # 詳細は docs/imx8mm-migration-design.md。
 # ---------------------------------------------------------------------------
 IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
-    can-utils \
-    can-setup \
-    kernel-modules \
     kart-rpmsg-can \
-    kart-ab-tools \
-    libubootenv-bin \
     kart-edid-firmware \
     kart-udev-slim \
     kart-splash-wl \
 "
+
+# ---------------------------------------------------------------------------
+# DEBIX Infinity (machine imx8mp-debix)
+# CAN は FlexCAN 内蔵 (can0/can1 が netdev として直接見える) — MCP2515/rpmsg 系は不要。
+# EDID・スプラッシュ等は 8MP 展開が済んだものから順に足す
+# (docs/imx8mp-debix-bringup/open-issues.md)。今は i.MX 共通分のみ。
+# ---------------------------------------------------------------------------
+IMAGE_INSTALL:append:imx8mp-debix = ""
 
 # udev ダイエット (mx8mm のみ、RPi5 は据え置き):
 # 固定ハードのキオスクに無縁なルールと hwdb (10MB、キーボード/マウス量産品の
@@ -123,7 +138,7 @@ ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " boot_trim_units;"
 
 # wic が rawcopy する seed 済み U-Boot env (A/B 変数入り)
 KART_WIC_EXTRA_DEPENDS = ""
-KART_WIC_EXTRA_DEPENDS:mx8mm-generic-bsp = "kart-uboot-env:do_deploy"
+KART_WIC_EXTRA_DEPENDS:imx-generic-bsp = "kart-uboot-env:do_deploy"
 do_image_wic[depends] += "${KART_WIC_EXTRA_DEPENDS}"
 
 # ---------------------------------------------------------------------------
@@ -326,7 +341,7 @@ EOF
     # EROFS 化の価値が大きい。RPi5 は kart-eeprom-setup 等が /boot に書くため
     # rw のまま据え置き。
     case "${WKS_FILE}" in
-        *imx8mm*)
+        *imx8mm*|*imx8mp*)
             sed -i '/^Before=tailscale-autoconnect.service/a After=kmm.service' \
                 ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
             sed -i 's|^ExecStart=.*|ExecStart=/bin/sh -c '"'"'R=$$(sed "s/.*root=\\([^ ]*\\)p[56].*/\\1/" /proc/cmdline); if grep -q "root=[^ ]*p6" /proc/cmdline; then P=2; else P=1; fi; mount -o ro $${R}p$$P /boot'"'"'|' \
@@ -348,7 +363,7 @@ EOF
 # watchdog 設定は RPi5 (tryboot) と i.MX (U-Boot bootcount) の両 A/B レイアウトで
 # 共通に機能する — root=p5/p6・ラベル名を両レイアウトで揃えてあるため。
 ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi5 = " install_ab_boot_support;"
-ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_ab_boot_support;"
+ROOTFS_POSTPROCESS_COMMAND:append:imx-generic-bsp = " install_ab_boot_support;"
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"

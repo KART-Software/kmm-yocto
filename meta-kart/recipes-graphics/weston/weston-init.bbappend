@@ -7,6 +7,11 @@ SRC_URI:append:mx8mm-generic-bsp = " file://mesa-cache.conf \
                                      file://mesa-cache-tmpfiles.conf \
                                      file://weston-early.service \
                                     "
+# 8MP (NXP BSP): meta-freescale の weston-init.bbappend が FILESEXTRAPATHS で先に
+# 立ち、machine 別サブディレクトリの weston.ini が file://weston.ini を横取りする
+# (8MM = mainline BSP では該当サブディレクトリが無いので起きない)。別名で持ち込み、
+# override 付き append (素の append より後に走る) で上書きする。
+SRC_URI:append:imx8mp-debix = " file://weston-debix.ini"
 
 # Create kart user (video, input, render, tty groups for display access)
 # weston user is still created by the original weston-init recipe
@@ -43,6 +48,10 @@ do_install:append:mx8mm-generic-bsp() {
     # mx8mm は早期起動変種で weston.service を上書き (中身のコメント参照)
     install -m 0644 ${WORKDIR}/weston-early.service \
         ${D}${systemd_system_unitdir}/weston.service
+}
+
+do_install:append:imx8mp-debix() {
+    install -m 0644 ${WORKDIR}/weston-debix.ini ${D}${sysconfdir}/xdg/weston/weston.ini
 }
 
 FILES:${PN} += "${sysconfdir}/xdg/weston/weston.ini \

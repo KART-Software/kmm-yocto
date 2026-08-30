@@ -12,9 +12,9 @@
 # (busybox 構文のみ)
 set -eu
 
-A_SECTOR=66             # 0x42
-B_SECTOR=4162           # 0x1042
-AREA_SECTORS=4030       # 2015KiB
+A_SECTOR=@KART_UBOOT_A_SECTOR@       # 一次 imx-boot の先頭セクタ (machine ごとに kart-ab-tools レシピが埋める)
+B_SECTOR=@KART_UBOOT_B_SECTOR@       # ROM フォールバック先 (8MM: SIT の firstSectorNumber+0x42、8MP: fuse 既定 4MiB)
+AREA_SECTORS=@KART_UBOOT_AREA_SECTORS@   # 1 コピーの領域上限
 
 BASE_DEV=$(sed -n "s/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p" /proc/cmdline)
 [ -n "$BASE_DEV" ] || { echo "ERROR: cannot determine base device" >&2; exit 1; }

@@ -23,9 +23,9 @@
 # (busybox 構文のみ)
 set -eu
 
-A_SECTOR=66             # 0x42
-B_SECTOR=4162           # 0x1042
-AREA_SECTORS=4030       # 2015KiB (env 4MiB との間の余白込み上限)
+A_SECTOR=@KART_UBOOT_A_SECTOR@       # 一次 imx-boot の先頭セクタ (machine ごとに kart-ab-tools レシピが埋める)
+B_SECTOR=@KART_UBOOT_B_SECTOR@       # ROM フォールバック先 (8MM: SIT の firstSectorNumber+0x42、8MP: fuse 既定 4MiB)
+AREA_SECTORS=@KART_UBOOT_AREA_SECTORS@   # 1 コピーの領域上限
 
 [ $# -eq 1 ] || { echo "Usage: kart-uboot-update <flash.bin>" >&2; exit 1; }
 NEW="$1"

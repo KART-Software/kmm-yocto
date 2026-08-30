@@ -38,6 +38,12 @@
    探し方、devtool / git / diff -u によるパッチ生成(直書きしない)、
    quilt 適用順と patch-fuzz QA の掟
 
+7. [DDR 初期化と training](07-ddr-init-and-training.md)
+   — DDRC と PHY、lpddr4_timing.c の正体(RPA/DDR Tool の生成物、ボード+チップ固有)、
+   テーブルの 3 系統(信号タイミング / アドレスマップ / 初期化シーケンス)と症状の違い、
+   training = PHY ファームによる実基板校正、**DRAM 側の状態が残ることによる順序依存**、
+   DRAM ID(MR5〜8)による multi-probe の定石
+
 ## 関連する既存ドキュメント(実務側)
 
 - `docs/imx8mm-xpi-bringup/` — bring-up の実務記録(pitfalls 集は #26 が本件)
