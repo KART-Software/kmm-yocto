@@ -1,0 +1,24 @@
+# i.MX8M Plus machine fragment (DEBIX Infinity / EMB-IMX8MP-06-D4E32)
+#
+# machine は meta-kart/conf/machine/imx8mp-debix.conf (imx8mm-xpi.conf と同じ流儀で
+# EVK の imx8mp-evk.inc から SoC/boot 基盤だけ継承)。bring-up 初期のスキャフォールドは
+# meta-freescale の imx8mp-lpddr4-evk を素で使っていた — 実機確認の記録は
+# docs/imx8mp-debix-bringup/00-plan.md、EVK との DTS 差分は同 02-dts-delta.md。
+# 一次情報は DEBIX 公式 (https://debix.io) と debix-tech GitHub。
+header:
+  version: 14
+
+machine: imx8mp-debix
+
+repos:
+  meta-freescale:
+    url: https://github.com/Freescale/meta-freescale.git
+    branch: scarthgap
+    layers:
+      .:
+
+local_conf_header:
+  imx8mp-eula: |
+    # imx-boot の DDR トレーニングファームウェア (firmware-imx) は NXP EULA
+    # 配布のため明示同意が必要 (imx8mm.yml と同じ理由でここに置く)
+    ACCEPT_FSL_EULA = "1"

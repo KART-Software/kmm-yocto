@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * imx8mp-debix.dts — Polyhex DEBIX Infinity (EMB-IMX8MP-06) 用 kart 製品 DT
+ *
+ * 根拠は工場イメージ (Ubuntu 20.04 + 5.10 NXP BSP) の実行中 FDT との突き合わせ:
+ *  - 実行中 FDT = /boot/imx8mp-evk.dtb (= imx8mp-debix-core-board.dtb と同一物)
+ *  - 吸い出し: 工場イメージの /sys/firmware/fdt (実体 /boot/imx8mp-evk.dtb)
+ *  - 差分分析: docs/imx8mp-debix-bringup/02-dts-delta.md
+ *
+ * EVK との差分:
+ *  - flexcan1: pinmux を SPDIF_TX/RX → SAI5_RXD1/RXD2 (J2 ヘッダー Pin31/33) に変更。
+ *  - flexcan2: 有効化。pin group (SAI5_RXD3/MCLK = J2 Pin35/37) は EVK 定義と工場で一致。
+ *  - CAN トランシーバはボードに無い (J2 に出るのは 3.3V TXD/RXD)。工場 DT にも
+ *    xceiver-supply が無く、EVK の standby GPIO (gpio5_5/gpio4_27) や I/O エキスパンダ
+ *    (pca6416) を DEBIX で触らないよう supply/assert-gpios を削除する。
+ *  - micfil (PDM): EVK で flexcan2 と SAI5 パッドを取り合う相手。DEBIX では PDM
+ *    マイク未配線なので disabled (EVK の「can2 pin conflict with pdm」コメント参照)。
+ *  - pcie/mipi_dsi/dsp: DEBIX/kart では未使用 (PCIe は 19pin FPC のみ、表示は HDMI、
+ *    DSP は使わない)。工場 DT も disabled — 未接続プローブのエラーと起動遅延を避ける。
+ *  - uart4: EVK 既定の disabled のまま = M7 コンソール予約 (01-m7.md)。
+ *  - WiFi (88W8987 / usdhc1): kart 不使用 → EVK 既定の disabled のまま。
+ */
+
+#include "imx8mp-evk.dts"
+
+/ {
+	model = "Polyhex DEBIX Infinity";
+};
+
+&flexcan1 {
+	/delete-property/ xceiver-supply;
+};
+
+&pinctrl_flexcan1 {
+	fsl,pins = <
+		MX8MP_IOMUXC_SAI5_RXD1__CAN1_TX		0x154
+		MX8MP_IOMUXC_SAI5_RXD2__CAN1_RX		0x154
+	>;
+};
+
+&flexcan2 {
+	/delete-property/ xceiver-supply;
+	/delete-property/ pinctrl-assert-gpios;
+	status = "okay";
+};
+
+&micfil {
+	status = "disabled";
+};
+
+&pcie {
+	status = "disabled";
+};
+
+&pcie_phy {
+	status = "disabled";
+};
+
+&mipi_dsi {
+	status = "disabled";
+};
+
+&dsp {
+	status = "disabled";
+};
