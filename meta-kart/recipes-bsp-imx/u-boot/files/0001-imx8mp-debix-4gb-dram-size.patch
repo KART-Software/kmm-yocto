@@ -1,0 +1,27 @@
+From: ORyomei <o.ryomei1020@gmail.com>
+Subject: [PATCH] imx8mp_evk: DEBIX Infinity の 4GB DRAM サイズ
+
+NXP EVK は 3GB+3GB=6GB。DEBIX Infinity D4E32 は Micron MT53E1G32D2NP
+(D8BJG) 4GB なので、上位バンクを 1GB に縮める。根拠はベンダー
+prebuilt U-Boot の実機ログ (DRAM: 4 GiB, docs/imx8mp-debix-bringup/00-plan.md)。
+
+--- a/include/configs/imx8mp_evk.h	2026-08-28 19:33:51.649811169 +0900
++++ b/include/configs/imx8mp_evk.h	2026-08-28 19:34:00.027681798 +0900
+@@ -164,7 +164,7 @@
+ #define CFG_SYS_INIT_RAM_SIZE	0x80000
+ 
+ 
+-/* Totally 6GB DDR */
++/* kart DEBIX Infinity D4E32: 4GB DDR (3GB @0x40000000 + 1GB @0x100000000) */
+ #define CFG_SYS_SDRAM_BASE		0x40000000
+ #define PHYS_SDRAM			0x40000000
+ #define PHYS_SDRAM_SIZE			0xC0000000	/* 3 GB */
+@@ -172,7 +172,7 @@
+ #ifdef CONFIG_TARGET_IMX8MP_DDR4_EVK
+ #define PHYS_SDRAM_2_SIZE		0x40000000	/* 1 GB */
+ #else
+-#define PHYS_SDRAM_2_SIZE		0xC0000000	/* 3 GB */
++#define PHYS_SDRAM_2_SIZE		0x40000000	/* 1 GB (kart DEBIX 4GB) */
+ #endif
+ 
+ #define CFG_MXC_UART_BASE		UART2_BASE_ADDR
