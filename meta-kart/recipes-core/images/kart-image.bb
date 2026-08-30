@@ -76,6 +76,18 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
     kart-splash-wl \
 "
 
+# ---------------------------------------------------------------------------
+# DEBIX Infinity (machine imx8mp-debix)
+# CAN は FlexCAN 内蔵 (can0/can1 が netdev として直接見える) — MCP2515/rpmsg 系は不要。
+# A/B・EDID・スプラッシュ等は 8MP 展開が済んだものから順に足す
+# (docs/imx8mp-debix-bringup/open-issues.md)。
+# ---------------------------------------------------------------------------
+IMAGE_INSTALL:append:imx8mp-debix = " \
+    can-utils \
+    can-setup \
+    kernel-modules \
+"
+
 # udev ダイエット (mx8mm のみ、RPi5 は据え置き):
 # 固定ハードのキオスクに無縁なルールと hwdb (10MB、キーボード/マウス量産品の
 # 互換 quirk 集) を rootfs から落とす。coldplug 全デバイス × 全ルールの積が
