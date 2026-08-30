@@ -19,6 +19,9 @@ XPI-iMX8MM の M4 統合作業で積み上げた低レベル知識の教材が�
 | `02-rdc-and-domains.md` | RDC、MDA/PDAP、DT との関係、なぜ devmem で効かないか、bl31.bin への埋め込み |
 | `03-m4-coprocessor-rpmsg.md` | TCM、remoteproc、リソーステーブル、rpmsg/virtio/MU/vring、「セッション」、CAN の 2 設計、MU 非依存代替 |
 | `04-case-study-mu-read-reset.md` | MU read reset バグの全記録、真因(ATF RDC 設定漏れ)、解決、レイテンシ比較 |
+| `05-display-framebuffer-and-boot-splash.md` | 表示チェーン、フレームバッファ、ブートスプラッシュの仕組み |
+| `06-uboot-weak-hooks-and-patching.md` | weak シンボルによる拡張点、パッチの作り方・運用 |
+| `07-ddr-init-and-training.md` | DDRC/PHY、timing テーブルの正体と 3 系統、training、DRAM 側状態の順序依存、multi-probe |
 
 ## 参照のしかた(質問に答えるとき)
 
