@@ -4,6 +4,8 @@ Documentation=man:weston(1) man:weston.ini(5)
 Documentation=http://wayland.freedesktop.org/
 Requires=seatd.service
 # mx8mm 早期起動変種: basic.target を待たず、sysinit 直後に seatd と共に
+# (8MP でも試したが GUI 到達は ±20ms で効果なし — ボトルネックが basic 待ちでなく
+# 起動ディスパッチ/exec 区間のため。8MP は素の weston.service のまま)
 # 起動する (素の weston.service の置き換え。RPi5 は素のまま)。
 # 根拠: StartupCPUWeight を盛っても seatd/weston の発射は basic 直後の
 # ジョブ一斉投入に呑まれて ~0.6s 遅れる実測 (PID1 のディスパッチ順は
