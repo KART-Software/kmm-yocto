@@ -1,4 +1,4 @@
-# DEBIX Infinity — 未解決事項と暫定対応(2026-08-30 時点)
+# DEBIX Infinity — 未解決事項と暫定対応(2026-08-31 時点)
 
 確定した内容は 00〜03 に置き、ここには**まだ暫定のもの・未解決のもの**だけを置く。
 解決したらこのファイルから消して、確定した知見だけを該当 docs に移す。
@@ -7,10 +7,9 @@
 
 | 項目 | 状態 | 解消方法 |
 |---|---|---|
-| U-Boot env | ベンダー U-Boot で `saveenv` した env が残存(`fdt_file=imx8mp-debix-kart.dtb` = 旧名) | 新 wic を焼き直す(env 領域がゼロ化されデフォルト env に戻る) |
-| boot パーティション | 旧名 `imx8mp-debix-kart.dtb`、`imx8mp-evk.dtb`(独自 DTB のリネームコピー)、`imx8mp-evk-orig.dtb` が混在 | 同上 |
-| weston.ini | kiosk 設定を手動 scp で適用(rootfs は `mount -o remount,rw` したまま) | 同上(イメージには組み込み済み) |
-| /data | パーティション無し。tmpfs を手動マウントしてダミー `kmm.env` を置いた状態(再起動で消える) | /data パーティション設計(下記) |
+| /data | パーティション無し。tmpfs を手動マウントして `kmm.env` を置いている(再起動で消え、kmm が fail-loop になる) | /data パーティション設計(未解決 #5) |
+
+(2026-08-31 に最新 wic を焼き直し、U-Boot env の残留・DTB 混在・weston.ini 手動適用は解消済み)
 
 ## 未解決
 
@@ -32,8 +31,5 @@
 7. **uuu 標準フロー(emmc_all)の再検証**: TCPC 無効化後は自前 U-Boot の SDPV まで通ることを
    確認済みだが、fastboot 段は未検証。今は Linux 稼働中の `dd` で書いている
 8. **M7**: remoteproc ノード未整備(01-m7.md)。CAN を M7 に持たせるかの設計判断待ち
-9. **can-setup が 8MP イメージに入っていない**: `kart-image.bb` の IMAGE_INSTALL ガードが
-   raspberrypi5 / mx8mm-generic-bsp のみ。can0/can1 は netdev として存在するが
-   can0-up.service が無く DOWN のまま
-10. **起動時間**: 初期値 kernel 4.1s + userspace 11.2s = 15.3s(最適化未着手。8MM で
+9. **起動時間**: 初期値 kernel 4.1s + userspace 11.2s = 15.3s(最適化未着手。8MM で
     確立した udev 間引き・ユニット間引き・Falcon 等は未移植)

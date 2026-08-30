@@ -21,9 +21,15 @@ DEBIX 工場 DTS は EVK 派生(compatible も `fsl,imx8mp-evk` のまま)なの
 
 **CAN の重要事実**: 工場 DTS の flexcan に `xceiver-supply` が**無い** = ボード上に
 CAN トランシーバは**載っていない**。J2 に出ているのはコントローラレベルの
-TXD/RXD(3.3V デジタル)なので、**外付けトランシーバ(SN65HVD230 等)が無いと
-バスに出られない**。6.6 EVK の `xceiver-supply`(EVK の standby GPIO レギュレータ)は
-DEBIX では別用途のピンを触りかねないので必ず削除。
+TXD/RXD(3.3V デジタル)なので、**外付けトランシーバが無いとバスに出られない**。
+6.6 EVK の `xceiver-supply`(EVK の standby GPIO レギュレータ)は DEBIX では別用途の
+ピンを触りかねないので必ず削除。
+
+実バス確認(2026-08-31): J2 Pin31(CAN1_TXD)→ トランシーバ TXD、Pin33(CAN1_RXD)←
+トランシーバ RXD の**ストレート接続**(UART と違いクロスしない)で、絶縁型 CA-IS3050G
+モジュール経由 CANable と 500kbps 双方向送受信、2000 フレーム連続受信でロス/エラーなし。
+配線をクロスすると「送信で即 bus-off、listen-only でも受信ゼロ」になる。
+can1(J2 Pin35/37)は loopback のみ確認。
 
 ## 無効化すべき(6.6 EVK が okay にしているが本構成では不要・有害)
 
