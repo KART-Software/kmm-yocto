@@ -341,7 +341,7 @@ EOF
     # EROFS 化の価値が大きい。RPi5 は kart-eeprom-setup 等が /boot に書くため
     # rw のまま据え置き。
     case "${WKS_FILE}" in
-        *imx8mm*)
+        *imx8mm*|*imx8mp*)
             sed -i '/^Before=tailscale-autoconnect.service/a After=kmm.service' \
                 ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/kart-boot-mount.service
             sed -i 's|^ExecStart=.*|ExecStart=/bin/sh -c '"'"'R=$$(sed "s/.*root=\\([^ ]*\\)p[56].*/\\1/" /proc/cmdline); if grep -q "root=[^ ]*p6" /proc/cmdline; then P=2; else P=1; fi; mount -o ro $${R}p$$P /boot'"'"'|' \
@@ -363,7 +363,7 @@ EOF
 # watchdog 設定は RPi5 (tryboot) と i.MX (U-Boot bootcount) の両 A/B レイアウトで
 # 共通に機能する — root=p5/p6・ラベル名を両レイアウトで揃えてあるため。
 ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi5 = " install_ab_boot_support;"
-ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " install_ab_boot_support;"
+ROOTFS_POSTPROCESS_COMMAND:append:imx-generic-bsp = " install_ab_boot_support;"
 
 # Weston/Wayland configuration
 REQUIRED_DISTRO_FEATURES = "wayland systemd"
