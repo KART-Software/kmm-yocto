@@ -19,12 +19,10 @@
    現状は U-Boot video を無効にして回避
 3. **D8BJG 専用表(3264MTS)がコールドで training ハングする理由**: 未特定
    (DRAM 側 Mode Register の残留依存が疑い)。現状は Model A ベース表で回避しており実害なし
-4. **TFP401 LCD 用 EDID の恒久化**: 33.75MHz 版 EDID(03 §3)を `kart-edid-firmware` の
-   8MP 対応 + カーネル cmdline(`drm.edid_firmware=HDMI-A-1:edid/...`)で配る
-5. **スプラッシュ**: 8MM の SPL 手続き描画 + seamless takeover を 8MP(LCDIFv3 + HDMI TX)
+4. **スプラッシュ**: 8MM の SPL 手続き描画 + seamless takeover を 8MP(LCDIFv3 + HDMI TX)
    向けに再実装する。Falcon 構成を 8MP でも組むかの判断込み
-6. **uuu 標準フロー(emmc_all)の再検証**: TCPC 無効化後は自前 U-Boot の SDPV まで通ることを
+5. **uuu 標準フロー(emmc_all)の再検証**: TCPC 無効化後は自前 U-Boot の SDPV まで通ることを
    確認済みだが、fastboot 段は未検証。今は Linux 稼働中の `dd` で書いている
-7. **M7**: remoteproc ノード未整備(01-m7.md)。CAN を M7 に持たせるかの設計判断待ち
-8. **起動時間**: 初期値 kernel 4.1s + userspace 11.2s = 15.3s(最適化未着手。8MM で
+6. **M7**: remoteproc ノード未整備(01-m7.md)。CAN を M7 に持たせるかの設計判断待ち
+7. **起動時間**: 初期値 kernel 4.1s + userspace 11.2s = 15.3s(最適化未着手。8MM で
     確立した udev 間引き・ユニット間引き・Falcon 等は未移植)
