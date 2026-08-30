@@ -66,6 +66,7 @@ do_configure:prepend:mx8mm-generic-bsp() {
 SRC_URI:append:imx8mp-debix = " \
     file://imx8mp-debix.dts \
     file://edid-firmware.cfg \
+    file://can-builtin.cfg \
 "
 
 do_configure:prepend:imx8mp-debix() {
