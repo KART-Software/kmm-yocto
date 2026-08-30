@@ -67,6 +67,8 @@ pipx install kas
 ./scripts/build.sh imx8mm --emmc      # eMMC A/B レイアウト (本命)
 ./scripts/build.sh imx8mm --netboot   # TFTP/NFS netboot (DTS/ドライバ試行用)
 ./scripts/build.sh imx8mm             # 素の EVK SD 持ち込み用 (シングルスロット)
+./scripts/build.sh imx8mp --emmc      # DEBIX Infinity (i.MX8MP) eMMC A/B
+./scripts/build.sh imx8mp             # DEBIX シングルスロット
 ```
 
 `imx8mm` ターゲットは開発イメージ(debug-tweaks 入り)。`--emmc` を付けると
