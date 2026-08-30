@@ -28,21 +28,21 @@ BOOT=""
 
 for arg in "$@"; do
     case "$arg" in
-        prod|dev|qemu|imx8mm) TARGET="$arg" ;;
+        prod|dev|qemu|imx8mm|imx8mp) TARGET="$arg" ;;
         --sdcard)      BOOT="sdcard" ;;
         --nvme)        BOOT="nvme" ;;
         --emmc)        BOOT="emmc" ;;
         --netboot)     BOOT="netboot" ;;
         *)
             echo "Unknown argument: $arg" >&2
-            echo "Usage: $0 <prod|dev|qemu|imx8mm> [--sdcard|--nvme]" >&2
+            echo "Usage: $0 <prod|dev|qemu|imx8mm|imx8mp> [--sdcard|--nvme|--emmc]" >&2
             exit 1
             ;;
     esac
 done
 
 if [ -z "$TARGET" ]; then
-    echo "Usage: $0 <prod|dev|qemu|imx8mm> [--sdcard|--nvme]" >&2
+    echo "Usage: $0 <prod|dev|qemu|imx8mm|imx8mp> [--sdcard|--nvme|--emmc]" >&2
     exit 1
 fi
 
@@ -68,6 +68,12 @@ case "$TARGET" in
             emmc)    KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-emmc-ab.yml" ;;
             netboot) KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-netboot.yml" ;;
             *)       KAS_CONFIG="kas/imx8mm-dev.yml" ;;
+        esac
+        ;;
+    imx8mp)
+        case "$BOOT" in
+            emmc)    KAS_CONFIG="kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml" ;;
+            *)       KAS_CONFIG="kas/imx8mp-dev.yml" ;;
         esac
         ;;
 esac
