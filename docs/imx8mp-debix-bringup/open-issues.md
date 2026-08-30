@@ -32,3 +32,8 @@
 7. **uuu 標準フロー(emmc_all)の再検証**: TCPC 無効化後は自前 U-Boot の SDPV まで通ることを
    確認済みだが、fastboot 段は未検証。今は Linux 稼働中の `dd` で書いている
 8. **M7**: remoteproc ノード未整備(01-m7.md)。CAN を M7 に持たせるかの設計判断待ち
+9. **can-setup が 8MP イメージに入っていない**: `kart-image.bb` の IMAGE_INSTALL ガードが
+   raspberrypi5 / mx8mm-generic-bsp のみ。can0/can1 は netdev として存在するが
+   can0-up.service が無く DOWN のまま
+10. **起動時間**: 初期値 kernel 4.1s + userspace 11.2s = 15.3s(最適化未着手。8MM で
+    確立した udev 間引き・ユニット間引き・Falcon 等は未移植)
