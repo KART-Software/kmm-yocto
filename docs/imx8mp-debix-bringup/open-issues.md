@@ -24,5 +24,11 @@
 5. **uuu 標準フロー(emmc_all)の再検証**: TCPC 無効化後は自前 U-Boot の SDPV まで通ることを
    確認済みだが、fastboot 段は未検証。今は Linux 稼働中の `dd` で書いている
 6. **M7**: remoteproc ノード未整備(01-m7.md)。CAN を M7 に持たせるかの設計判断待ち
-7. **起動時間**: 初期値 kernel 4.1s + userspace 11.2s = 15.3s(最適化未着手。8MM で
-    確立した udev 間引き・ユニット間引き・Falcon 等は未移植)
+7. **起動時間**: 第 1 弾最適化後(2026-08-31)で kernel 1.3s + userspace 10.3s、
+    **GUI(kmm READY)は電源から約 7 秒**(SPL 0.6s / U-Boot 1.8s / kernel 1.3s /
+    weston+kmm 約 3s)。適用済み: FW user-helper fallback 無効(60s 停止の除去)、
+    udev ルール/hwdb 削減、ユニット間引き、CPU 配分、quiet。
+    残りの大物: U-Boot 1.8s(→ Falcon)、weston 開始前の 1.3s(8MM の weston-early 変種を
+    移植して実測したが GUI ±20ms で効果なし → 撤収。ボトルネックは basic.target 待ちでは
+    なく seatd 後の起動ディスパッチ/exec 区間 + weston 初期化 0.8s)、
+    networkd-wait-online 5.9s(GUI は非ブロック、boot 完了表示のみ遅延)
