@@ -42,6 +42,7 @@ do_configure:prepend:mx8mm-generic-bsp() {
 # KERNEL_DEVICETREE への追加は machine conf (imx8mp-debix.conf) 側で行う。
 SRC_URI:append:imx8mp-debix = " \
     file://imx8mp-debix.dts \
+    file://edid-firmware.cfg \
 "
 
 do_configure:prepend:imx8mp-debix() {

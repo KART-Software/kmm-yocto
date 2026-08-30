@@ -89,7 +89,9 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
 # EDID・スプラッシュ等は 8MP 展開が済んだものから順に足す
 # (docs/imx8mp-debix-bringup/open-issues.md)。今は i.MX 共通分のみ。
 # ---------------------------------------------------------------------------
-IMAGE_INSTALL:append:imx8mp-debix = ""
+IMAGE_INSTALL:append:imx8mp-debix = " \
+    kart-edid-firmware \
+"
 
 # udev ダイエット (mx8mm のみ、RPi5 は据え置き):
 # 固定ハードのキオスクに無縁なルールと hwdb (10MB、キーボード/マウス量産品の
