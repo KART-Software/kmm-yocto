@@ -67,8 +67,16 @@ D8BJG 表そのものを使わなかった理由: コールドから直接流す
 - パネルの EDID は 800x480 @ **32.00MHz**。8MP の Samsung HDMI PHY は離散 88 点のクロック表
   (23.75〜297MHz)しか出せず 32MHz が無いため、mode_valid で全モードが落ち weston が
   `no available modes` で起動しない
-- 通る設定: pclk **33.75MHz** + ブランキング拡張(htotal 1072、vtotal 525 → 59.97Hz)。
-  debugfs の edid_override で検証済み。恒久化は open-issues.md 参照
+- 解: pclk **33.75MHz** + ブランキング拡張(htotal 1072、vtotal 525 → 59.97Hz)の EDID を
+  ファイル供給する。`kart-edid-firmware` の `tfp401-edid-33m75.bin` +
+  `drm.edid_firmware=HDMI-A-1:edid/tfp401-edid-33m75.bin`(machine conf の extlinux
+  KERNEL_ARGS)+ kernel の `CONFIG_DRM_LOAD_EDID_FIRMWARE=y`(`edid-firmware.cfg`)。
+  コールドブートから手当てなしで kmm GUI のフル表示をカメラ確認済み
+- **connector の強制操作(`echo off/detect > status` の反復や `force`)は HDMI TX を
+  wedge させることがある**。症状は「モードセット成功・クロックロックでも無信号」で、
+  ソフトからは切り分け困難。クリーンなコールドブート + EDID override + weston 再起動
+  (強制 off/detect なし)なら同じモードで一発表示した。connector を強制操作したら
+  以後の無信号は wedge をまず疑い、電源サイクルでやり直すこと
 
 ## 4. weston kiosk 設定の 8MP 適用
 
