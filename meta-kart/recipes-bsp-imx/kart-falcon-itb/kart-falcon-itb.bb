@@ -93,6 +93,16 @@ do_compile() {
     cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_NODTB} ${B}/u-boot-nodtb.bin
     cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_UBOOT_DTB} ${B}/u-boot-proper.dtb
 
+    # 全 blob を 64B の倍数へゼロパディング。mkimage -E は external data を
+    # 4B 詰めで並べるため、2 個目以降の blob の offset が SPL の読みバッファ
+    # 境界 (bl_len=64) からずれ、spl_fit が「境界に丸めて読み → 全長 memmove」
+    # に落ちる (dcache 無効の SPL でカーネル 35MB ≈ 0.7s を実測、8MP)。
+    # サイズを 64 の倍数に揃えれば offset が常に境界に乗り、u-boot 側
+    # 0004 パッチ (同一アドレス memcpy スキップ) と合わせてコピーが消える
+    for f in ${B}/Image ${B}/bl31.bin ${B}/u-boot-nodtb.bin ${B}/u-boot-proper.dtb; do
+        truncate -s %64 $f
+    done
+
     # SPL スプラッシュ: ロゴは SPL に 1bit マスクで埋め込み済み (u-boot の
     # kart_splash_logo.h + 0010 パッチ) で、SPL が fill 直後・eLCDIF RUN 前に
     # 描く。よって falcon.itb に splash loadable (ロゴ画像) は載せない。
@@ -155,6 +165,10 @@ open('${B}/m4-fw.img', 'wb').write(hdr + payload)
             # 検証してから引き継ぐので、万一 splash 未描画でも安全にフォールバックする。
             fdtput -t s ${B}/falcon-$slot.dtb /chosen kart,splash-active "1"
         fi
+
+        # DTB も 64B 倍数へ (fdtput 編集後に。totalsize はヘッダ内なので
+        # 末尾ゼロ埋めは無害)
+        truncate -s %64 ${B}/falcon-$slot.dtb
 
         cat > ${B}/falcon-$slot.its << EOF
 /dts-v1/;
