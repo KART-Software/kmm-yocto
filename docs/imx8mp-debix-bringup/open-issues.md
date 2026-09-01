@@ -1,6 +1,6 @@
 # DEBIX Infinity — 未解決事項と暫定対応(2026-09-01 時点、falcon 移植後)
 
-確定した内容は 00〜04 に置き、ここには**まだ暫定のもの・未解決のもの**だけを置く。
+確定した内容は 00〜(連番)と 30-boot-time.md(起動時間の継続記録)に置き、ここには**まだ暫定のもの・未解決のもの**だけを置く。
 解決したらこのファイルから消して、確定した知見だけを該当 docs に移す。
 
 ## 実機(ベンチの eMMC)に残っている暫定状態
@@ -27,13 +27,11 @@
 6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
    data-logger-zephyr の dev/imx8mp-m7 ブランチにビルド確認済み(実機未検証)。
    CAN を M7 に持たせるかの設計判断待ち
-7. **起動時間**: falcon + SPL HS400 化後 **電源→GUI ≈ 6.0s**(SPL+env ~1.0s /
-   falcon.itb ロード 0.86s / kernel 1.3s / userspace→kmm READY 2.8s)。
-   **残る謎: SPL の FAT 読みが HS400(ES) 有効でも 41MB/s 止まり**(モード/クロックは
-   実測で mode=HS400_ES・200MHz を確認済み。proper の fatload は同一ファイル
-   302MiB/s。断片化でもない)。SPL の spl_load/FIT/ドライバ経路のどこかに ~8 倍の
-   オーバーヘッド。次に削るならここをプロファイルする。
-   networkd-wait-online 5.9s は GUI 非ブロックのまま
+7. **起動時間**: falcon + SPL HS400 + memmove 除去(04-falcon.md ④)後
+   **電源→GUI ≈ 5.2s**(SPL+DDR ~0.6s / env+デッドマン 0.43s / itb ロード 0.19s /
+   kernel 1.3s / userspace→kmm READY 2.7s)。残りの候補: env+デッドマン 0.43s の
+   内訳削減、kernel 1.3s(config 減量)、userspace 2.7s(weston 初期化 0.8s 等)、
+   スプラッシュ(#4)による体感改善。networkd-wait-online 5.9s は GUI 非ブロックのまま
 8. **falcon 再アーム unit**: 起動成功(kmm READY 後が候補)で `fw_setenv boot_os yes`
    する小 unit を kart-image / falcon 構成に追加する。OTA の upgrade_available との
    干渉整理も含めて設計してから入れる

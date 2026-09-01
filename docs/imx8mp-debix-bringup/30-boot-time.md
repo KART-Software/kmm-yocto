@@ -1,0 +1,34 @@
+# 05 — 起動時間の短縮記録(DEBIX / i.MX8MP)
+
+「電源 ON → GUI(kmm READY = 画面表示)」の実測を主指標にした短縮の記録。
+1 施策 = 1 行で、効かなかった施策も残す(再挑戦の無駄を防ぐ)。
+各施策の技術詳細はリンク先。計測はシリアルのタイムスタンプ
+(ts-serial)+ `journalctl -o short-monotonic` の kmm Started。
+
+| # | 日付 | 施策 | 電源→GUI | 差分 | 備考・参照 |
+|---|---|---|---|---|---|
+| 0 | 08-31 | (移植直後・未最適化) | — | — | systemd-analyze **15.3s**(kernel 4.1 + userspace 11.2)。さらに NXP defconfig の FW user-helper fallback により、見つからない firmware 要求が各 **60s 停止**(EDID cmdline 追加で顕在化、sdma 2 件も該当) |
+| 1 | 08-31 | 第 1 弾: FW fallback 無効・quiet(kernel 4.1→1.3s)・udev/hwdb 削減・ユニット間引き・CPU 配分(8MM の道具を imx-generic-bsp へ共通化) | **≈7.0s** | — | SPL 0.6 / U-Boot 1.8 / kernel 1.3 / userspace ~4.2。analyze 11.5s。FW: `meta-kart/recipes-kernel-imx/linux/files/edid-firmware.cfg`、udev/CPU 配分: `meta-kart/recipes-support/kart-udev-slim/`、ユニット間引き: `kart-image.bb` の boot_trim_units。コミット 69773a8 |
+| — | 08-31 | weston-early(basic.target を待たない 8MM 変種) | 7.0s | **±20ms = 効果なし、不採用** | 律速は basic 待ちでなく seatd 後の dispatch/exec + weston 初期化 0.8s。経緯コメント: `meta-kart/recipes-graphics/weston/weston-init.bbappend`(weston-early.service)。8MM 側の weston 区間の知見は [../imx8mm-xpi-bringup/11-splash-optimization.md](../imx8mm-xpi-bringup/11-splash-optimization.md) ⑧ |
+| — | 08-31 | FlexCAN ビルトイン化 | ≈7.0s | 微小 | kmm のクリティカルパスから udev を排除(定性的効果)。`meta-kart/recipes-kernel-imx/linux/files/can-builtin.cfg`、コミット 5ec449d |
+| 2 | 09-01 | **Falcon mode**(U-Boot proper 1.8s をスキップ) | **6.6s** | -0.4s | ただし SPL の低速 eMMC 読みで falcon.itb 35MB に 1.54s かかり効果が相殺気味。設計・落とし穴①〜③: [04-falcon.md](04-falcon.md)、SPL のメモリ知識: [../../learning/08-uboot-spl-memory.md](../../learning/08-uboot-spl-memory.md) |
+| 3 | 09-01 | SPL eMMC を **HS400(ES) @200MHz** 化 | **6.0s** | -0.6s | ロード 1.54→0.90s。config 2 行(`debix-falcon.cfg`)+ 高速 pinctrl の bootph パッチ(`0003-imx8mp-debix-spl-usdhc3-fast-pinctrl.patch`)。[04-falcon.md](04-falcon.md) 実測結果の節 |
+| 4 | 09-01 | **35MB の隠れ memmove 除去**(blob 64B パディング + in-place memcpy スキップ) | **5.2s** | -0.8s | ロード 0.90→**0.19s**(読み自体は 119ms=295MB/s だった)。機序: [04-falcon.md](04-falcon.md) ④、教訓(アラインと隠れコピー・バス vs CPU の切り分け): [../../learning/08-uboot-spl-memory.md](../../learning/08-uboot-spl-memory.md)。パディング: `kart-falcon-itb.bb`、スキップ: `0004-spl-fit-skip-inplace-memcpy.patch` |
+
+## 現在の内訳(5.2s、2026-09-01)
+
+| 区間 | 時間 |
+|---|---|
+| 電源 → SPL(BootROM + DDR training) | ~0.6s |
+| env ロード + デッドマン書戻し | 0.43s |
+| falcon.itb ロード + シム設置 | 0.19s |
+| カーネル | 1.3s |
+| userspace → weston → kmm READY | 2.7s |
+
+## 残り候補(open-issues #7)
+
+- env + デッドマン 0.43s の内訳削減
+- kernel 1.3s(config 減量)
+- userspace 2.7s(weston 初期化 0.8s ほか)
+- スプラッシュ(open-issues #4)— 絶対時間でなく「暗い時間」の体感を消す
+- A53 起動時クロック引き上げ(8MM では SPL overdrive で kernel→GUI 3.33→2.98s の実績。8MP は未検証)

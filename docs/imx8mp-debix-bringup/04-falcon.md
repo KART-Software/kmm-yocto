@@ -5,14 +5,14 @@ SPL が U-Boot proper を飛ばして FAT の falcon.itb(ATF + Image + DTB)を�
 ([../imx8mm-xpi-bringup/08-falcon.md](../imx8mm-xpi-bringup/08-falcon.md))。
 本書は **8MP(NXP uboot-imx lf_v2024.04)固有の差分と落とし穴**の確定記録。
 
-実測結果: 電源 ON → GUI(kmm READY)**約 6.0 秒**
-(SPL+env ~1.0s / falcon.itb 35MB ロード 0.86s / kernel 1.3s / userspace→kmm READY 2.8s)。
+実測結果: 電源 ON → GUI(kmm READY)**約 5.2 秒**
+(SPL+DDR ~0.6s / env+デッドマン 0.43s / falcon.itb 35MB ロード **0.19s** /
+kernel 1.3s / userspace→kmm READY 2.7s)。
 SPL の eMMC は **HS400 Enhanced Strobe @200MHz**(`debix-falcon.cfg` の
 `CONFIG_SPL_MMC_HS400(_ES)_SUPPORT` + 高速 pinctrl の bootph を足す 0003 パッチ。
 SPL 用 DT の usdhc3 には mmc-hs400-1_8v / enhanced-strobe が元から付いている)。
-これでロードは 1.54s → 0.86s になったが、proper の fatload が同一ファイルを
-112ms で読むのに対しまだ ~8 倍遅い(SPL のロード経路のオーバーヘッド、未解明 —
-open-issues 参照)。falcon 発動時のシリアルは
+これで生の読みは 119ms(295MB/s)になる。もう一つの支配項が落とし穴④
+(35MB の無駄 memmove)で、除去後にロード合計 0.19s。falcon 発動時のシリアルは
 
 ```
 U-Boot SPL 2024.04-imx_v2024.04_6.6.52-2.2.0+...
@@ -94,6 +94,19 @@ diff した実測値。proper のリストにある `pgc/power-domain@19〜22` �
 カーネルの番号付けで、fslc(メインライン系)DTB には存在しない(proper でも
 NOTFOUND で素通り)。fslc 側で実際に失敗し続けるのは `power-domain@8` なので
 それを無効化している。
+
+### ④ mkimage の 4B 詰めが 35MB の無駄 memmove を生む
+
+HS400 化後もロードに 0.86s かかり、計装で内訳を取ると **FAT 読み自体は 119ms
+(295MB/s)で、残り 0.72s は読み込み後の memcpy** だった。機序:
+`mkimage -E` は external data を 4B 詰めで並べるため、2 個目以降の blob の
+ファイル内 offset が SPL の読みバッファ境界(bl_len=64)に乗らない。spl_fit は
+「境界に丸めた位置から読み → `memcpy(load_ptr, load_ptr+ズレ, 全長)`」で補正する
+ので、カーネル 35MB 全体のずらしコピーが発生する(SPL は dcache 無効なので
+CPU コピーが ~50MB/s しか出ない)。
+→ 二段で解決: kart-falcon-itb が**全 blob を 64B の倍数へゼロパディング**
+(offset が常に境界に乗る)+ u-boot 側 0004 パッチで **src == dst の memcpy を
+スキップ**(mainline の後年修正と同型)。ロード合計 0.90s → 0.19s。
 
 ## デッドマンスイッチ(8MM に無い追加)
 
