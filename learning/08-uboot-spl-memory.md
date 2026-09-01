@@ -48,6 +48,21 @@ falcon で 35MB のカーネルを読むと前提が崩れる:
 対策はどちらも「決定的な配置」: 目次は `board_spl_fit_buffer_addr()` で
 0x48000000 固定、ヒープは cfg で 0x4A000000 へ移動(8MP 実値)。
 
+## external data のアラインと「隠れ全長コピー」
+
+spl_fit の external data 読みは「offset を bl_len(DMA アライン時 64B)境界に
+丸めて読み、ずれ(overhead)があれば `memcpy(load_ptr, load_ptr+overhead, 全長)`
+で補正する」実装になっている。`mkimage -E` は blob を **4B 詰め**で並べるため、
+2 個目以降の blob はほぼ必ずこのコピーを踏む。SPL は **dcache 無効**(ARMv8 の
+SPL は誰も dcache_enable を呼ばないのがデフォルト。proper は board_r.c が有効化)
+なので CPU コピーは ~50MB/s しか出ず、35MB のカーネルで ~0.7s を空費する
+(8MP falcon で実測: バスを HS400 の 295MB/s にしてもこれが支配項として残った)。
+
+対策は「blob を 64B の倍数にパディングして offset を常に境界に乗せる」+
+「src == dst の memcpy をスキップ」(mainline の後年修正と同型)。
+**教訓: 転送が遅い時は『バスの速さ』と『その後の CPU 処理』を分けて測る。**
+読み自体の実測(get_timer 挟み)と proper での同一操作の比較で 10 分で切り分く。
+
 ## デバッグの型
 
 - クラッシュ位置は「リセットまでの時間 × 読み込み速度」で割り出せる
