@@ -93,13 +93,21 @@ do_compile() {
     cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_NODTB} ${B}/u-boot-nodtb.bin
     cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_UBOOT_DTB} ${B}/u-boot-proper.dtb
 
-    # 全 blob を 64B の倍数へゼロパディング。mkimage -E は external data を
-    # 4B 詰めで並べるため、2 個目以降の blob の offset が SPL の読みバッファ
-    # 境界 (bl_len=64) からずれ、spl_fit が「境界に丸めて読み → 全長 memmove」
-    # に落ちる (dcache 無効の SPL でカーネル 35MB ≈ 0.7s を実測、8MP)。
+    # falcon.itb 用 blob を 64B の倍数へゼロパディング。mkimage -E は external
+    # data を 4B 詰めで並べるため、2 個目以降の blob の offset が SPL の読み
+    # バッファ境界 (bl_len=64) からずれ、spl_fit が「境界に丸めて読み → 全長
+    # memmove」に落ちる (dcache 無効の SPL でカーネル 35MB ≈ 0.7s を実測、8MP)。
     # サイズを 64 の倍数に揃えれば offset が常に境界に乗り、u-boot 側
-    # 0004 パッチ (同一アドレス memcpy スキップ) と合わせてコピーが消える
-    for f in ${B}/Image ${B}/bl31.bin ${B}/u-boot-nodtb.bin ${B}/u-boot-proper.dtb; do
+    # 0004 パッチ (同一アドレス memcpy スキップ) と合わせてコピーが消える。
+    #
+    # 【u-boot-nodtb.bin は絶対にパディングしない】U-Boot proper は「自分の
+    # 末尾 (_end) 直後に control DTB が付いている」前提で DTB を探す。SPL の
+    # append-fdt は「ロードアドレス + FIT 上のサイズ」に DTB を置くため、
+    # パディングすると _end と DTB の間に隙間ができ、proper がコンソール
+    # 初期化前に無音ハングする (2026-09-02 実測 — proper 経路が丸ごと死に、
+    # デッドマンの落ち先を失って遠隔復旧不能になった)。u-boot.itb 側の
+    # 小さな memmove (~1MB、数十 ms) は許容する
+    for f in ${B}/Image ${B}/bl31.bin; do
         truncate -s %64 $f
     done
 

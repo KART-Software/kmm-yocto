@@ -1,0 +1,21 @@
+[Unit]
+Description=Re-arm falcon boot (boot_os=yes)
+# デッドマンスイッチの補充。SPL は falcon 発動時に boot_os=no を書き戻すので、
+# Linux がここまで起動できた実績をもって毎回無条件に yes を補充する。
+# 設計検討の経緯 (無条件 vs 経路限定 vs カウンタ) は
+# docs/imx8mp-debix-bringup/04-falcon.md。無条件補充の帰結:
+#  - 補充ミス (電源断等) は次の proper 起動で自動回復
+#  - falcon.itb が恒久的に壊れている場合は毎ブート ~2.5s のクラッシュ迂回が
+#    挟まる (ただし必ず proper で完全起動する) — シンプルさ優先で許容
+# 早期 (basic.target 付近) に走らせて「補充前に電源断」の窓を縮める。
+# falcon 経路の健全性はカーネルが userspace に到達した時点で証明済みなので
+# GUI (kmm READY) を待つ必要はない。
+After=dev-mmcblk2.device
+Wants=dev-mmcblk2.device
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/fw_setenv boot_os yes
+
+[Install]
+WantedBy=multi-user.target

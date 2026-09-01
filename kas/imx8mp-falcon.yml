@@ -14,3 +14,4 @@ local_conf_header:
     SRC_URI:append:pn-u-boot-imx = " file://debix-falcon.cfg file://0002-imx8mp-debix-falcon-mode.patch file://0003-imx8mp-debix-spl-usdhc3-fast-pinctrl.patch file://0004-spl-fit-skip-inplace-memcpy.patch"
     IMAGE_BOOT_FILES:append = " falcon-a.itb;falcon.itb falcon-a.itb falcon-b.itb u-boot.itb args"
     KART_WIC_EXTRA_DEPENDS:imx8mp-debix:append = " kart-falcon-itb:do_deploy"
+    IMAGE_INSTALL:append = " falcon-rearm"
