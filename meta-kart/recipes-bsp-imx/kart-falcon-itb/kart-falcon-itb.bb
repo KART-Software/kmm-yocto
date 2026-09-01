@@ -32,18 +32,23 @@ KART_M4 ?= ""
 
 inherit deploy nopackages
 
-COMPATIBLE_MACHINE = "imx8mm-xpi"
+COMPATIBLE_MACHINE = "(imx8mm-xpi|imx8mp-debix)"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
+KART_FALCON_UBOOT_DEPLOY = "u-boot-fslc:do_deploy"
+KART_FALCON_UBOOT_DEPLOY:imx8mp-debix = "u-boot-imx:do_deploy"
 do_compile[depends] += " \
     virtual/kernel:do_deploy \
     imx-atf:do_deploy \
-    u-boot-fslc:do_deploy \
+    ${KART_FALCON_UBOOT_DEPLOY} \
 "
 
 # アドレスは U-Boot パッチ (0001-imx8mm-kart-falcon-mode.patch) の
 # KART_FALCON_* 定数、および SPL heap (0x42200000) と衝突しないこと
+# 8MM: BL31_BASE 0x920000 / 8MP: 0x970000 (imx-atf platform_def.h、imx-boot の
+# soc.mak ATF_LOAD_ADDR と一致)
 FALCON_ATF_ADDR = "0x920000"
+FALCON_ATF_ADDR:imx8mp-debix = "0x970000"
 FALCON_KERNEL_ADDR = "0x40400000"
 FALCON_FDT_ADDR = "0x43100000"
 FALCON_UBOOT_ADDR = "0x40200000"
@@ -51,11 +56,42 @@ FALCON_UBOOT_ADDR = "0x40200000"
 # extlinux と同じカーネル引数系 (machine conf の UBOOT_EXTLINUX_KERNEL_ARGS を共有)
 FALCON_BOOTARGS_COMMON = "console=ttymxc1,115200 ${UBOOT_EXTLINUX_KERNEL_ARGS}"
 
+# falcon は U-Boot proper の ft_system_setup (ヒューズ由来の DT fixup) を通らない。
+# proper が実機で無効化しているノード (i.MX8MP Quad Lite = VPU/NPU 非搭載) を
+# ビルド時に静的に焼き込む (ハード構成は製品で固定)。放置するとカーネルが
+# 存在しない VPU/NPU を叩いて imx-pgc "failed to command PGC" 連発 →
+# galcore (GPU/NPU 統合) が死に weston が起動しない (実測 2026-08-31)。
+# リストは実機の /sys/firmware/fdt を proper ブートと falcon ブートで
+# 採取して diff した実測値 (arch/arm/mach-imx/imx8m/soc.c disable_vpu_nodes 等)
+FALCON_DTB_DISABLE_NODES = ""
+FALCON_DTB_DISABLE_NODES:imx8mp-debix = "\
+    /vpu_g1@38300000 \
+    /vpu_g2@38310000 \
+    /vpu_vc8000e@38320000 \
+    /soc@0/blk-ctl@38330000 \
+    /vipsi@38500000 \
+    /soc@0/bus@30000000/gpc@303a0000/pgc/power-domain@8 \
+"
+# 注: proper (NXP U-Boot) の disable_vpu_nodes は pgc power-domain@19〜22 も
+# 対象にするが、それは NXP ベンダーカーネル DTS の番号付け。fslc (メインライン系)
+# の pgc は @0〜@18 で該当せず (proper でもここは NOTFOUND で素通りしている)。
+# 実測でカーネル probe 時から失敗し続けるのは imx-pgc-domain.8 (reg 0x08、
+# Quad Lite でヒューズアウトされた VPU 系 mix) なので @8 を無効化する
+# machine ごとの素材名 (deploy 上のファイル名の差を吸収)
+KART_FALCON_BL31 = "bl31-imx8mm.bin"
+KART_FALCON_BL31:imx8mp-debix = "bl31-imx8mp.bin"
+KART_FALCON_DTB = "imx8mm-xpi-kart.dtb"
+KART_FALCON_DTB:imx8mp-debix = "imx8mp-debix.dtb"
+KART_FALCON_NODTB = "u-boot-nodtb.bin"
+KART_FALCON_NODTB:imx8mp-debix = "imx-boot-tools/u-boot-nodtb.bin-${MACHINE}-sd"
+KART_FALCON_UBOOT_DTB = "u-boot-proper.dtb"
+KART_FALCON_UBOOT_DTB:imx8mp-debix = "imx-boot-tools/imx8mp-evk.dtb-sd"
+
 do_compile() {
     cp ${DEPLOY_DIR_IMAGE}/Image ${B}/Image
-    cp ${DEPLOY_DIR_IMAGE}/bl31-imx8mm.bin ${B}/bl31.bin
-    cp ${DEPLOY_DIR_IMAGE}/u-boot-nodtb.bin ${B}/u-boot-nodtb.bin
-    cp ${DEPLOY_DIR_IMAGE}/u-boot-proper.dtb ${B}/u-boot-proper.dtb
+    cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_BL31} ${B}/bl31.bin
+    cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_NODTB} ${B}/u-boot-nodtb.bin
+    cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_UBOOT_DTB} ${B}/u-boot-proper.dtb
 
     # SPL スプラッシュ: ロゴは SPL に 1bit マスクで埋め込み済み (u-boot の
     # kart_splash_logo.h + 0010 パッチ) で、SPL が fill 直後・eLCDIF RUN 前に
@@ -95,10 +131,14 @@ open('${B}/m4-fw.img', 'wb').write(hdr + payload)
             a) rootpart=5 ;;
             b) rootpart=6 ;;
         esac
-        cp ${DEPLOY_DIR_IMAGE}/imx8mm-xpi-kart.dtb ${B}/falcon-$slot.dtb
+        cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_DTB} ${B}/falcon-$slot.dtb
         fdtput -c ${B}/falcon-$slot.dtb /chosen 2>/dev/null || true
         fdtput -t s ${B}/falcon-$slot.dtb /chosen bootargs \
             "root=/dev/mmcblk2p$rootpart rootwait rw ${FALCON_BOOTARGS_COMMON}$splash_args"
+        # 非搭載 IP のノード無効化 (FALCON_DTB_DISABLE_NODES のコメント参照)
+        for node in ${FALCON_DTB_DISABLE_NODES}; do
+            fdtput -t s ${B}/falcon-$slot.dtb "$node" status disabled
+        done
         # SPL スプラッシュ時は lcdif/dsi の assigned-clocks を削除する。
         # 素の DT だと lcdif probe (~0.3s) が LCDIF_PIXEL を 24MHz に
         # 強制設定し、108MHz で走査中のスプラッシュ表示が即死する (実測特定)。
