@@ -104,9 +104,15 @@ HS400 化後もロードに 0.86s かかり、計装で内訳を取ると **FAT 
 「境界に丸めた位置から読み → `memcpy(load_ptr, load_ptr+ズレ, 全長)`」で補正する
 ので、カーネル 35MB 全体のずらしコピーが発生する(SPL は dcache 無効なので
 CPU コピーが ~50MB/s しか出ない)。
-→ 二段で解決: kart-falcon-itb が**全 blob を 64B の倍数へゼロパディング**
-(offset が常に境界に乗る)+ u-boot 側 0004 パッチで **src == dst の memcpy を
-スキップ**(mainline の後年修正と同型)。ロード合計 0.90s → 0.19s。
+→ 二段で解決: kart-falcon-itb が **falcon.itb の blob を 64B の倍数へゼロ
+パディング**(offset が常に境界に乗る)+ u-boot 側 0004 パッチで **src == dst の
+memcpy をスキップ**(mainline の後年修正と同型)。ロード合計 0.90s → 0.19s。
+
+**注意: u-boot-nodtb.bin だけは絶対にパディングしない。** U-Boot proper は
+「自分の末尾(_end)直後に control DTB」の前提で DTB を探すため、パディングで
+隙間ができるとコンソール初期化前に無音ハングし、**デッドマンの落ち先(proper)が
+丸ごと死ぬ**(2026-09-02 実測 — boot_os=no と組み合わさり遠隔復旧不能になった)。
+教訓: **フォールバック経路は、その構成物を触るたびに回帰テストする**。
 
 ## デッドマンスイッチ(8MM に無い追加)
 
@@ -118,7 +124,25 @@ CPU コピーが ~50MB/s しか出ない)。
 
 falcon 経路がどこでクラッシュしても次回は必ず proper に落ちるため、
 **ブートローダ実験でロックアウトしない**(今回のデバッグ中、毎クラッシュ後に
-自動復帰することを繰り返し実測)。起動成功時の再アームは `fw_setenv boot_os yes`。
+自動復帰することを繰り返し実測)。
+
+再アーム(チケット補充)は **falcon-rearm.service**
+(`meta-kart/recipes-bsp-imx/falcon-rearm/`、falcon ビルドのみ
+kas/imx8mp-falcon.yml が IMAGE_INSTALL)が担う: 起動早期(~3s、basic 付近)に
+**無条件で** `fw_setenv boot_os yes`。設計判断:
+- 無条件補充の帰結 = 補充ミス(電源断等)は次の proper 起動で自動回復。
+  falcon.itb が恒久的に壊れている場合のみ毎ブート ~2.5s のクラッシュ迂回が
+  挟まる(必ず proper で完全起動はする)— シンプルさ優先で許容
+- 検討した代替: 経路限定補充(proper では補充しない)は補充ミス 1 回で健全
+  falcon を永久喪失、連続失敗カウンタは両立するが複雑 — 採用見送り。
+  経路判定が要る場合は `/proc/device-tree/chosen/u-boot,version` の有無で可能
+  (proper のみ注入、実機確認済み)
+- 実行を GUI(kmm READY)まで遅らせない — falcon 経路の健全性はカーネルが
+  userspace に到達した時点で証明済み(GUI 故障は proper でも同じに壊れる)
+- OTA 試行中(ua=1)は SPL が boot_os を見ずに proper へ行くため干渉なし
+
+手動アームなし 2 連続コールドブートで自律サイクル(falcon → 補充 → falcon)を
+実機確認済み(2026-09-02)。
 
 ## リカバリ経路(SPL/imx-boot を壊した場合)
 

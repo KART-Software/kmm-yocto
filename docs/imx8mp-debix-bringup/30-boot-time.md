@@ -15,20 +15,24 @@
 | 3 | 09-01 | SPL eMMC を **HS400(ES) @200MHz** 化 | **6.0s** | -0.6s | ロード 1.54→0.90s。config 2 行(`debix-falcon.cfg`)+ 高速 pinctrl の bootph パッチ(`0003-imx8mp-debix-spl-usdhc3-fast-pinctrl.patch`)。[04-falcon.md](04-falcon.md) 実測結果の節 |
 | 4 | 09-01 | **35MB の隠れ memmove 除去**(blob 64B パディング + in-place memcpy スキップ) | **5.2s** | -0.8s | ロード 0.90→**0.19s**(読み自体は 119ms=295MB/s だった)。機序: [04-falcon.md](04-falcon.md) ④、教訓(アラインと隠れコピー・バス vs CPU の切り分け): [../../learning/08-uboot-spl-memory.md](../../learning/08-uboot-spl-memory.md)。パディング: `kart-falcon-itb.bb`、スキップ: `0004-spl-fit-skip-inplace-memcpy.patch` |
 
-## 現在の内訳(5.2s、2026-09-01)
+## 現在の内訳(5.2s、2026-09-01。シリアルの ts 実測)
 
-| 区間 | 時間 |
-|---|---|
-| 電源 → SPL(BootROM + DDR training) | ~0.6s |
-| env ロード + デッドマン書戻し | 0.43s |
-| falcon.itb ロード + シム設置 | 0.19s |
-| カーネル | 1.3s |
-| userspace → weston → kmm READY | 2.7s |
+| 区間 | 時間 | 備考 |
+|---|---|---|
+| 電源 → SPL バナー | ~0.6s | BootROM + imx-boot ロード(ROM 側の低速読み) |
+| DDR init + PHY training | 0.22s | |
+| board init(RNG/GIC) | 0.02s | |
+| eMMC init + HS400 交渉 + MBR/FAT | 0.05s | |
+| env ロード | 0.13s | 読み自体でなく 16KB のインポート処理(dcache OFF の CPU 仕事)が主と推定 |
+| デッドマン env_save + falcon.itb + シム | 0.18s | itb 読み 0.13s / save ~0.02s |
+| カーネル | 1.3s | |
+| userspace → weston → kmm READY | 2.7s | |
 
 ## 残り候補(open-issues #7)
 
-- env + デッドマン 0.43s の内訳削減
-- kernel 1.3s(config 減量)
-- userspace 2.7s(weston 初期化 0.8s ほか)
+- **A53 起動時クロック 1.2→1.6GHz**(8MM は SPL overdrive 1.8GHz で kernel→GUI
+  3.33→2.98s の実績。8MP 未検証。期待 -0.5s 級で現状の本命)
 - スプラッシュ(open-issues #4)— 絶対時間でなく「暗い時間」の体感を消す
-- A53 起動時クロック引き上げ(8MM では SPL overdrive で kernel→GUI 3.33→2.98s の実績。8MP は未検証)
+- kernel 1.3s(config 減量)、weston 初期化 0.8s
+- 小粒: env ロード 0.13s(縮小・部分読みは proper とのレイアウト共有に波及するわりに
+  最大 0.1s 級 = コスパ低)、DDR training 0.22s(training 結果の保存復元は大掛かり)

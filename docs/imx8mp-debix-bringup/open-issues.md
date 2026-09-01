@@ -5,9 +5,9 @@
 
 ## 実機(ベンチの eMMC)に残っている暫定状態
 
-- **falcon の再アームが手動**: 起動成功時に `boot_os=yes` を書き戻す systemd unit が
-  まだ無く、ベンチは手で `fw_setenv boot_os yes` してある(コールドブート 1 回ごとに
-  消費される。未アームなら proper 経由で普通に起きるだけで実害なし)
+- **falcon-rearm.service が hot-install**(2026-09-02): rootfs へ手で置いて enable
+  してある(動作は実機確認済み)。レシピ版(falcon-rearm)は kart-image に
+  組み込み済みで、次のイメージ焼き直し/OTA で正規化される
 
 ## 未解決
 
@@ -32,9 +32,6 @@
    kernel 1.3s / userspace→kmm READY 2.7s)。残りの候補: env+デッドマン 0.43s の
    内訳削減、kernel 1.3s(config 減量)、userspace 2.7s(weston 初期化 0.8s 等)、
    スプラッシュ(#4)による体感改善。networkd-wait-online 5.9s は GUI 非ブロックのまま
-8. **falcon 再アーム unit**: 起動成功(kmm READY 後が候補)で `fw_setenv boot_os yes`
-   する小 unit を kart-image / falcon 構成に追加する。OTA の upgrade_available との
-   干渉整理も含めて設計してから入れる
-9. **imx-pgc-domain.8 の正体**: fslc DTB の pgc `power-domain@8`(reg 0x08)は
+8. **imx-pgc-domain.8 の正体**: fslc DTB の pgc `power-domain@8`(reg 0x08)は
    Quad Lite でヒューズアウトされた VPU 系 mix と推定して無効化した(実測: これで
    PGC エラー 0)。dt-bindings 上の正式名との突き合わせは未実施
