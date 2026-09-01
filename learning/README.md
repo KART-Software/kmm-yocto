@@ -44,6 +44,11 @@
    training = PHY ファームによる実基板校正、**DRAM 側の状態が残ることによる順序依存**、
    DRAM ID(MR5〜8)による multi-probe の定石
 
+8. [U-Boot SPL のメモリ管理と FIT ロード](08-uboot-spl-memory.md)
+   — SPL の malloc の実体(OS 無し・自前ヒープ・決め打ちプール)、ヒープの二段構え、
+   FIT メタデータのバッファ戦略とフォールバック、
+   **「SPL が生かすバッファはロードする全ペイロードの射程外に置く」の法則**(falcon の教訓)
+
 ## 関連する既存ドキュメント(実務側)
 
 - `docs/imx8mm-xpi-bringup/` — bring-up の実務記録(pitfalls 集は #26 が本件)
