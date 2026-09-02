@@ -8,11 +8,11 @@
 - **falcon-rearm.service が hot-install**(2026-09-02): rootfs へ手で置いて enable
   してある(動作は実機確認済み)。レシピ版(falcon-rearm)は kart-image に
   組み込み済みで、次のイメージ焼き直し/OTA で正規化される
-- **スプラッシュ検証中の手配布が多数**(2026-09-02): boot パーティションの
-  Image/imx8mp-debix.dtb/falcon.itb/logo.bin、rootfs の
-  `/lib/modules/6.6.101-fslc-g9f89a7813703`(takeover カーネル用モジュール一式)、
-  imx-boot(BUILD63 相当)を手で配布。weston.ini の renderer=pixman も
-  手編集(レシピ weston-debix.ini と機能同等)。次のイメージ焼き直しで正規化される
+- **検証中の手配布が多数**(2026-09-02 時点、いずれもツリーの最新ビルドと機能同等):
+  boot の Image/DTB/falcon.itb と rootfs のモジュール一式(GPU 削減後の
+  BUILD73 相当)、imx-boot(BUILD63 相当)、weston.ini の renderer=pixman
+  手編集。また GPU 削減の runtime 実験で rootfs から退避したライブラリ群は
+  復元/削除処理済み。次のイメージ焼き直し/OTA で完全に正規化される
 
 ## 未解決
 

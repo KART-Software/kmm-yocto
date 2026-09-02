@@ -93,6 +93,11 @@ IMAGE_INSTALL:append:imx8mp-debix = " \
     kart-edid-firmware \
     kart-splash-wl \
 "
+# GPU は不使用 (weston=pixman、kmm=Qt Widgets raster)。galcore (Vivante blob
+# カーネルモジュール) は libgal-imx の RRECOMMENDS で入ってくるだけなので遮断。
+# Vivante の EGL/GLES/GAL/VSC ライブラリ自体は qtbase が RDEPENDS するため残る
+# (リンクされるだけで GPU は開かれない — 2026-09-02 実機で galcore 無し動作を確認)
+BAD_RECOMMENDATIONS:append:imx8mp-debix = " kernel-module-imx-gpu-viv"
 
 # udev ダイエット (i.MX 共通、RPi5 は据え置き):
 # 固定ハードのキオスクに無縁なルールと hwdb (10MB、キーボード/マウス量産品の

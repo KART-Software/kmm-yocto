@@ -5,3 +5,10 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 SRC_URI:append:mx8mm-generic-bsp = " file://0001-kiosk-shell-client-size.patch"
+
+# DEBIX (8MP): NXP 版 weston は imxgpu2d で G2D レンダラを組み込み、
+# libweston-12 が imx-gpu-g2d (→ libg2d-viv/libopencl-imx) を hard RDEPENDS する。
+# 本構成は pixman 合成 (weston-debix.ini) で G2D を使わないため外す —
+# GPU コンピュート系 (OpenCL/g2d) が rootfs から消える (2026-09-02 実測で
+# pixman 動作に不要と確認済み)。
+PACKAGECONFIG_G2D:imx8mp-debix = ""
