@@ -86,11 +86,12 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
 # ---------------------------------------------------------------------------
 # DEBIX Infinity (machine imx8mp-debix)
 # CAN は FlexCAN 内蔵 (can0/can1 が netdev として直接見える) — MCP2515/rpmsg 系は不要。
-# EDID・スプラッシュ等は 8MP 展開が済んだものから順に足す
-# (docs/imx8mp-debix-bringup/open-issues.md)。今は i.MX 共通分のみ。
+# kart-splash-wl は SPL スプラッシュ (kas/imx8mp-splash.yml) の weston 区間を
+# 埋める相方 (8MM と同一レシピ・同一ロゴ座標。SPL splash 無しでも無害)。
 # ---------------------------------------------------------------------------
 IMAGE_INSTALL:append:imx8mp-debix = " \
     kart-edid-firmware \
+    kart-splash-wl \
 "
 
 # udev ダイエット (i.MX 共通、RPi5 は据え置き):
