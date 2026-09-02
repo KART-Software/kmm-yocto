@@ -63,11 +63,23 @@ ssh root@192.168.0.7 'chmod +x /tmp/wl-image-view; su kart -s /bin/sh -c \
 4. 検出が欠けたら数値だけ追わず `out/calib-debug/annotated.png` を目で見る
    (露出・フォーカス・画角のどれかはすぐ分かる)
 
-## 未実装 (設計書 Phase 5-6)
+## 実ブート 3 stage 計測 (検証済み)
+
+```bash
+./target-stage-setup.sh install    # logo.bin 交換 + splash-wl/kmm drop-in (可逆)
+.venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
+    --calibration out/calibration.json --power-cycle --duration 22
+./target-stage-setup.sh uninstall  # 必ず戻す (製品状態に復帰)
+```
+
+SPL blit の 1bit パターン (白=255) でも確定露出のまま 60/60・PASS。
+weston stable は gui が即被さるため未達になるのが正常。
+**install したまま放置しない** — uninstall まで含めて 1 実験。
+
+## 未実装 (設計書 Phase 5-6 の残り)
 
 30 分ごとの Photometric 再キャリブレーション、Fine Pattern (1px 縞) の
-Pixel/Phase 検証、実ブート 3 stage のパターン組込み (logo.bin /
-kart-splash-wl 差し替え — 配線案は README)。
+Pixel/Phase 検証。
 
 ## 関連
 

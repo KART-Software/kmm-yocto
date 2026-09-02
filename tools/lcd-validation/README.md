@@ -70,15 +70,29 @@ GUI 完全起動 + Calibration Pattern 表示状態で:
 - フレームごとの CSV(§32)と §36 形式の最終レポートを出力
 - GUI stable 時 RMS が `--camera-moved-rms` 超なら INVALID(CAMERA_MOVED)
 
-## Stage パターンをブート各段に出すには(実験の配線)
+## 実ブート 3 stage 計測(実験モード、実機検証済み 2026-09-02)
 
-- **GUI stage**: wl-image-view で `gui.raw` を表示(kmm の代わり/上)
-- **Weston stage**: kart-splash-wl の代わりに wl-image-view を
-  weston 直後に起動する(実験時のみ unit を差し替え)
-- **Bootloader stage**: SPL スプラッシュの `logo.bin`(KLGO 1bit マスク)に
-  bootloader パターンを変換して boot パーティションへ置く。
-  1bit なので白=255 になる点に注意(白レベル 128 と露出設計が要調整、
-  §13/§35 の実測で決める)
+`target-stage-setup.sh` が可逆な差し替え一式を行う:
+
+```bash
+# 素材 (bootloader は KLGO、weston/gui は raw)
+.venv/bin/python generate_pattern.py --stage bootloader \
+    --output out/bootloader.png --klgo out/bootloader.klgo
+./target-stage-setup.sh install     # logo.bin 交換 + unit drop-in x2
+.venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
+    --calibration out/calibration.json --power-cycle --duration 22
+./target-stage-setup.sh uninstall   # 完全に元へ戻す
+```
+
+差し替えの中身: ① `/boot/logo.bin` → bootloader パターンの KLGO
+(SPL がそのまま blit する。原本は logo.bin.orig に退避)
+② kart-splash-wl.service → wl-image-view weston.raw(drop-in)
+③ kmm.service → wl-image-view gui.raw(drop-in、Type=simple 化)。
+
+実測: SPL blit のパターンでも **60/60・RMS 0.56px で全検証 PASS**
+(1bit なので白=255 だが、確定露出のままで飽和せず検出できた)。
+bootloader first は電源 +0.7s(シリアル実測と一致)、weston stable は
+gui が ~50ms 後に被さるため未達になるのが正常(Mixed フレームは記録される)。
 
 ## 実装フェーズの状態
 
