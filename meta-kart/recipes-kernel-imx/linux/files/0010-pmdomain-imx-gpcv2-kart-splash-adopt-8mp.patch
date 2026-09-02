@@ -1,0 +1,43 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] pmdomain: imx: gpcv2: SPL スプラッシュ稼働中は hdmimix/hdmi-phy を ALWAYS_ON で養子縁組
+
+SPL が HDMI 表示チェーン (GPC→blk-ctrl→Samsung PHY→DW-HDMI→PVI→LCDIFv3)
+を初期化してロゴを表示したままカーネルへ渡すとき (/chosen に
+kart,splash-active)、HDMIMIX / HDMI_PHY ドメインを「最初から ON +
+GENPD_FLAG_ALWAYS_ON」で登録する。
+
+こうしない場合ドメインは is_off=true で登録され、genpd の帳簿と実ハード
+(SPL が電源投入済み・LCDIF 走査中) が乖離する。未使用ドメイン一斉電源断
+(genpd_power_off_unused) や blk-ctrl attach の過渡で PHY PLL ごと落ち、
+表示が消える。8MM の 0004 (dispmix/mipi) の 8MP 版。
+
+キオスク用途で表示は常時使用のため実質的な電力コストはない。
+splash 無しブート (プロパティ無し) では完全に従来動作。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/pmdomain/imx/gpcv2.c
++++ b/drivers/pmdomain/imx/gpcv2.c
+@@ -1452,7 +1452,21 @@
+ 		regmap_update_bits(domain->regmap, domain->regs->map,
+ 				   domain->bits.map, domain->bits.map);
+ 
+-	ret = pm_genpd_init(&domain->genpd, NULL, true);
++	/* kart: SPL スプラッシュが表示ドメインを稼働させたまま渡してくる。
++	 * 実ハード状態 (ON) に合わせ ALWAYS_ON で登録し、電源断を禁止する */
++	{
++		bool adopt = of_property_read_bool(of_chosen,
++						   "kart,splash-active") &&
++			(!strcmp(domain->genpd.name, "hdmimix") ||
++			 !strcmp(domain->genpd.name, "hdmi-phy"));
++
++		if (adopt) {
++			dev_info(domain->dev,
++				 "kart splash: adopting running domain\n");
++			domain->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
++		}
++		ret = pm_genpd_init(&domain->genpd, NULL, !adopt);
++	}
+ 	if (ret) {
+ 		dev_err(domain->dev, "Failed to init power domain\n");
+ 		goto out_domain_unmap;

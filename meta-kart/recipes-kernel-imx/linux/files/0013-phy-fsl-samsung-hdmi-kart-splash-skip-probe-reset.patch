@@ -1,0 +1,33 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] phy: fsl-samsung-hdmi: SPL スプラッシュ稼働中は probe 時のリセットを抑止
+
+probe 経路の device_reset_optional() は blk-ctrl のリセット線で PHY を
+叩き直す。SPL スプラッシュ表示中は PHY PLL が LCDIFv3 のピクセルクロック源
+なので、これが走ると走査ごと表示が死ぬ。/chosen に kart,splash-active が
+あるときは抑止する。初回 modeset の PHY 再設定は従来経路。0010-0012 とペア。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/phy/freescale/phy-fsl-samsung-hdmi.c
++++ b/drivers/phy/freescale/phy-fsl-samsung-hdmi.c
+@@ -1006,10 +1006,16 @@
+ 		return ret;
+ 	}
+ 
+-	ret = device_reset_optional(dev);
+-	if (ret) {
+-		dev_warn(dev, "failed to reset hdmi phy %d\n", ret);
+-		return ret;
++	/* kart: SPL スプラッシュ表示中はリセットを抑止する (PHY PLL =
++	 * ピクセルクロック源ごと落ちて表示が死ぬ)。0010-0012 とペア */
++	if (of_property_read_bool(of_chosen, "kart,splash-active")) {
++		dev_info(dev, "kart splash: skipping probe reset\n");
++	} else {
++		ret = device_reset_optional(dev);
++		if (ret) {
++			dev_warn(dev, "failed to reset hdmi phy %d\n", ret);
++			return ret;
++		}
+ 	}
+ 
+ 	return 0;

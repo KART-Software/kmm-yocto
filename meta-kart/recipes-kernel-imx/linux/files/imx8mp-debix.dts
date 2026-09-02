@@ -63,3 +63,24 @@
 &dsp {
 	status = "disabled";
 };
+
+/* busfreq (DDR 低速バスモード) は使わない:
+ *  - キオスク用途で表示は常時稼働 = 低速モードに入れる局面が実質無い
+ *  - SPL スプラッシュが LCDIF 走査中のままカーネルへ渡す構成では、ブート
+ *    途中の「ddrc freq set to low bus mode」遷移がアクティブな表示 DMA と
+ *    衝突してカーネルが恒久ハングする (実測)。無効化で遷移自体を消す */
+&{/busfreq} {
+	status = "disabled";
+};
+
+/* LVDS 経路 (ldb + PHY) は未配線 + slim カーネル (slim-imx8mp.cfg 第二弾) で
+ * ドライバも外した。ノードを有効に残すと imx-drm のコンポーネント束ねが
+ * ldb を待ち続け、display-subsystem (= /dev/dri の表示カード) ごと現れず
+ * weston が「no drm device found」で死ぬ (2026-09-02 実測)。 */
+&ldb {
+	status = "disabled";
+};
+
+&ldb_phy {
+	status = "disabled";
+};

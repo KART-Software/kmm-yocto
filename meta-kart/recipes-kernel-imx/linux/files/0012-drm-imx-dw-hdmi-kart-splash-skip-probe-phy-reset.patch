@@ -1,0 +1,41 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] drm/imx: dw_hdmi: SPL スプラッシュ稼働中は probe 時の PHY リセットを抑止
+
+dw_hdmi_imx_probe() は 8MP で無条件に dw_hdmi_phy_gen1_reset() を呼ぶ
+(MC_PHYRSTZ トグル)。SPL スプラッシュ表示中にこれが走ると TMDS ごと落ちて
+ロゴが消える。/chosen に kart,splash-active があるときは抑止する。
+
+初回 modeset の imx8mp_hdmi_phy_init は従来通りリセット+全再設定するので、
+weston への引き継ぎは通常経路。8MM の 0006 (lt9611 probe リセット抑止) に
+相当。0010/0011 とペア。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/gpu/drm/imx/dw_hdmi-imx.c
++++ b/drivers/gpu/drm/imx/dw_hdmi-imx.c
+@@ -12,6 +12,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/phy/phy.h>
+ #include <linux/regmap.h>
++#include <linux/of.h>
+ 
+ #include <video/imx-ipu-v3.h>
+ 
+@@ -395,8 +396,15 @@
+ 		return PTR_ERR(hdmi->hdmi);
+ 
+ 	/* reset imx8mp hdmi external phy */
+-	if (of_device_is_compatible(pdev->dev.of_node, "fsl,imx8mp-hdmi"))
+-		dw_hdmi_phy_gen1_reset(hdmi->hdmi);
++	if (of_device_is_compatible(pdev->dev.of_node, "fsl,imx8mp-hdmi")) {
++		/* kart: SPL スプラッシュ表示中はリセットを抑止する
++		 * (TMDS ごと落ちてロゴが消える)。0010/0011 とペア */
++		if (of_property_read_bool(of_chosen, "kart,splash-active"))
++			dev_info(hdmi->dev,
++				 "kart splash: skipping probe PHY reset\n");
++		else
++			dw_hdmi_phy_gen1_reset(hdmi->hdmi);
++	}
+ 
+ 	hdmi->bridge = of_drm_find_bridge(np);
+ 	if (!hdmi->bridge) {

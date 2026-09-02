@@ -1,12 +1,18 @@
-# DEBIX Infinity — 未解決事項と暫定対応(2026-08-31 時点、A/B 移植後)
+# DEBIX Infinity — 未解決事項と暫定対応(2026-09-02 時点、スプラッシュ移植後)
 
-確定した内容は 00〜03 に置き、ここには**まだ暫定のもの・未解決のもの**だけを置く。
+確定した内容は 00〜(連番)と 30-boot-time.md(起動時間の継続記録)に置き、ここには**まだ暫定のもの・未解決のもの**だけを置く。
 解決したらこのファイルから消して、確定した知見だけを該当 docs に移す。
 
 ## 実機(ベンチの eMMC)に残っている暫定状態
 
-なし(2026-08-31、A/B レイアウトの wic を焼き直し、`/data` は p7 の永続パーティション。
-`/data/kmm.env` は local/kmm.env を手で置いたもの = 本番のプロビジョニング手順と同じ)。
+- **falcon-rearm.service が hot-install**(2026-09-02): rootfs へ手で置いて enable
+  してある(動作は実機確認済み)。レシピ版(falcon-rearm)は kart-image に
+  組み込み済みで、次のイメージ焼き直し/OTA で正規化される
+- **スプラッシュ検証中の手配布が多数**(2026-09-02): boot パーティションの
+  Image/imx8mp-debix.dtb/falcon.itb/logo.bin、rootfs の
+  `/lib/modules/6.6.101-fslc-g9f89a7813703`(takeover カーネル用モジュール一式)、
+  imx-boot(BUILD63 相当)を手で配布。weston.ini の renderer=pixman も
+  手編集(レシピ weston-debix.ini と機能同等)。次のイメージ焼き直しで正規化される
 
 ## 未解決
 
@@ -19,12 +25,19 @@
    現状は U-Boot video を無効にして回避
 3. **D8BJG 専用表(3264MTS)がコールドで training ハングする理由**: 未特定
    (DRAM 側 Mode Register の残留依存が疑い)。現状は Model A ベース表で回避しており実害なし
-4. **TFP401 LCD 用 EDID の恒久化**: 33.75MHz 版 EDID(03 §3)を `kart-edid-firmware` の
-   8MP 対応 + カーネル cmdline(`drm.edid_firmware=HDMI-A-1:edid/...`)で配る
-5. **スプラッシュ**: 8MM の SPL 手続き描画 + seamless takeover を 8MP(LCDIFv3 + HDMI TX)
-   向けに再実装する。Falcon 構成を 8MP でも組むかの判断込み
-6. **uuu 標準フロー(emmc_all)の再検証**: TCPC 無効化後は自前 U-Boot の SDPV まで通ることを
-   確認済みだが、fastboot 段は未検証。今は Linux 稼働中の `dd` で書いている
-7. **M7**: remoteproc ノード未整備(01-m7.md)。CAN を M7 に持たせるかの設計判断待ち
-8. **起動時間**: 初期値 kernel 4.1s + userspace 11.2s = 15.3s(最適化未着手。8MM で
-    確立した udev 間引き・ユニット間引き・Falcon 等は未移植)
+4. (解決 → [06-splash.md](06-splash.md)): SPL スプラッシュ + seamless takeover は
+   falcon/proper 両経路で実機確定。残タスクはスプラッシュ導入後の起動時間再計測
+   (30-boot-time.md への追記)のみ
+5. **uuu 標準フロー(emmc_all)の再検証**: fastboot 段は未検証。SPL/imx-boot の更新は
+   Linux からの dd、または 04-falcon.md のリカバリ経路(tftp)で運用中
+6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
+   data-logger-zephyr の dev/imx8mp-m7 ブランチにビルド確認済み(実機未検証)。
+   CAN を M7 に持たせるかの設計判断待ち
+7. **起動時間**: カーネル減量 第二弾(30-boot-time.md #7)後 **電源→GUI ≈ 4.8s**
+   (kernel 0.97s / kmm READY 3.57s monotonic)。残りの候補: env+デッドマン 0.43s の
+   内訳削減、userspace(weston 初期化 0.8s 等)。config の残り削り代は
+   COMPAT/BPF/AUDIT/MTD 済み分以外に小物のみで、費用対効果の山は越えた。
+   networkd-wait-online は GUI 非ブロックのまま
+8. **imx-pgc-domain.8 の正体**: fslc DTB の pgc `power-domain@8`(reg 0x08)は
+   Quad Lite でヒューズアウトされた VPU 系 mix と推定して無効化した(実測: これで
+   PGC エラー 0)。dt-bindings 上の正式名との突き合わせは未実施

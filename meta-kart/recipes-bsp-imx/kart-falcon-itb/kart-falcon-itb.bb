@@ -15,6 +15,13 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 #   自己 publish する attach 対応込み。SPL/BL31 先住起動 = Linux attach で必須)
 SRC_URI = "file://m4-fw.bin"
 
+# 8MP SPL スプラッシュのロゴ (単一ソースは u-boot 側の kart_splash_logo.h)。
+# ロゴを SPL に埋め込むと ROM のブートイメージ上限 (docs 04-falcon.md ⑤) を
+# 超えるため、boot パーティションの logo.bin として配りファイル読みする。
+# ヘッダ: "KLGO" + w/h/x/y (各 LE32) + 1bit マスク。
+FILESEXTRAPATHS:prepend := "${THISDIR}/../u-boot/files:"
+SRC_URI:append:imx8mp-debix = " file://kart_splash_logo.h"
+
 # SPL スプラッシュのロゴは u-boot 側 (SPL) に 1bit マスクで埋め込み済み
 # (scripts/gen-splash-raw.py → kart_splash_logo.h、0010 パッチ)。falcon.itb に
 # ロゴ画像は不要。KART_SPLASH は splash ビルドの印 (kas/imx8mm-splash.yml が "1"):
@@ -32,18 +39,23 @@ KART_M4 ?= ""
 
 inherit deploy nopackages
 
-COMPATIBLE_MACHINE = "imx8mm-xpi"
+COMPATIBLE_MACHINE = "(imx8mm-xpi|imx8mp-debix)"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
+KART_FALCON_UBOOT_DEPLOY = "u-boot-fslc:do_deploy"
+KART_FALCON_UBOOT_DEPLOY:imx8mp-debix = "u-boot-imx:do_deploy"
 do_compile[depends] += " \
     virtual/kernel:do_deploy \
     imx-atf:do_deploy \
-    u-boot-fslc:do_deploy \
+    ${KART_FALCON_UBOOT_DEPLOY} \
 "
 
 # アドレスは U-Boot パッチ (0001-imx8mm-kart-falcon-mode.patch) の
 # KART_FALCON_* 定数、および SPL heap (0x42200000) と衝突しないこと
+# 8MM: BL31_BASE 0x920000 / 8MP: 0x970000 (imx-atf platform_def.h、imx-boot の
+# soc.mak ATF_LOAD_ADDR と一致)
 FALCON_ATF_ADDR = "0x920000"
+FALCON_ATF_ADDR:imx8mp-debix = "0x970000"
 FALCON_KERNEL_ADDR = "0x40400000"
 FALCON_FDT_ADDR = "0x43100000"
 FALCON_UBOOT_ADDR = "0x40200000"
@@ -51,11 +63,60 @@ FALCON_UBOOT_ADDR = "0x40200000"
 # extlinux と同じカーネル引数系 (machine conf の UBOOT_EXTLINUX_KERNEL_ARGS を共有)
 FALCON_BOOTARGS_COMMON = "console=ttymxc1,115200 ${UBOOT_EXTLINUX_KERNEL_ARGS}"
 
+# falcon は U-Boot proper の ft_system_setup (ヒューズ由来の DT fixup) を通らない。
+# proper が実機で無効化しているノード (i.MX8MP Quad Lite = VPU/NPU 非搭載) を
+# ビルド時に静的に焼き込む (ハード構成は製品で固定)。放置するとカーネルが
+# 存在しない VPU/NPU を叩いて imx-pgc "failed to command PGC" 連発 →
+# galcore (GPU/NPU 統合) が死に weston が起動しない (実測 2026-08-31)。
+# リストは実機の /sys/firmware/fdt を proper ブートと falcon ブートで
+# 採取して diff した実測値 (arch/arm/mach-imx/imx8m/soc.c disable_vpu_nodes 等)
+FALCON_DTB_DISABLE_NODES = ""
+FALCON_DTB_DISABLE_NODES:imx8mp-debix = "\
+    /vpu_g1@38300000 \
+    /vpu_g2@38310000 \
+    /vpu_vc8000e@38320000 \
+    /soc@0/blk-ctl@38330000 \
+    /vipsi@38500000 \
+    /soc@0/bus@30000000/gpc@303a0000/pgc/power-domain@8 \
+"
+# 注: proper (NXP U-Boot) の disable_vpu_nodes は pgc power-domain@19〜22 も
+# 対象にするが、それは NXP ベンダーカーネル DTS の番号付け。fslc (メインライン系)
+# の pgc は @0〜@18 で該当せず (proper でもここは NOTFOUND で素通りしている)。
+# 実測でカーネル probe 時から失敗し続けるのは imx-pgc-domain.8 (reg 0x08、
+# Quad Lite でヒューズアウトされた VPU 系 mix) なので @8 を無効化する
+# machine ごとの素材名 (deploy 上のファイル名の差を吸収)
+KART_FALCON_BL31 = "bl31-imx8mm.bin"
+KART_FALCON_BL31:imx8mp-debix = "bl31-imx8mp.bin"
+KART_FALCON_DTB = "imx8mm-xpi-kart.dtb"
+KART_FALCON_DTB:imx8mp-debix = "imx8mp-debix.dtb"
+KART_FALCON_NODTB = "u-boot-nodtb.bin"
+KART_FALCON_NODTB:imx8mp-debix = "imx-boot-tools/u-boot-nodtb.bin-${MACHINE}-sd"
+KART_FALCON_UBOOT_DTB = "u-boot-proper.dtb"
+KART_FALCON_UBOOT_DTB:imx8mp-debix = "imx-boot-tools/imx8mp-evk.dtb-sd"
+
 do_compile() {
     cp ${DEPLOY_DIR_IMAGE}/Image ${B}/Image
-    cp ${DEPLOY_DIR_IMAGE}/bl31-imx8mm.bin ${B}/bl31.bin
-    cp ${DEPLOY_DIR_IMAGE}/u-boot-nodtb.bin ${B}/u-boot-nodtb.bin
-    cp ${DEPLOY_DIR_IMAGE}/u-boot-proper.dtb ${B}/u-boot-proper.dtb
+    cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_BL31} ${B}/bl31.bin
+    cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_NODTB} ${B}/u-boot-nodtb.bin
+    cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_UBOOT_DTB} ${B}/u-boot-proper.dtb
+
+    # falcon.itb 用 blob を 64B の倍数へゼロパディング。mkimage -E は external
+    # data を 4B 詰めで並べるため、2 個目以降の blob の offset が SPL の読み
+    # バッファ境界 (bl_len=64) からずれ、spl_fit が「境界に丸めて読み → 全長
+    # memmove」に落ちる (dcache 無効の SPL でカーネル 35MB ≈ 0.7s を実測、8MP)。
+    # サイズを 64 の倍数に揃えれば offset が常に境界に乗り、u-boot 側
+    # 0004 パッチ (同一アドレス memcpy スキップ) と合わせてコピーが消える。
+    #
+    # 【u-boot-nodtb.bin は絶対にパディングしない】U-Boot proper は「自分の
+    # 末尾 (_end) 直後に control DTB が付いている」前提で DTB を探す。SPL の
+    # append-fdt は「ロードアドレス + FIT 上のサイズ」に DTB を置くため、
+    # パディングすると _end と DTB の間に隙間ができ、proper がコンソール
+    # 初期化前に無音ハングする (2026-09-02 実測 — proper 経路が丸ごと死に、
+    # デッドマンの落ち先を失って遠隔復旧不能になった)。u-boot.itb 側の
+    # 小さな memmove (~1MB、数十 ms) は許容する
+    for f in ${B}/Image ${B}/bl31.bin; do
+        truncate -s %64 $f
+    done
 
     # SPL スプラッシュ: ロゴは SPL に 1bit マスクで埋め込み済み (u-boot の
     # kart_splash_logo.h + 0010 パッチ) で、SPL が fill 直後・eLCDIF RUN 前に
@@ -95,10 +156,14 @@ open('${B}/m4-fw.img', 'wb').write(hdr + payload)
             a) rootpart=5 ;;
             b) rootpart=6 ;;
         esac
-        cp ${DEPLOY_DIR_IMAGE}/imx8mm-xpi-kart.dtb ${B}/falcon-$slot.dtb
+        cp ${DEPLOY_DIR_IMAGE}/${KART_FALCON_DTB} ${B}/falcon-$slot.dtb
         fdtput -c ${B}/falcon-$slot.dtb /chosen 2>/dev/null || true
         fdtput -t s ${B}/falcon-$slot.dtb /chosen bootargs \
             "root=/dev/mmcblk2p$rootpart rootwait rw ${FALCON_BOOTARGS_COMMON}$splash_args"
+        # 非搭載 IP のノード無効化 (FALCON_DTB_DISABLE_NODES のコメント参照)
+        for node in ${FALCON_DTB_DISABLE_NODES}; do
+            fdtput -t s ${B}/falcon-$slot.dtb "$node" status disabled
+        done
         # SPL スプラッシュ時は lcdif/dsi の assigned-clocks を削除する。
         # 素の DT だと lcdif probe (~0.3s) が LCDIF_PIXEL を 24MHz に
         # 強制設定し、108MHz で走査中のスプラッシュ表示が即死する (実測特定)。
@@ -115,6 +180,10 @@ open('${B}/m4-fw.img', 'wb').write(hdr + payload)
             # 検証してから引き継ぐので、万一 splash 未描画でも安全にフォールバックする。
             fdtput -t s ${B}/falcon-$slot.dtb /chosen kart,splash-active "1"
         fi
+
+        # DTB も 64B 倍数へ (fdtput 編集後に。totalsize はヘッダ内なので
+        # 末尾ゼロ埋めは無害)
+        truncate -s %64 ${B}/falcon-$slot.dtb
 
         cat > ${B}/falcon-$slot.its << EOF
 /dts-v1/;
@@ -218,11 +287,27 @@ EOF
     dd if=/dev/zero of=${B}/args bs=512 count=1
 }
 
+do_compile:append:imx8mp-debix() {
+    # kart_splash_logo.h → logo.bin (SPL がファイル読みする 1bit マスク)
+    python3 - <<'PYEOF'
+import re, struct
+src = open('${WORKDIR}/kart_splash_logo.h').read()
+def val(name):
+    return int(re.search(rf'#define {name} (\d+)', src).group(1))
+w, h, x, y = val('KART_LOGO_W'), val('KART_LOGO_H'), val('KART_LOGO_X'), val('KART_LOGO_Y')
+bits = bytes(int(b, 16) for b in re.findall(r'0x[0-9a-fA-F]{2}', src.split('kart_logo_bits')[1]))
+open('${B}/logo.bin', 'wb').write(b'KLGO' + struct.pack('<4I', w, h, x, y) + bits)
+PYEOF
+}
+
 do_deploy() {
     install -m 0644 ${B}/falcon-a.itb ${DEPLOYDIR}/falcon-a.itb
     install -m 0644 ${B}/falcon-b.itb ${DEPLOYDIR}/falcon-b.itb
     install -m 0644 ${B}/u-boot.itb ${DEPLOYDIR}/u-boot.itb
     install -m 0644 ${B}/args ${DEPLOYDIR}/args
+    if [ -f ${B}/logo.bin ]; then
+        install -m 0644 ${B}/logo.bin ${DEPLOYDIR}/logo.bin
+    fi
     if [ -n "${KART_M4}" ]; then
         install -m 0644 ${B}/m4-fw.img ${DEPLOYDIR}/m4-fw.img
     fi

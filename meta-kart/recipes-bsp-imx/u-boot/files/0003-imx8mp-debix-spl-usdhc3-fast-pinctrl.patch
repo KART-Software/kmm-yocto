@@ -1,0 +1,16 @@
+--- a/arch/arm/dts/imx8mp-evk-u-boot.dtsi
++++ b/arch/arm/dts/imx8mp-evk-u-boot.dtsi
+@@ -214,3 +214,13 @@
+ 	assigned-clock-parents = <&clk IMX8MP_SYS_PLL1_800M>;
+ 	assigned-clock-rates = <400000000>;
+ };
++
++/* kart falcon: SPL の eMMC HS400 化に必要。高速ステートの pinctrl が SPL DT に
++ * 残らないと 200MHz をデフォルトパッド設定で走ることになる */
++&pinctrl_usdhc3_100mhz {
++	bootph-pre-ram;
++};
++
++&pinctrl_usdhc3_200mhz {
++	bootph-pre-ram;
++};

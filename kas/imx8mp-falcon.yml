@@ -1,0 +1,17 @@
+# DEBIX (8MP) Falcon mode オーバーレイ (imx8mm-falcon.yml に相当)
+#
+#   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml
+#
+# SPL が FAT の falcon.itb (ATF+Image+DTB) を直接起動して U-Boot proper を飛ばす。
+# OTA 試行 (upgrade_available=1) は FAT の u-boot.itb (proper) へ委譲 — 8MM と同一設計
+# (docs/imx8mm-xpi-bringup/08-falcon.md)。
+# 注意: falcon SPL は ROM API ロードをやめるため、flash.bin 内の proper は到達不能。
+# UUU リカバリは stock ビルド (このフラグメント無し) の imx-boot を使うこと。
+header:
+  version: 14
+local_conf_header:
+  falcon: |
+    SRC_URI:append:pn-u-boot-imx = " file://debix-falcon.cfg file://0002-imx8mp-debix-falcon-mode.patch file://0003-imx8mp-debix-spl-usdhc3-fast-pinctrl.patch file://0004-spl-fit-skip-inplace-memcpy.patch"
+    IMAGE_BOOT_FILES:append = " falcon-a.itb;falcon.itb falcon-a.itb falcon-b.itb u-boot.itb args"
+    KART_WIC_EXTRA_DEPENDS:imx8mp-debix:append = " kart-falcon-itb:do_deploy"
+    IMAGE_INSTALL:append = " falcon-rearm"

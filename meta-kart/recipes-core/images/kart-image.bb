@@ -65,6 +65,7 @@ IMAGE_INSTALL:append:imx-generic-bsp = " \
     kernel-modules \
     kart-ab-tools \
     libubootenv-bin \
+    kart-udev-slim \
 "
 
 # ---------------------------------------------------------------------------
@@ -79,19 +80,21 @@ IMAGE_INSTALL:append:imx-generic-bsp = " \
 IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
     kart-rpmsg-can \
     kart-edid-firmware \
-    kart-udev-slim \
     kart-splash-wl \
 "
 
 # ---------------------------------------------------------------------------
 # DEBIX Infinity (machine imx8mp-debix)
 # CAN は FlexCAN 内蔵 (can0/can1 が netdev として直接見える) — MCP2515/rpmsg 系は不要。
-# EDID・スプラッシュ等は 8MP 展開が済んだものから順に足す
-# (docs/imx8mp-debix-bringup/open-issues.md)。今は i.MX 共通分のみ。
+# kart-splash-wl は SPL スプラッシュ (kas/imx8mp-splash.yml) の weston 区間を
+# 埋める相方 (8MM と同一レシピ・同一ロゴ座標。SPL splash 無しでも無害)。
 # ---------------------------------------------------------------------------
-IMAGE_INSTALL:append:imx8mp-debix = ""
+IMAGE_INSTALL:append:imx8mp-debix = " \
+    kart-edid-firmware \
+    kart-splash-wl \
+"
 
-# udev ダイエット (mx8mm のみ、RPi5 は据え置き):
+# udev ダイエット (i.MX 共通、RPi5 は据え置き):
 # 固定ハードのキオスクに無縁なルールと hwdb (10MB、キーボード/マウス量産品の
 # 互換 quirk 集) を rootfs から落とす。coldplug 全デバイス × 全ルールの積が
 # 縮み、kart-udev-slim の二段トリガーと合わせて GUI までの udev 区間を削る。
@@ -113,9 +116,9 @@ slim_udev_rules() {
     # CRNG を即時初期化しないと weston の EGL 初期化が getrandom() で止まる)
     ln -sf /data/random-seed ${IMAGE_ROOTFS}${localstatedir}/lib/systemd/random-seed
 }
-ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " slim_udev_rules;"
+ROOTFS_POSTPROCESS_COMMAND:append:imx-generic-bsp = " slim_udev_rules;"
 
-# 序盤ユニットの間引き (mx8mm のみ)。個々は 90〜120ms 級で並列実行だが、
+# 序盤ユニットの間引き (i.MX 共通)。個々は 90〜120ms 級で並列実行だが、
 # 起動フェーズの fork/CPU 総量を減らして GUI チェーンに返す。
 # - fuse/configfs: キオスクに利用者なし (fuse FS 不使用、configfs は USB gadget
 #   用だが gadget は U-Boot の ums でしか使わない)
@@ -134,7 +137,7 @@ boot_trim_units() {
         ln -sf /dev/null ${IMAGE_ROOTFS}${sysconfdir}/systemd/system/systemd-network-generator.service
     fi
 }
-ROOTFS_POSTPROCESS_COMMAND:append:mx8mm-generic-bsp = " boot_trim_units;"
+ROOTFS_POSTPROCESS_COMMAND:append:imx-generic-bsp = " boot_trim_units;"
 
 # wic が rawcopy する seed 済み U-Boot env (A/B 変数入り)
 KART_WIC_EXTRA_DEPENDS = ""

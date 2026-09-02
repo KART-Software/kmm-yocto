@@ -65,6 +65,8 @@ do_configure:prepend:mx8mm-generic-bsp() {
 # 8MM と同じ二重管理の対称性維持)
 SRC_URI:append:imx8mp-debix = " \
     file://imx8mp-debix.dts \
+    file://edid-firmware.cfg \
+    file://can-builtin.cfg \
 "
 
 do_configure:prepend:imx8mp-debix() {
