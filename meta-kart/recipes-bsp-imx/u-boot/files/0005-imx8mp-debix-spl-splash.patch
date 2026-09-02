@@ -1,0 +1,521 @@
+--- /dev/null
++++ b/board/freescale/imx8mp_evk/kart_splash.c
+@@ -0,0 +1,392 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * kart SPL splash: DEBIX (i.MX8MP) の電源投入直後スプラッシュ。
++ *
++ * 経路: CCM (HDMI APB/AXI/24M) → GPC (HDMIMIX 電源) → HDMI blk-ctrl
++ *       → Samsung HDMI PHY (33.75MHz PLL = ピクセルクロック源)
++ *       → DW-HDMI TX v2.13a (DVI モード) → PVI → LCDIFv3 (800x480)
++ *       → TFP401 パネル
++ *
++ * 8MM (eLCDIF/DSIM/LT9611) との違い:
++ *  - ピクセルクロックは PHY の PLL が生成して LCDIFv3 へ「逆流」する
++ *    (VIDEO_PLL 不要)。PHY 設定はカーネル phy-fsl-samsung-hdmi.c の
++ *    33750000 エントリ (48 バイトのレジスタ像) をそのまま書く
++ *  - LT9611 の PCR 位相抽選が存在しない (TFP401 は PLL レス DVI レシーバ)
++ *    ため、8MM の「黒埋め広 DE」もアクティブ 800x480 素のままで良い
++ *  - DW-HDMI はバイトレジスタ (stride 1)
++ *
++ * 定数の出典:
++ *  - Linux 動作中の実機レジスタダンプ (2026-09-02、weston 表示中に採取)
++ *  - linux-fslc 6.6-2.2.x-imx: phy-fsl-samsung-hdmi.c / imx8mp-blk-ctrl.c /
++ *    gpcv2.c / imx8mp-hdmi-pavi.c (https://github.com/Freescale/linux-fslc)
++ *  - u-boot drivers/video/dw_hdmi.c (enable シーケンスの雛形)
++ * 全ポーリングはタイムアウト付きで、失敗時は printf して静かに諦める
++ * (ブートは絶対に止めない)。8MM 版と同じ流儀。
++ */
++
++#include <cpu_func.h>
++#include <log.h>
++#include <spl.h>
++#include <fat.h>
++#include <time.h>
++#include <asm/io.h>
++#include <linux/bitops.h>
++#include <linux/delay.h>
++#include <linux/kernel.h>
++#include <linux/types.h>
++#include "kart_splash.h"
++/* ロゴは一旦外している: SPL サイズが ROM のブートイメージ上限 (OCRAM
++ * バッファ) を超えると DDR FW 末尾が切られ Training FAILED になるため。
++ * 復帰は RLE 圧縮ロゴで行う (docs 予定)。 */
++
++/* FB は DRAM バンク 0 の末尾 2MB (spl.c の fixups が /memory から隠す)。
++ * 800x480 XRGB8888 = 1.5MB */
++#define SPLASH_FB_ADDR		0xBFE00000UL
++#define SPLASH_W		800
++#define SPLASH_H		480
++#define SPLASH_FB_SIZE		(SPLASH_W * SPLASH_H * 4)
++#define SPLASH_BG_XRGB		0x00000000	/* 黒 (weston 背景と同色) */
++
++#define CCM_BASE		0x30380000UL
++#define GPC_BASE		0x303a0000UL
++#define BLK_BASE		0x32fc0000UL	/* HDMI blk-ctrl */
++#define PVI_BASE		0x32fc4000UL
++#define LCDIF_BASE		0x32fc6000UL
++#define HDMI_BASE		0x32fd8000UL	/* DW-HDMI TX (byte regs) */
++#define PHY_BASE		0x32fdff00UL	/* Samsung HDMI PHY */
++
++static bool splash_ok;
++
++static int poll32_clear(ulong addr, u32 mask, int timeout_us)
++{
++	while (timeout_us-- > 0) {
++		if (!(readl(addr) & mask))
++			return 0;
++		udelay(1);
++	}
++	printf("splash: poll timeout @%lx (mask %x got %x)\n",
++	       addr, mask, readl(addr));
++	return -1;
++}
++
++/* ---------------- クロック (CCM) ----------------
++ * 実機ダンプ再現値: HDMI_APB root 0x8b00 = 0x17000000 (sys_pll1_133m)
++ *                   HDMI_AXI root 0x8b80 = 0x17000000 (sys_pll2_500m)
++ *                   HDMI_24M  root 0xbb80 = 0x10000000 (osc_24m)
++ *                   CCGR95 (hdmi_root, 0x45f0) = 3
++ * SYS_PLL1/2 は ROM/SPL 初期化済みなので PLL 操作は不要。 */
++static void splash_clocks_init(void)
++{
++	writel(0x17000000, CCM_BASE + 0x8b00);	/* hdmi_apb 133M */
++	writel(0x17000000, CCM_BASE + 0x8b80);	/* hdmi_axi 500M */
++	writel(0x10000000, CCM_BASE + 0xbb80);	/* hdmi_24m osc */
++	writel(0x3, CCM_BASE + 0x45f0);		/* CCGR95 hdmi_root gate */
++}
++
++/* ---------------- 電源 (GPC HDMIMIX + blk-ctrl) ----------------
++ * gpcv2.c imx_pgc_power_up + imx8mp-blk-ctrl.c imx8mp_hdmi_power_notifier
++ * の忠実移植。8MP の GPC レジスタ: CPU_MAPPING 0x1cc / PUP_REQ 0x0d8 /
++ * PWRHSK 0x190、HDMIMIX = A53_DOMAIN bit16, Pxx bit14, hsk-req bit13,
++ * PGC インデックス 26。 */
++static int splash_power_init(void)
++{
++	/* A53 ドメインへ HDMIMIX を割当 */
++	setbits_le32(GPC_BASE + 0x1cc, BIT(16));
++
++	/* PGC26 PCR クリア (power-up 時) */
++	clrbits_le32(GPC_BASE + 0x800 + 26 * 0x40, BIT(0));
++	udelay(5);
++
++	/* power up 要求 → 自己クリア待ち */
++	setbits_le32(GPC_BASE + 0x0d8, BIT(14));
++	if (poll32_clear(GPC_BASE + 0x0d8, BIT(14), 10000))
++		return -1;
++	udelay(5);
++
++	/* blk-ctrl「ON 通知」の儀式: 8MP HDMI mix はパワーダウンでも
++	 * リセット/クロックビットが残るため、一旦全アサート → バスクロック
++	 * (b0,b1,b10) → ADB リセット解除 (b0) の順で確実にパルスさせる */
++	writel(0x0, BLK_BASE + 0x20);	/* RESET_CTL0 */
++	writel(0x0, BLK_BASE + 0x40);	/* CLK_CTL0 */
++	writel(0x0, BLK_BASE + 0x50);	/* CLK_CTL1 */
++	setbits_le32(BLK_BASE + 0x40, BIT(0) | BIT(1) | BIT(10));
++	setbits_le32(BLK_BASE + 0x20, BIT(0));
++	udelay(5);
++
++	/* ADB400 handshake 要求 (ack はバスクロックが回っていれば自動完了。
++	 * カーネルも待たずに delay のみ) */
++	setbits_le32(GPC_BASE + 0x190, BIT(13));
++	udelay(10);
++
++	/* 各サブドメイン (imx8mp_hdmi_blk_ctrl_power_on と同順・同ビット) */
++	/* irqsteer (SPL では未使用だがカーネル引き継ぎ時の状態を揃える) */
++	setbits_le32(BLK_BASE + 0x40, BIT(9));
++	setbits_le32(BLK_BASE + 0x20, BIT(16));
++	/* lcdif */
++	setbits_le32(BLK_BASE + 0x40,
++		     BIT(16) | BIT(17) | BIT(18) | BIT(19) | BIT(20));
++	setbits_le32(BLK_BASE + 0x50, BIT(11));
++	setbits_le32(BLK_BASE + 0x20, BIT(4) | BIT(5) | BIT(6));
++	setbits_le32(BLK_BASE + 0x200, 7 << 12);	/* NOC hurry */
++	/* pvi */
++	setbits_le32(BLK_BASE + 0x50, BIT(28));
++	setbits_le32(BLK_BASE + 0x20, BIT(22));
++	/* hdmi-tx */
++	setbits_le32(BLK_BASE + 0x40, BIT(2) | BIT(4) | BIT(5));
++	setbits_le32(BLK_BASE + 0x50,
++		     BIT(12) | BIT(13) | BIT(14) | BIT(15) | BIT(16) |
++		     BIT(18) | BIT(19) | BIT(20) | BIT(21));
++	setbits_le32(BLK_BASE + 0x20, BIT(7) | BIT(10) | BIT(11));
++	setbits_le32(BLK_BASE + 0x200, BIT(1));
++	/* HDMI_PHY は HDMIMIX と別の GPC 電源ドメイン (map bit17 / Pxx bit15 /
++	 * PGC 27)。これを上げないと PHY のアナログ部が無電源のままで、
++	 * レジスタは書けても PLL が回らない (読み戻しダンプで特定:
++	 * LCDIF の SHADOW_LOAD が消化されない = ピクセルクロック無し) */
++	setbits_le32(GPC_BASE + 0x1cc, BIT(17));
++	clrbits_le32(GPC_BASE + 0x800 + 27 * 0x40, BIT(0));
++	udelay(5);
++	setbits_le32(GPC_BASE + 0x0d8, BIT(15));
++	if (poll32_clear(GPC_BASE + 0x0d8, BIT(15), 10000))
++		return -1;
++	udelay(5);
++
++	/* hdmi-tx-phy */
++	setbits_le32(BLK_BASE + 0x40, BIT(7));
++	setbits_le32(BLK_BASE + 0x50, BIT(22) | BIT(24));
++	setbits_le32(BLK_BASE + 0x20, BIT(12));
++	clrbits_le32(BLK_BASE + 0x200, BIT(3));
++	udelay(10);
++
++	return 0;
++}
++
++/* ---------------- Samsung HDMI PHY (= ピクセルクロック PLL) ----------------
++ * phy-fsl-samsung-hdmi.c の 33750000 エントリ。実機ライブ値と全一致を確認
++ * 済み。書き込みは byte、レジスタ間隔は 4。 */
++static const u8 phy_cfg_33m75[48] = {
++	0x00, 0xD1, 0x70, 0xF4, 0x82, 0x01, 0x80, 0x40,
++	0x4F, 0x30, 0x33, 0x65, 0x00, 0xB7, 0x24, 0x80,
++	0x6C, 0xF2, 0x67, 0x00, 0x10, 0x8F, 0x30, 0x32,
++	0x60, 0x8F, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
++	0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0xE0, 0x83, 0x0F, 0x3E, 0xF8, 0x00, 0x00,
++};
++
++static void splash_phy_init(void)
++{
++	int i;
++
++	writeb(0x02, PHY_BASE + 0x84);			/* FIX_DA */
++	for (i = 0; i < 48; i++)
++		writeb(phy_cfg_33m75[i], PHY_BASE + i * 4);
++	writeb(0x02 | 0x80, PHY_BASE + 0x84);		/* +MODE_SET_DONE */
++	mdelay(20);					/* PLL lock 待ち (カーネル同値) */
++}
++
++/* ---------------- DW-HDMI TX (DVI モード) ----------------
++ * u-boot dw_hdmi.c の enable 経路 (av_composer → video path →
++ * packetize/csc/sample → clear_overflow) を、実機ライブ値で固定化して
++ * 移植。レジスタはバイト幅・stride 1。
++ * タイミング (TFP401 EDID 800x480@33.75): hblank 272 (bp184 fp40 sw48),
++ * vblank 45 (bp29 fp13 sw3), sync 両負, DE 正。 */
++static void hw8(u32 off, u8 val)
++{
++	writeb(val, HDMI_BASE + off);
++}
++
++static void splash_hdmi_init(void)
++{
++	int i;
++
++	hw8(0x01FF, 0x03);	/* IH_MUTE: 全割込ミュート */
++
++	/* -- av_composer -- */
++	hw8(0x1000, 0x10);	/* INVIDCONF: DE 正 / H,Vsync 負 / DVI */
++	hw8(0x1001, 0x20); hw8(0x1002, 0x03);	/* INHACTV = 800 */
++	hw8(0x1003, 0x10); hw8(0x1004, 0x01);	/* INHBLANK = 272 */
++	hw8(0x1005, 0xE0); hw8(0x1006, 0x01);	/* INVACTV = 480 */
++	hw8(0x1007, 0x2D);			/* INVBLANK = 45 */
++	hw8(0x1008, 0x28); hw8(0x1009, 0x00);	/* HSYNCINDELAY = 40 (hfp) */
++	hw8(0x100a, 0x30); hw8(0x100b, 0x00);	/* HSYNCINWIDTH = 48 */
++	hw8(0x100c, 0x0D);			/* VSYNCINDELAY = 13 (vfp) */
++	hw8(0x100d, 0x03);			/* VSYNCINWIDTH = 3 */
++
++	/* -- enable_video_path -- */
++	hw8(0x1011, 12);	/* FC_CTRLDUR */
++	hw8(0x1012, 32);	/* FC_EXCTRLDUR */
++	hw8(0x1013, 1);		/* FC_EXCTRLSPAC */
++	hw8(0x1014, 0x0b);	/* CH0PREAM */
++	hw8(0x1015, 0x16);	/* CH1PREAM */
++	hw8(0x1016, 0x21);	/* CH2PREAM */
++	hw8(0x4004, 0x00);	/* MC_FLOWCTRL: CSC バイパス */
++	hw8(0x3000, 0x06);	/* PHY_CONF0 (ライブ値。外部 PHY 系の enable) */
++	hw8(0x4005, 0x01);	/* MC_PHYRSTZ: PHY リセット解除 (0 のままだと
++				 * Samsung PHY がリセット保持 = TMDS 出力なし) */
++	hw8(0x4001, 0x7e);	/* MC_CLKDIS: pixel クロック有効 */
++	hw8(0x4001, 0x7c);	/* + tmds クロック有効 */
++
++	/* -- video_packetize (ライブ値) -- */
++	hw8(0x0801, 0x40);	/* VP_PR_CD: 8bpc (color_depth=4) */
++	hw8(0x0802, 0x27);	/* VP_STUFF */
++	hw8(0x0803, 0x00);	/* VP_REMAP */
++	hw8(0x0804, 0x47);	/* VP_CONF: bypass select */
++
++	/* -- video_sample -- */
++	hw8(0x0200, 0x01);	/* TX_INVID0: RGB888 mapping, 外部 DE */
++	hw8(0x0201, 0x07);	/* TX_INSTUFFING: 全ch stuffing */
++	for (i = 0; i < 6; i++)
++		hw8(0x0202 + i, 0x00);	/* GY/RCR/BCB DATA */
++
++	/* -- clear_overflow (tmds soft reset + INVIDCONF 再書き) -- */
++	hw8(0x4002, (u8)~0x02);	/* MC_SWRSTZ: TMDS reset パルス */
++	for (i = 0; i < 4; i++)
++		hw8(0x1000, 0x10);
++}
++
++/* ---------------- PVI (LCDIF→HDMI のタイミングブリッジ) ----------------
++ * imx8mp-hdmi-pavi.c pvi_enable の固定値 (ライブ一致確認済み。TMG_GEN は
++ * 割込タイミング用でモード非依存の定数)。sync 両負 → CTRL 0x00311005。 */
++static void splash_pvi_init(void)
++{
++	writel(0x00000003, PVI_BASE + 0x04);
++	writel(0x08970464, PVI_BASE + 0x10);
++	writel(0x00BF0029, PVI_BASE + 0x14);
++	writel(0x083F0460, PVI_BASE + 0x18);
++	writel(0x0897002B, PVI_BASE + 0x1c);
++	writel(0x04640004, PVI_BASE + 0x20);
++	writel(0x000100FF, PVI_BASE + 0x24);
++	writel(0x000100F0, PVI_BASE + 0x28);
++	writel(0x00010315, PVI_BASE + 0x2c);
++	writel(0x00010207, PVI_BASE + 0x30);
++	writel(0x84640000, PVI_BASE + 0x40);
++	writel(0x00311004, PVI_BASE + 0x00);
++	writel(0x00311005, PVI_BASE + 0x00);
++}
++
++/* ---------------- LCDIFv3 ----------------
++ * u-boot imx_lcdifv3.c の init 手順をライブ値で固定化。
++ * CTRL=0x3 (H/Vsync 反転 = 両負)、DESC5 のフォーマット 0x09 = ARGB8888。 */
++static void splash_lcdif_init(void)
++{
++	writel(0x3, LCDIF_BASE + 0x00);			/* CTRL: INV_HS|INV_VS */
++	writel(0x01E00320, LCDIF_BASE + 0x14);		/* DISP_SIZE 480x800 */
++	writel(0x00B80028, LCDIF_BASE + 0x18);		/* HSYN bp184 fp40 */
++	writel(0x001D000D, LCDIF_BASE + 0x1c);		/* VSYN bp29 fp13 */
++	writel(0x00030030, LCDIF_BASE + 0x20);		/* PW v3 h48 */
++
++	writel(0x01E00320, LCDIF_BASE + 0x200);		/* DESC0_1 480x800 */
++	writel(0x00A20C80, LCDIF_BASE + 0x208);		/* DESC0_3 pitch 3200 */
++	writel(SPLASH_FB_ADDR, LCDIF_BASE + 0x20c);	/* DESC0_LOW4 = FB */
++	writel(0x0, LCDIF_BASE + 0x210);		/* DESC0_HIGH4 */
++
++	writel(0x80000000, LCDIF_BASE + 0x10);		/* DISP_PARA: DISP_ON */
++	/* DESC0_5: format ARGB8888 (0x9<<24) + SHADOW_LOAD + EN */
++	writel(0x09000000 | BIT(30), LCDIF_BASE + 0x214);
++	writel(0x09000000 | BIT(30) | BIT(31), LCDIF_BASE + 0x214);
++}
++
++/* ---------------- エントリポイント ---------------- */
++
++void kart_splash_prepare(void)
++{
++	ulong start = get_timer(0);
++	u32 *p = (u32 *)SPLASH_FB_ADDR;
++	int i;
++
++	printf("splash: fb ");
++	for (i = 0; i < SPLASH_W * SPLASH_H; i++)
++		p[i] = SPLASH_BG_XRGB;
++	flush_dcache_range(SPLASH_FB_ADDR, SPLASH_FB_ADDR + SPLASH_FB_SIZE);
++
++	printf("clk ");
++	splash_clocks_init();
++	printf("pwr ");
++	if (splash_power_init())
++		return;
++	printf("phy ");
++	splash_phy_init();
++	printf("tx ");
++	splash_hdmi_init();
++	printf("pvi ");
++	splash_pvi_init();
++	printf("lcdif ");
++	splash_lcdif_init();
++
++	splash_ok = true;
++	printf("logo on (%lu ms)\n", get_timer(start));
++}
++
++bool kart_splash_active(void)
++{
++	return splash_ok;
++}
++
++/* ---------------- ロゴ (ファイル供給の 1bit マスク) ----------------
++ * ロゴを ROM ロードイメージ (SPL) に埋め込むと、SPL+DDR FW のローダ全長が
++ * BootROM の OCRAM 上限 (0x3c7e8=OK / 0x3e1c8=NG を実測) を超えて DDR FW
++ * 末尾が切られ、Training FAILED で文鎮化する。そこでロゴは boot パーティ
++ * ションの logo.bin (kart-falcon-itb が kart_splash_logo.h から生成、
++ * ヘッダ: "KLGO" w h x y 各 LE32 + 1bit マスク) とし、falcon の FAT が
++ * 使える時点で読んで blit する。6.5KB なので表示 DMA 稼働中でも ~2ms。
++ * ファイルが無ければ黒背景のまま (安全に何もしない)。 */
++#define LOGO_SCRATCH	0x48100000UL
++
++void kart_splash_try_logo(void)
++{
++	u8 *b = (u8 *)LOGO_SCRATCH;
++	u32 *hdr = (u32 *)LOGO_SCRATCH;
++	loff_t got = 0;
++	u32 w, h, x, y;
++	u32 *fb = (u32 *)SPLASH_FB_ADDR;
++	const u8 *bits;
++	int row, col;
++
++	if (!splash_ok)
++		return;
++	if (fat_read_file("logo.bin", b, 0, 64 * 1024, &got) || got < 20)
++		return;
++	if (hdr[0] != 0x4f474c4b)	/* "KLGO" (LE) */
++		return;
++	w = hdr[1]; h = hdr[2]; x = hdr[3]; y = hdr[4];
++	if (!w || !h || x + w > SPLASH_W || y + h > SPLASH_H ||
++	    got < 20 + (w * h + 7) / 8)
++		return;
++	bits = b + 20;
++
++	for (row = 0; row < h; row++) {
++		u32 *dst = fb + (y + row) * SPLASH_W + x;
++
++		for (col = 0; col < w; col++) {
++			int i = row * w + col;
++
++			if (bits[i >> 3] & (0x80 >> (i & 7)))
++				dst[col] = 0x00FFFFFF;
++		}
++	}
++	flush_dcache_range(SPLASH_FB_ADDR, SPLASH_FB_ADDR + SPLASH_FB_SIZE);
++	printf("splash: logo blit (file)\n");
++}
++
++/* falcon (Linux 直行) へは表示を稼働させたまま渡す — カーネル側の
++ * seamless takeover (0010-0013 パッチ + busfreq 無効 DTS) が電源・クロック・
++ * PHY を温存し、weston の初回 modeset がシャドウロードで FB を切り替える。
++ *
++ * proper (u-boot.itb) へ渡す前の表示停止。proper は DDR 最上部 = FB
++ * (0xBFE00000) 直上へ自己再配置し、extlinux 経由の DTB には
++ * kart,splash-active も /memory の FB 隠しも無い。表示を回したまま渡すと
++ * カーネルがハング/パニックする実測 (takeover が発火できない経路)。
++ * フォールバック経路の黒画面は許容し、確実に止めてから渡す。 */
++void kart_splash_quiesce(void)
++{
++	if (!splash_ok)
++		return;
++
++	/* LCDIF 停止 (EN 落とし + shadow load) → 1 フレーム待ち →
++	 * DISP_PARA off → PHY 電源断 (ピクセルクロック停止) */
++	writel(0x09000000 | BIT(30), LCDIF_BASE + 0x214);
++	mdelay(40);
++	writel(0, LCDIF_BASE + 0x10);
++	writeb(0x00, HDMI_BASE + 0x3000);
++	splash_ok = false;
++	printf("splash: off (proper handoff)\n");
++}
+--- /dev/null
++++ b/board/freescale/imx8mp_evk/kart_splash.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * kart SPL splash (DEBIX / i.MX8MP): 電源投入直後スプラッシュ。
++ * 実装と設計メモは kart_splash.c 冒頭コメント参照。
++ */
++#ifndef __KART_SPLASH_H
++#define __KART_SPLASH_H
++
++#ifdef CONFIG_KART_SPL_SPLASH
++void kart_splash_prepare(void);
++bool kart_splash_active(void);
++void kart_splash_try_logo(void);
++void kart_splash_quiesce(void);
++#else
++static inline void kart_splash_prepare(void) {}
++static inline bool kart_splash_active(void) { return false; }
++static inline void kart_splash_try_logo(void) {}
++static inline void kart_splash_quiesce(void) {}
++#endif
++
++#endif
+--- a/board/freescale/imx8mp_evk/Kconfig
++++ b/board/freescale/imx8mp_evk/Kconfig
+@@ -13,3 +13,10 @@
+ 	default "board/freescale/imx8mp_evk/imximage-8mp-lpddr4.cfg"
+ 
+ endif
++
++config KART_SPL_SPLASH
++	bool "kart: SPL splash on DEBIX (LCDIFv3/DW-HDMI/Samsung PHY direct init)"
++	depends on SPL_OS_BOOT
++	help
++	  DEBIX (i.MX8MP) の HDMI 表示チェーンを SPL で直接初期化し、
++	  手続き描画したロゴを電源投入直後に表示する。
+--- a/board/freescale/imx8mp_evk/Makefile
++++ b/board/freescale/imx8mp_evk/Makefile
+@@ -8,6 +8,7 @@
+ 
+ ifdef CONFIG_SPL_BUILD
+ obj-y += spl.o
++obj-$(CONFIG_KART_SPL_SPLASH) += kart_splash.o
+ ifdef CONFIG_IMX8M_LPDDR4_FREQ0_3200MTS
+ obj-y += lpddr4_timing_ndm.o
+ else
+--- a/board/freescale/imx8mp_evk/spl.c
++++ b/board/freescale/imx8mp_evk/spl.c
+@@ -28,6 +28,7 @@
+ #include <mmc.h>
+ #include <asm/arch/ddr.h>
+ #include <asm/sections.h>
++#include "kart_splash.h"
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -186,6 +187,10 @@
+ 	/* DDR initialization */
+ 	spl_dram_init();
+ 
++	/* kart splash: DDR が使えた瞬間に表示チェーンを立ち上げる。
++	 * FIT ロードや env 読みより先 = 電源投入から最速でロゴを出す */
++	kart_splash_prepare();
++
+ 	board_init_r(NULL, 0);
+ }
+ 
+@@ -203,6 +208,7 @@
+ #include <image.h>
+ #include <cpu_func.h>
+ #include <linux/libfdt.h>
++#include <linux/sizes.h>
+ 
+ #define KART_FALCON_SHIM_ADDR	0x40200000UL	/* ATF PLAT_NS_IMAGE_OFFSET */
+ #define KART_FALCON_KERNEL_ADDR	0x40400000UL	/* falcon.its の load/entry と一致必須 */
+@@ -278,14 +284,48 @@
+ 	 * u-boot proper (u-boot.itb、os="u-boot") は素通しする。falcon.itb の
+ 	 * atf ノードは os 無し (8MM 実測で os=255)。
+ 	 */
+-	if (spl_image->os == IH_OS_U_BOOT || !fdt)
++	if (spl_image->os == IH_OS_U_BOOT || !fdt) {
++		/* proper は FB 直上へ再配置し、prop も /memory 隠しも
++		 * 渡せない経路 — 表示を止めてから渡す (関数コメント参照) */
++		kart_splash_quiesce();
+ 		return;
++	}
+ 
+ 	/* /memory を実 DRAM 構成で更新 (bootargs は DTB に焼き込み済み) */
+ 	spl_fixup_fdt(fdt);
+ 	flush_dcache_range((ulong)fdt,
+ 			   (ulong)fdt + fdt_totalsize(fdt) + 64);
+ 
++	/* スプラッシュ点灯中: カーネルへ通知 (seamless takeover パッチの
++	 * 発動条件) + FB の 2MB を /memory から隠す (LCDIF が走査中の領域を
++	 * カーネルに使わせない)。バンク末尾を切り詰めるだけなので
++	 * spl_fixup_fdt が書いた /memory を直接編集する */
++	if (kart_splash_active()) {
++		int off;
++
++		fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
++		off = fdt_path_offset(fdt, "/chosen");
++		if (off >= 0)
++			fdt_setprop_empty(fdt, off, "kart,splash-active");
++		off = fdt_path_offset(fdt, "/memory@40000000");
++		if (off < 0)
++			off = fdt_subnode_offset(fdt, 0, "memory");
++		if (off >= 0) {
++			/* bank0 = 0x40000000 + 2GB を 2MB 減らす */
++			u64 regs[4] = {
++				cpu_to_fdt64(0x40000000ULL),
++				cpu_to_fdt64(0x80000000ULL - SZ_2M),
++				cpu_to_fdt64(0x100000000ULL),
++				cpu_to_fdt64(0x80000000ULL),
++			};
++			fdt_setprop(fdt, off, "reg", regs, sizeof(regs));
++		}
++	}
++
++	/* ロゴはここ (falcon FIT ロード後 = FAT 登録済み) でファイルから blit。
++	 * 表示は止めずに渡す (seamless takeover、kart_splash.c 冒頭参照) */
++	kart_splash_try_logo();
++
+ 	kart_emit_bl33_shim(KART_FALCON_SHIM_ADDR, (ulong)fdt,
+ 			    KART_FALCON_KERNEL_ADDR);
+ 

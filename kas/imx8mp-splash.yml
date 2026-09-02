@@ -1,0 +1,22 @@
+# DEBIX (8MP) SPL スプラッシュオーバーレイ — imx8mp-falcon.yml の後ろに付ける:
+#
+#   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml
+#
+# SPL が HDMI 表示チェーン (GPC→blk-ctrl→Samsung PHY→DW-HDMI→PVI→LCDIFv3)
+# を直接叩き、手続き描画したロゴを電源投入直後に表示する。設計・定数の出典は
+# 0005 パッチ冒頭コメントと docs/imx8mp-debix-bringup/06-splash.md (予定)。
+# 0005 は 0002 (falcon) の上に当たるため、オーバーレイ順序が適用順序。
+header:
+  version: 14
+
+local_conf_header:
+  splash: |
+    SRC_URI:append:pn-u-boot-imx = " file://debix-splash.cfg file://0005-imx8mp-debix-spl-splash.patch file://kart_splash_logo.h"
+    IMAGE_BOOT_FILES:append = " logo.bin"
+
+  # カーネル seamless takeover (8MM の 0004-0009 に相当する 8MP 版)。
+  # SPL が /chosen kart,splash-active を立てたときだけ発火し、
+  # probe 時の電源断・クロック断・PHY リセットからスプラッシュを守る。
+  # busfreq ハング対策は imx8mp-debix.dts 側 (無条件無効化) を参照。
+  splash-takeover: |
+    SRC_URI:append:pn-linux-fslc-imx = " file://0010-pmdomain-imx-gpcv2-kart-splash-adopt-8mp.patch file://0011-pmdomain-imx8mp-blk-ctrl-kart-splash-adopt.patch file://0012-drm-imx-dw-hdmi-kart-splash-skip-probe-phy-reset.patch file://0013-phy-fsl-samsung-hdmi-kart-splash-skip-probe-reset.patch"

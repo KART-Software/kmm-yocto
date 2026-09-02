@@ -21,6 +21,12 @@ SRC_URI:append:imx8mp-debix = " \
 
 do_configure:prepend:imx8mp-debix() {
     cp ${WORKDIR}/debix-lpddr4_timing.c ${S}/board/freescale/imx8mp_evk/lpddr4_timing.c
+    # SPL スプラッシュのロゴ (1bit マスク)。SRC_URI の file:// は WORKDIR に
+    # しか展開されないため do_configure 前にここでコピー。splash 無しビルド
+    # ではヘッダが無く無害 (8MM の u-boot-fslc_%.bbappend と同じ流儀)
+    if [ -f "${WORKDIR}/kart_splash_logo.h" ]; then
+        install -m 0644 ${WORKDIR}/kart_splash_logo.h ${S}/board/freescale/imx8mp_evk/
+    fi
 }
 
 # extlinux の root= の差し替え口 (8MM の u-boot-fslc_%.bbappend と同じ理由で

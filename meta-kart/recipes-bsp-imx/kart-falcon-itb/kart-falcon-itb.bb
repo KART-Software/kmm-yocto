@@ -15,6 +15,13 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 #   自己 publish する attach 対応込み。SPL/BL31 先住起動 = Linux attach で必須)
 SRC_URI = "file://m4-fw.bin"
 
+# 8MP SPL スプラッシュのロゴ (単一ソースは u-boot 側の kart_splash_logo.h)。
+# ロゴを SPL に埋め込むと ROM のブートイメージ上限 (docs 04-falcon.md ⑤) を
+# 超えるため、boot パーティションの logo.bin として配りファイル読みする。
+# ヘッダ: "KLGO" + w/h/x/y (各 LE32) + 1bit マスク。
+FILESEXTRAPATHS:prepend := "${THISDIR}/../u-boot/files:"
+SRC_URI:append:imx8mp-debix = " file://kart_splash_logo.h"
+
 # SPL スプラッシュのロゴは u-boot 側 (SPL) に 1bit マスクで埋め込み済み
 # (scripts/gen-splash-raw.py → kart_splash_logo.h、0010 パッチ)。falcon.itb に
 # ロゴ画像は不要。KART_SPLASH は splash ビルドの印 (kas/imx8mm-splash.yml が "1"):
@@ -280,11 +287,27 @@ EOF
     dd if=/dev/zero of=${B}/args bs=512 count=1
 }
 
+do_compile:append:imx8mp-debix() {
+    # kart_splash_logo.h → logo.bin (SPL がファイル読みする 1bit マスク)
+    python3 - <<'PYEOF'
+import re, struct
+src = open('${WORKDIR}/kart_splash_logo.h').read()
+def val(name):
+    return int(re.search(rf'#define {name} (\d+)', src).group(1))
+w, h, x, y = val('KART_LOGO_W'), val('KART_LOGO_H'), val('KART_LOGO_X'), val('KART_LOGO_Y')
+bits = bytes(int(b, 16) for b in re.findall(r'0x[0-9a-fA-F]{2}', src.split('kart_logo_bits')[1]))
+open('${B}/logo.bin', 'wb').write(b'KLGO' + struct.pack('<4I', w, h, x, y) + bits)
+PYEOF
+}
+
 do_deploy() {
     install -m 0644 ${B}/falcon-a.itb ${DEPLOYDIR}/falcon-a.itb
     install -m 0644 ${B}/falcon-b.itb ${DEPLOYDIR}/falcon-b.itb
     install -m 0644 ${B}/u-boot.itb ${DEPLOYDIR}/u-boot.itb
     install -m 0644 ${B}/args ${DEPLOYDIR}/args
+    if [ -f ${B}/logo.bin ]; then
+        install -m 0644 ${B}/logo.bin ${DEPLOYDIR}/logo.bin
+    fi
     if [ -n "${KART_M4}" ]; then
         install -m 0644 ${B}/m4-fw.img ${DEPLOYDIR}/m4-fw.img
     fi
