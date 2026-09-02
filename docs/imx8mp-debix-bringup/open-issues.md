@@ -32,9 +32,10 @@
 6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
    data-logger-zephyr の dev/imx8mp-m7 ブランチにビルド確認済み(実機未検証)。
    CAN を M7 に持たせるかの設計判断待ち
-7. **起動時間**: カーネル減量(30-boot-time.md #6)後 **電源→GUI ≈ 4.9s**
-   (kernel 1.08s / kmm READY 3.65s monotonic)。残りの候補: env+デッドマン 0.43s の
-   内訳削減、userspace(weston 初期化 0.8s 等)。
+7. **起動時間**: カーネル減量 第二弾(30-boot-time.md #7)後 **電源→GUI ≈ 4.8s**
+   (kernel 0.97s / kmm READY 3.57s monotonic)。残りの候補: env+デッドマン 0.43s の
+   内訳削減、userspace(weston 初期化 0.8s 等)。config の残り削り代は
+   COMPAT/BPF/AUDIT/MTD 済み分以外に小物のみで、費用対効果の山は越えた。
    networkd-wait-online は GUI 非ブロックのまま
 8. **imx-pgc-domain.8 の正体**: fslc DTB の pgc `power-domain@8`(reg 0x08)は
    Quad Lite でヒューズアウトされた VPU 系 mix と推定して無効化した(実測: これで
