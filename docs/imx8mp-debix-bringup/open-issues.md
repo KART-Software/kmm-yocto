@@ -11,7 +11,8 @@
 - **スプラッシュ検証中の手配布が多数**(2026-09-02): boot パーティションの
   Image/imx8mp-debix.dtb/falcon.itb/logo.bin、rootfs の
   `/lib/modules/6.6.101-fslc-g9f89a7813703`(takeover カーネル用モジュール一式)、
-  imx-boot(BUILD63 相当)を手で配布。次のイメージ焼き直しで正規化される
+  imx-boot(BUILD63 相当)を手で配布。weston.ini の renderer=pixman も
+  手編集(レシピ weston-debix.ini と機能同等)。次のイメージ焼き直しで正規化される
 
 ## 未解決
 
