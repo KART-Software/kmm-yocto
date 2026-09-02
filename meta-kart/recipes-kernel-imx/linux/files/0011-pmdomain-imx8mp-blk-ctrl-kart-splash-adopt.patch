@@ -1,0 +1,60 @@
+From: kart build <kart@localhost>
+Subject: [PATCH] pmdomain: imx8mp-blk-ctrl: SPL スプラッシュ稼働中は HDMI 系ドメインを養子縁組
+
+/chosen に kart,splash-active があるとき、hdmi blk-ctrl の
+lcdif/pvi/hdmi-tx/hdmi-tx-phy ドメインを:
+
+ - ドメインクロック (axi/apb/fdcc 等) を prepare_enable して恒久ピン。
+   CCF は SPL が有効化したゲートを知らないため、素のままだと
+   clk_disable_unused で走査中の表示ごとゲートが落ちる
+ - GENPD_FLAG_ALWAYS_ON + 初期状態 ON で登録。power_on/power_off が
+   呼ばれないため、blk-ctrl の再初期化も GPC の電源過渡も起きない
+
+weston の初回 modeset は通常経路で表示を引き継ぐ。8MM の 0005
+(imx8m-blk-ctrl) の 8MP 版で、0010 (gpcv2) とペア。
+
+Upstream-Status: Inappropriate [kart boot-splash integration]
+
+--- a/drivers/pmdomain/imx/imx8mp-blk-ctrl.c
++++ b/drivers/pmdomain/imx/imx8mp-blk-ctrl.c
+@@ -743,6 +743,7 @@
+ 	for (i = 0; i < num_domains; i++) {
+ 		const struct imx8mp_blk_ctrl_domain_data *data = &bc_data->domains[i];
+ 		struct imx8mp_blk_ctrl_domain *domain = &bc->domains[i];
++		bool adopt;
+ 		int j;
+ 
+ 		domain->data = data;
+@@ -773,7 +774,31 @@
+ 		domain->bc = bc;
+ 		domain->id = i;
+ 
+-		ret = pm_genpd_init(&domain->genpd, NULL, true);
++		/* kart: SPL スプラッシュが HDMI 表示チェーンを稼働させたまま
++		 * 渡してくる。関係ドメインはクロックを恒久ピンし、実状態
++		 * (ON) で ALWAYS_ON 登録する。0010 (gpcv2) とペア */
++		adopt = of_property_read_bool(of_chosen, "kart,splash-active") &&
++			of_device_is_compatible(dev->of_node,
++						"fsl,imx8mp-hdmi-blk-ctrl") &&
++			(!strcmp(data->name, "hdmiblk-lcdif") ||
++			 !strcmp(data->name, "hdmiblk-pvi") ||
++			 !strcmp(data->name, "hdmiblk-hdmi-tx") ||
++			 !strcmp(data->name, "hdmiblk-hdmi-tx-phy"));
++		if (adopt) {
++			ret = clk_bulk_prepare_enable(data->num_clks,
++						      domain->clks);
++			if (ret) {
++				dev_warn(dev,
++					 "kart splash: clk pin failed (%d), normal init\n",
++					 ret);
++				adopt = false;
++			} else {
++				dev_info(dev, "kart splash: adopting %s\n",
++					 data->name);
++				domain->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
++			}
++		}
++		ret = pm_genpd_init(&domain->genpd, NULL, !adopt);
+ 		if (ret) {
+ 			dev_err_probe(dev, ret, "failed to init power domain\n");
+ 			dev_pm_domain_detach(domain->power_dev, true);
