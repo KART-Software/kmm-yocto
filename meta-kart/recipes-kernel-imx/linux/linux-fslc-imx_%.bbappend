@@ -44,6 +44,7 @@ SRC_URI:append:imx8mp-debix = " \
     file://imx8mp-debix.dts \
     file://edid-firmware.cfg \
     file://can-builtin.cfg \
+    file://slim-imx8mp.cfg \
 "
 
 do_configure:prepend:imx8mp-debix() {

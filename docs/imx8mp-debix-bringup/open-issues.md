@@ -32,11 +32,10 @@
 6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
    data-logger-zephyr の dev/imx8mp-m7 ブランチにビルド確認済み(実機未検証)。
    CAN を M7 に持たせるかの設計判断待ち
-7. **起動時間**: falcon + SPL HS400 + memmove 除去(04-falcon.md ④)後
-   **電源→GUI ≈ 5.2s**(SPL+DDR ~0.6s / env+デッドマン 0.43s / itb ロード 0.19s /
-   kernel 1.3s / userspace→kmm READY 2.7s)。残りの候補: env+デッドマン 0.43s の
-   内訳削減、kernel 1.3s(config 減量)、userspace 2.7s(weston 初期化 0.8s 等)、
-   スプラッシュ(#4)による体感改善。networkd-wait-online 5.9s は GUI 非ブロックのまま
+7. **起動時間**: カーネル減量(30-boot-time.md #6)後 **電源→GUI ≈ 4.9s**
+   (kernel 1.08s / kmm READY 3.65s monotonic)。残りの候補: env+デッドマン 0.43s の
+   内訳削減、userspace(weston 初期化 0.8s 等)。
+   networkd-wait-online は GUI 非ブロックのまま
 8. **imx-pgc-domain.8 の正体**: fslc DTB の pgc `power-domain@8`(reg 0x08)は
    Quad Lite でヒューズアウトされた VPU 系 mix と推定して無効化した(実測: これで
    PGC エラー 0)。dt-bindings 上の正式名との突き合わせは未実施
