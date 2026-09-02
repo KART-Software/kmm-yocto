@@ -1,4 +1,4 @@
-# DEBIX Infinity — 未解決事項と暫定対応(2026-09-01 時点、falcon 移植後)
+# DEBIX Infinity — 未解決事項と暫定対応(2026-09-02 時点、スプラッシュ移植後)
 
 確定した内容は 00〜(連番)と 30-boot-time.md(起動時間の継続記録)に置き、ここには**まだ暫定のもの・未解決のもの**だけを置く。
 解決したらこのファイルから消して、確定した知見だけを該当 docs に移す。
@@ -8,6 +8,10 @@
 - **falcon-rearm.service が hot-install**(2026-09-02): rootfs へ手で置いて enable
   してある(動作は実機確認済み)。レシピ版(falcon-rearm)は kart-image に
   組み込み済みで、次のイメージ焼き直し/OTA で正規化される
+- **スプラッシュ検証中の手配布が多数**(2026-09-02): boot パーティションの
+  Image/imx8mp-debix.dtb/falcon.itb/logo.bin、rootfs の
+  `/lib/modules/6.6.101-fslc-g9f89a7813703`(takeover カーネル用モジュール一式)、
+  imx-boot(BUILD63 相当)を手で配布。次のイメージ焼き直しで正規化される
 
 ## 未解決
 
@@ -20,8 +24,9 @@
    現状は U-Boot video を無効にして回避
 3. **D8BJG 専用表(3264MTS)がコールドで training ハングする理由**: 未特定
    (DRAM 側 Mode Register の残留依存が疑い)。現状は Model A ベース表で回避しており実害なし
-4. **スプラッシュ**: 8MM の SPL 手続き描画 + seamless takeover を 8MP(LCDIFv3 + HDMI TX)
-   向けに再実装する。falcon 基盤は整った(04-falcon.md)
+4. (解決 → [06-splash.md](06-splash.md)): SPL スプラッシュ + seamless takeover は
+   falcon/proper 両経路で実機確定。残タスクはスプラッシュ導入後の起動時間再計測
+   (30-boot-time.md への追記)のみ
 5. **uuu 標準フロー(emmc_all)の再検証**: fastboot 段は未検証。SPL/imx-boot の更新は
    Linux からの dd、または 04-falcon.md のリカバリ経路(tftp)で運用中
 6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
