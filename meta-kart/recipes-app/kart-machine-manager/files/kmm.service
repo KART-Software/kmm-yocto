@@ -6,6 +6,12 @@ Description=Kart Machine Manager Application
 # No After=weston / can0-up: the socket wait replaces the former, and the
 # CAN socket can be bound before the interface is up (frames flow once
 # can0-up runs). kart-data-mount stays ordered for /data/kmm.env.
+# GUI 特急レーン: basic.target を待たない (weston.service の同名コメント参照)。
+# 必要なのは /data/kmm.env の kart-data-mount だけ。wayland ソケットは
+# アプリ側の waitForWaylandSocket が待つ
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
 After=kart-data-mount.service
 Requires=weston.service kart-data-mount.service
 Wants=can0-up.service

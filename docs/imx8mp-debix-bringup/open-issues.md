@@ -12,7 +12,9 @@
   boot の Image/DTB/falcon.itb と rootfs のモジュール一式(GPU 削減後の
   BUILD73 相当)、imx-boot(BUILD63 相当)、weston.ini の renderer=pixman
   手編集。また GPU 削減の runtime 実験で rootfs から退避したライブラリ群は
-  復元/削除処理済み。次のイメージ焼き直し/OTA で完全に正規化される
+  復元/削除処理済み。GUI 特急レーンのユニット群 (seatd/weston/kmm/splash-wl) も
+  /etc 上書きで手載せ (ツリーへは反映済み・同内容)。
+  次のイメージ焼き直し/OTA で /etc 上書きごと完全に正規化される
 - **kmm 並行起動は正規化済み**(2026-09-03): app リポジトリ d32e66b
   (waitForWaylandSocket)+ レシピの SRCREV/unit 更新でツリーに反映。
   ボード上の手載せ(/usr/bin/kmm + /etc の unit 上書き、kmm.orig 残置)は
@@ -37,11 +39,11 @@
 6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
    data-logger-zephyr の dev/imx8mp-m7 ブランチにビルド確認済み(実機未検証)。
    CAN を M7 に持たせるかの設計判断待ち
-7. **起動時間**: DT 死にノード掃除(30-boot-time.md #10)まで終えて
-   **電源→GUI ≈ 4.4s**(kernel 0.74s / kmm READY ≈3.2s monotonic)。
+7. **起動時間**: GUI 特急レーン(30-boot-time.md #11)まで終えて
+   **電源→GUI = 3.96s ± 0.08(min 3.82)**。userspace は掃討済み。
    残りの候補: ROM ロード区間(SPL 縮小で -50ms 級、eMMC fast boot 化で
-   -0.2〜0.4s 級だがレイアウト工事)、sysinit 序盤の直列性、
-   weston の exec+リンク 0.29s。userspace の大物は掃討済み。
+   -0.2〜0.4s 級だがレイアウト工事)、weston の exec+リンク 0.29s、
+   udev-trigger 完了 1.87〜1.93s(weston の唯一の前提)。
    networkd-wait-online は GUI 非ブロックのまま
 8. (解決 2026-09-03): pgc power-domain@8 = **pgc_vpumix** と確定
    (@11/12/13 = vpu_g1/g2/vc8000e、@4 = mlmix)。Quad Lite でヒューズアウトの

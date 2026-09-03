@@ -5,6 +5,11 @@ Description=Kart splash (SPL と同じロゴを GUI 表示まで継続表示)
 # ソケット出現を 10ms ポーリングで掴み、weston の初回フレームにロゴを
 # 間に合わせる。PartOf で weston 再起動時は共に再起動。
 PartOf=weston.service
+# GUI 特急レーン: basic を待たずに fork し、ソケット出現ポーリングで
+# weston の初回フレームに間に合わせる (weston.service の同名コメント参照)
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
 
 [Service]
 User=kart

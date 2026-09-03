@@ -2,10 +2,18 @@
 Description=Weston, a Wayland compositor, as a system service
 Documentation=man:weston(1) man:weston.ini(5)
 Documentation=http://wayland.freedesktop.org/
+# GUI 特急レーン: basic.target(implicit)と dbus を待たない。
+# basic までの区間は /var/volatile マウントと coldplug のジョブ発行順という
+# PID1 のコイントスで 1.5〜2.6s まで振れ、GUI がそのばらつきを直撃していた
+# (2026-09-03 実測、二峰性 ±0.15s)。weston は dbus を使わず(logind でなく
+# seatd 経路)、必要なのは seatd と DRM デバイスの udev 処理完了だけ。
+# udev-trigger 完了より早く起動すると drm-backend が「no drm device found」で
+# 死ぬので、そこだけ順序を張る。
+DefaultDependencies=no
 Requires=seatd.service
-After=seatd.service dbus.socket
-Wants=dbus.socket
-Before=graphical.target
+After=seatd.service systemd-udev-trigger.service
+Conflicts=shutdown.target
+Before=shutdown.target graphical.target
 ConditionPathExists=/dev/tty0
 
 [Service]
