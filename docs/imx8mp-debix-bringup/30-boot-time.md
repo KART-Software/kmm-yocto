@@ -21,6 +21,8 @@
 | 9 | 09-03 | **kmm を weston と並行起動**(app 側で wayland ソケット待ち + unit の After=weston 除去) | ≈4.5〜4.7s | **-0.18s** | weston READY→GUI が 0.50→**0.32s**(3 ブートで再現)。Qt ライブラリロード 0.5s が weston 初期化と完全に重なった。見込み -0.3s に届かなかった理由: 旧構成のロードは空き時間帯で実は 0.2s しかなく、初期化+初回フレーム 0.3s が定数だった(計装実測: QApplication 82ms / MainWindow 構築 65ms / show 81ms / expose 44ms — フォント犯人説は外れ)。app d32e66b + `kmm.service`。**残る床**: sysinit 完了 2.44s(fork の門、DefaultDependencies=no も無効)と weston READY のばらつき ±0.3s |
 | 10 | 09-03 | **DT の死にノード掃除**(EVK 遺産 30 ノード: eqos/音声一式/カメラ一式/flexspi/lcdif1・2/pca6416/lvds_backlight/VPU・NPU の pgc) | **≈4.4s** | -0.25s | kernel 0.96→**0.74s**(builtin probe 減)、coldplug 0.79→0.70s、uevent 815→692、kmm READY 3.43→**3.17〜3.20s**。副産物: 「failed to command PGC」×3・ov5640/pca953x/csis の probe エラー・毎ブートの systemd-backlight failed が**全滅**(dmesg エラー 0・failed unit 0)。旧 open-issue #8(pgc@8 の正体)も vpumix と確定して解決。**効かなかった**: udev ルール 12 本退避は -16ms = 誤差で撤回(規則数でなく uevent 数が支配)。rootfs デバイス帳簿(blame の dev-mmcblk2p5 0.96s)は /data 早期マウント済みのため GUI 臨界パス外と確認 |
 | 11 | 09-03 | **GUI 特急レーン**(seatd/weston/kmm/splash-wl を DefaultDependencies=no + 最小 After に — basic/sysinit/dbus への依存を切断) | **3.96s(σ0.08)** | **-0.4s + 二峰性根絶** | 10 回統計で判明した二峰(±0.15s)の犯人 = /var/volatile マウントジョブと coldplug 洪水の PID1 発行順コイントス → GUI チェーンを local-fs/sysinit/basic から独立させて根絶。weston は After=seatd+**udev-trigger 完了**のみ(早すぎると no drm device found)、seatd は After=journald.socket のみ、kmm は data-mount のみ。8 サイクル実測: **電源→GUI min 3.82 / mean 3.96 / max 4.03s**。前回 kmm での DefaultDependencies=no 空振りは After=sysinit を残した自業自得だった。カメラ検証でロゴ→GUI 連続性維持(ロゴ点灯前 0.2s の暗転はパネル通電過渡で従来から存在、回帰でない) |
+| — | 09-03 | SPL バイナリ縮小(ROM ロード時間 ∝ サイズ狙い: GPT/SHA/RSA config 削除 + proper 用 board ファイルの SPL 除外) | 3.96s | **±0 = 効果なし、撤回** | -1.7KB(165→163KB)しか縮まず、電源→banner は 1.364〜1.372s で基準と完全一致。機序: **LTO が未使用コードを既に捨てていた**(16KB の board ファイル混入は LTO 前のシンボルサイズの誤読)+ CAAM は `select FSL_CAAM if HAS_CAAM` で外れず + SPL_HASH/CRYPTO も select 連鎖で残存。ゼロ利得で 0006 パッチ + board_early_init_f 複製を抱えるのは負債なので撤回(再現ビルドで BUILD63 と md5 一致確認)。ROM 区間を削る現実的な残り手は eMMC fast boot 化(boot0 + 8bit DDR)のみ |
+| — | 09-03 | eMMC boot0 ブート(fuse なし・partconf のみ) | 3.96s | **±0 = 効果なし(RM の予言どおり)、原状復帰** | 調査として実施: boot0 へ現行 imx-boot を置き PARTITION_CONFIG で起動 → 成功(バナー 1 バイト刻印で出所証明)だが電源→SPL は user 領域と完全一致(差分計測 mean 0.353 vs 0.352s)。normal boot は fuse 既定で既に 8bit SDR 20MHz のため置き場所では変わらない。fast boot fuse は「最後の爆弾」として保留決定。全容: [07-emmc-boot-rom.md](07-emmc-boot-rom.md) |
 | — | 09-02 | SPL 中の A53 overdrive 1.2→1.6GHz | 5.2s | **-12ms = 効果なし、撤回** | 1.6GHz 化自体は成功(proper バナーが `at 1600MHz`。VDD_ARM は vendor SPL が元々 OD 0.95V なので PLL 切替のみ: spl_board_init で CCM 退避→ARM_PLL 1600→復帰)。しかし SPL バナー→falcon ジャンプ 627→615ms と CPU 律速でなく、さらに **proper 経路の Linux がカーネル極初期以降で沈黙する退行**(2/2 再現、falcon は健全。機序未特定)。利得ゼロ+フォールバック退行のため撤回。再挑戦するならまず proper 退行の機序(U-Boot proper の regulator sync と 1.6GHz の組か)を潰すこと |
 
 ## 現在の内訳(5.2s、2026-09-01。シリアルの ts 実測)
@@ -36,11 +38,9 @@
 | カーネル | 1.3s | |
 | userspace → weston → kmm READY | 2.7s | |
 
-## 残り候補(open-issues #7)
+## 残り候補
 
-- **A53 起動時クロック 1.2→1.6GHz**(8MM は SPL overdrive 1.8GHz で kernel→GUI
-  3.33→2.98s の実績。8MP 未検証。期待 -0.5s 級で現状の本命)
-- スプラッシュ(open-issues #4)— 絶対時間でなく「暗い時間」の体感を消す
-- kernel 1.3s(config 減量)、weston 初期化 0.8s
-- 小粒: env ロード 0.13s(縮小・部分読みは proper とのレイアウト共有に波及するわりに
-  最大 0.1s 級 = コスパ低)、DDR training 0.22s(training 結果の保存復元は大掛かり)
+最新の残り候補と採否は open-issues #7 を正とする(この節の旧リストは
+全施策消化済みのため削除)。ROM 区間の eMMC fast boot 化は fuse 不可逆の
+わりに上限百 ms 級のため**保留を決定**(2026-09-03、調査の全容:
+[07-emmc-boot-rom.md](07-emmc-boot-rom.md))。

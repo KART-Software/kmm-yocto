@@ -41,8 +41,11 @@
    CAN を M7 に持たせるかの設計判断待ち
 7. **起動時間**: GUI 特急レーン(30-boot-time.md #11)まで終えて
    **電源→GUI = 3.96s ± 0.08(min 3.82)**。userspace は掃討済み。
-   残りの候補: ROM ロード区間(SPL 縮小で -50ms 級、eMMC fast boot 化で
-   -0.2〜0.4s 級だがレイアウト工事)、weston の exec+リンク 0.29s、
+   残りの候補は ROM ロード区間の eMMC fast boot 化のみだが、**fuse は
+   不可逆のわりに上限百 ms 級のため「最後の爆弾」として保留を決定**
+   (2026-09-03。fuse なしの boot0 起動は成功するが速度 ±0 を実機でも確認済み。
+   調査の全容と決定: [07-emmc-boot-rom.md](07-emmc-boot-rom.md))— SPL 縮小は実測 ±0 で
+   撤回済み(30-boot-time.md 参照)。他は weston の exec+リンク 0.29s、
    udev-trigger 完了 1.87〜1.93s(weston の唯一の前提)。
    networkd-wait-online は GUI 非ブロックのまま
 8. (解決 2026-09-03): pgc power-domain@8 = **pgc_vpumix** と確定
