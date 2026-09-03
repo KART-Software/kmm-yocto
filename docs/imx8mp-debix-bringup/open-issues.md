@@ -13,6 +13,10 @@
   BUILD73 相当)、imx-boot(BUILD63 相当)、weston.ini の renderer=pixman
   手編集。また GPU 削減の runtime 実験で rootfs から退避したライブラリ群は
   復元/削除処理済み。次のイメージ焼き直し/OTA で完全に正規化される
+- **kmm 並行起動は正規化済み**(2026-09-03): app リポジトリ d32e66b
+  (waitForWaylandSocket)+ レシピの SRCREV/unit 更新でツリーに反映。
+  ボード上の手載せ(/usr/bin/kmm + /etc の unit 上書き、kmm.orig 残置)は
+  同内容なので、次の焼き直しで /etc 上書きと kmm.orig を掃除するだけ
 
 ## 未解決
 

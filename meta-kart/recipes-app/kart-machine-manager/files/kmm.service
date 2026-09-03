@@ -1,8 +1,12 @@
 [Unit]
 Description=Kart Machine Manager Application
-# Direct start: the app shows the GUI immediately, so it must be ordered
-# after the compositor and CAN are ready (the old kmm-start notifier did this).
-After=weston.service can0-up.service kart-data-mount.service
+# Parallel start with weston: the app polls for the wayland socket itself
+# (waitForWaylandSocket in main.cpp) so the ~0.5s Qt library load overlaps
+# compositor startup (weston-READY -> GUI: 0.50s -> 0.32s measured).
+# No After=weston / can0-up: the socket wait replaces the former, and the
+# CAN socket can be bound before the interface is up (frames flow once
+# can0-up runs). kart-data-mount stays ordered for /data/kmm.env.
+After=kart-data-mount.service
 Requires=weston.service kart-data-mount.service
 Wants=can0-up.service
 
