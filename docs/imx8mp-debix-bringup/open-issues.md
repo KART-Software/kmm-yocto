@@ -37,11 +37,13 @@
 6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
    data-logger-zephyr の dev/imx8mp-m7 ブランチにビルド確認済み(実機未検証)。
    CAN を M7 に持たせるかの設計判断待ち
-7. **起動時間**: カーネル減量 第二弾(30-boot-time.md #7)後 **電源→GUI ≈ 4.8s**
-   (kernel 0.97s / kmm READY 3.57s monotonic)。残りの候補: env+デッドマン 0.43s の
-   内訳削減、userspace(weston 初期化 0.8s 等)。config の残り削り代は
-   COMPAT/BPF/AUDIT/MTD 済み分以外に小物のみで、費用対効果の山は越えた。
+7. **起動時間**: DT 死にノード掃除(30-boot-time.md #10)まで終えて
+   **電源→GUI ≈ 4.4s**(kernel 0.74s / kmm READY ≈3.2s monotonic)。
+   残りの候補: ROM ロード区間(SPL 縮小で -50ms 級、eMMC fast boot 化で
+   -0.2〜0.4s 級だがレイアウト工事)、sysinit 序盤の直列性、
+   weston の exec+リンク 0.29s。userspace の大物は掃討済み。
    networkd-wait-online は GUI 非ブロックのまま
-8. **imx-pgc-domain.8 の正体**: fslc DTB の pgc `power-domain@8`(reg 0x08)は
-   Quad Lite でヒューズアウトされた VPU 系 mix と推定して無効化した(実測: これで
-   PGC エラー 0)。dt-bindings 上の正式名との突き合わせは未実施
+8. (解決 2026-09-03): pgc power-domain@8 = **pgc_vpumix** と確定
+   (@11/12/13 = vpu_g1/g2/vc8000e、@4 = mlmix)。Quad Lite でヒューズアウトの
+   ため DTS で無効化し、「failed to command PGC」と deferred 群は根絶
+   (imx8mp-debix.dts の該当コメント参照)

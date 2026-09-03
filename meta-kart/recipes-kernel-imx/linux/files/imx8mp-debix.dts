@@ -84,3 +84,140 @@
 &ldb_phy {
 	status = "disabled";
 };
+
+/* ===== EVK 遺産の死にノード掃除 (2026-09-03、起動時間: udev/probe 削減) =====
+ * DEBIX/kart で消費者がいない EVK 有効化ノードを落とす。効果は
+ * ① probe 時間 (eqos 0.2s+PHY 等) ② coldplug の uevent 数 ③ dmesg ノイズ
+ * (ov5640/pca953x/csis の probe エラー消滅)。根拠: 実配線 (02-dts-delta.md)
+ * と実機 dmesg。カーネル config 側は既に SND/V4L2 等を削っており、
+ * これはその DT 側の対 (ノードだけ残っていた)。 */
+
+/* 第 2 イーサネット (eqos/eth1): 未配線 (実機で down/リンクなし) */
+&eqos {
+	status = "disabled";
+};
+
+/* オーディオ一式 (無音キオスク。コーデックも未実装) */
+&aud2htx {
+	status = "disabled";
+};
+
+&easrc {
+	status = "disabled";
+};
+
+&sai2 {
+	status = "disabled";
+};
+
+&sai3 {
+	status = "disabled";
+};
+
+&sdma2 {
+	status = "disabled";
+};
+
+&xcvr {
+	status = "disabled";
+};
+
+&{/sound-bt-sco} {
+	status = "disabled";
+};
+
+&{/sound-hdmi} {
+	status = "disabled";
+};
+
+&{/sound-wm8960} {
+	status = "disabled";
+};
+
+&{/sound-micfil} {
+	status = "disabled";
+};
+
+&{/sound-xcvr} {
+	status = "disabled";
+};
+
+&{/bt_sco_codec} {
+	status = "disabled";
+};
+
+/* カメラ一式 (未搭載。ov5640 は毎ブート probe エラーを吐いていた) */
+&mipi_csi_0 {
+	status = "disabled";
+};
+
+&mipi_csi_1 {
+	status = "disabled";
+};
+
+&cameradev {
+	status = "disabled";
+};
+
+&isi_0 {
+	status = "disabled";
+};
+
+&isi_1 {
+	status = "disabled";
+};
+
+&ov5640_0 {
+	status = "disabled";
+};
+
+/* FlexSPI: NOR 非搭載 (MTD もカーネルから削除済み) */
+&flexspi {
+	status = "disabled";
+};
+
+/* 表示に使わない CRTC (表示は lcdif3=HDMI のみ。lcdif1=DSI/lcdif2=LVDS は
+ * 接続先を disabled 済みで、crtc だけ probe されて uevent を増やしていた) */
+&lcdif1 {
+	status = "disabled";
+};
+
+&lcdif2 {
+	status = "disabled";
+};
+
+/* I/O エキスパンダ (EVK の CSI/LVDS 用 pca6416)。DEBIX に非実装で
+ * 毎ブート probe -11 を吐いていた */
+&pca6416 {
+	status = "disabled";
+};
+
+/* LVDS バックライト (EVK 遺産)。DEBIX のパネルは信号連動の自前バックライトで
+ * この PWM は未配線。systemd-backlight@ が毎ブート failed になる発生源 */
+&lvds_backlight {
+	status = "disabled";
+};
+
+/* Quad Lite でヒューズアウトされている VPU/NPU の GPC 電源ドメイン。
+ * pgc_vpumix (power-domain@8) は「imx-pgc-domain.8: failed to command PGC」
+ * を毎ブート 3 連発し (open-issues 旧 #8 の正体)、子の g1/g2/vc8000e
+ * (@11/12/13) は永久 deferred でぶら下がっていた */
+&pgc_vpumix {
+	status = "disabled";
+};
+
+&pgc_vpu_g1 {
+	status = "disabled";
+};
+
+&pgc_vpu_g2 {
+	status = "disabled";
+};
+
+&pgc_vpu_vc8000e {
+	status = "disabled";
+};
+
+&pgc_mlmix {
+	status = "disabled";
+};
