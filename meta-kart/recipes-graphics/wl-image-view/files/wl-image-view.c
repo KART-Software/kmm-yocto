@@ -113,12 +113,19 @@ main(int argc, char **argv)
 	uint32_t *img;
 	int img_w = FALLBACK_W, img_h = FALLBACK_H;
 	int fd, ifd, stride, size, tries, x, y;
+	int delay_ms = 0;
+	int ai;
 	ssize_t want, got;
 
 	if (argc < 2) {
-		fprintf(stderr, "usage: wl-image-view <file.raw> [w h]\n");
+		fprintf(stderr, "usage: wl-image-view <file.raw> [w h] [--delay-ms N]\n");
 		return 2;
 	}
+	/* --delay-ms N: configure 後、初回バッファ commit 前に N ms 待つ
+	 * (暗ブート切り分け: 初回 FB 切り替えのタイミングを client 側で振る) */
+	for (ai = 1; ai < argc; ai++)
+		if (!strcmp(argv[ai], "--delay-ms") && ai + 1 < argc)
+			delay_ms = atoi(argv[ai + 1]);
 	if (argc >= 4) {
 		img_w = atoi(argv[2]);
 		img_h = atoi(argv[3]);
@@ -210,6 +217,14 @@ main(int argc, char **argv)
 	pool = wl_shm_create_pool(shm, fd, size);
 	buf = wl_shm_pool_create_buffer(pool, 0, win_w, win_h, stride,
 					WL_SHM_FORMAT_XRGB8888);
+
+	/* 初回コンテンツ commit を遅らせる(--delay-ms)。接続・configure は
+	 * 済んでいるので、weston の初回 modeset/FB 切り替えの発火時刻だけずれる。 */
+	if (delay_ms > 0) {
+		wl_display_flush(dpy);
+		usleep((useconds_t)delay_ms * 1000);
+	}
+
 	wl_surface_attach(surface, buf, 0, 0);
 	wl_surface_damage(surface, 0, 0, win_w, win_h);
 	wl_surface_commit(surface);
