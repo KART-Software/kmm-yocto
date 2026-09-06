@@ -1,0 +1,68 @@
+From: kart <kart@localhost>
+Subject: [PATCH] kiosk-shell: show surfaces mapped before the first seat exists
+
+At boot the compositor can receive a client's first commit while
+libinput is still enumerating input devices, i.e. before any
+weston_seat exists. desktop_surface_committed() marks the surface
+mapped, but the view is only inserted into a layer inside
+kiosk_shell_surface_activate(), which is skipped when there is no seat.
+The surface is therefore never composited: the output shows only the
+shell background until the client commits again (a static client never
+does), which on DEBIX (i.MX8MP) appeared as a "dark boot" whenever
+weston started early enough that its first clients raced udev.
+
+Place the view on the normal layer even without a seat, and give the
+topmost such view focus when the seat is created. weston 13 restructured
+this path (kiosk_shell_output_set_active_surface_tree) and does not have
+the problem.
+
+Upstream-Status: Inappropriate [weston 12 only; restructured in 13]
+--- a/kiosk-shell/kiosk-shell.c
++++ b/kiosk-shell/kiosk-shell.c
+@@ -801,9 +801,25 @@
+ 		weston_surface_map(surface);
+ 
+ 		kiosk_seat = get_kiosk_shell_seat(seat);
+-		if (seat && kiosk_seat)
++		if (seat && kiosk_seat) {
+ 			kiosk_shell_surface_activate(shsurf, kiosk_seat,
+ 						     WESTON_ACTIVATE_FLAG_NONE);
++		} else {
++			/* No seat yet: at boot the compositor can receive the
++			 * first client commits while libinput is still
++			 * enumerating input devices, so no weston_seat exists.
++			 * activate() is the only path that places the view on
++			 * a layer; without it the surface is marked mapped but
++			 * is never composited (black screen until the client
++			 * commits again). Put it on the normal layer here;
++			 * focus is assigned when the seat appears. */
++			weston_layer_entry_remove(&shsurf->view->layer_link);
++			weston_layer_entry_insert(&shsurf->shell->normal_layer.view_list,
++						  &shsurf->view->layer_link);
++			weston_view_geometry_dirty(shsurf->view);
++			weston_view_update_transform(shsurf->view);
++			weston_surface_damage(shsurf->view->surface);
++		}
+ 	}
+ 
+ 	if (!is_fullscreen && (sx != 0 || sy != 0)) {
+@@ -1154,7 +1170,18 @@
+ 	struct weston_seat *seat = data;
+ 	struct kiosk_shell *shell =
+ 		container_of(listener, struct kiosk_shell, seat_created_listener);
+-	kiosk_shell_seat_create(shell, seat);
++	struct kiosk_shell_seat *shseat = kiosk_shell_seat_create(shell, seat);
++	struct weston_view *view;
++
++	/* Views mapped before the seat existed were placed on the normal
++	 * layer without activation; give the topmost one focus now. */
++	if (shseat && !wl_list_empty(&shell->normal_layer.view_list.link)) {
++		view = wl_container_of(shell->normal_layer.view_list.link.next,
++				       view, layer_link.link);
++		if (get_kiosk_shell_surface(view->surface))
++			kiosk_shell_surface_activate(get_kiosk_shell_surface(view->surface),
++						     shseat, WESTON_ACTIVATE_FLAG_NONE);
++	}
+ }
+ 
+ static void
