@@ -31,7 +31,8 @@
 5. [フレームバッファとブートスプラッシュ](05-display-framebuffer-and-boot-splash.md)
    — FB とは、**なぜ表示中の FB への書き込みは激遅なのか(表示 DMA の帯域競合)**、
    ブートスプラッシュのバトンパス(SPL→カーネル→コンポジタ)、データ駆動 vs 手続き描画、
-   コードとデータで配布経路が違う話、**一般化: 表示帯域とバトンパス(SoC/EL 非依存)**
+   コードとデータで配布経路が違う話、**一般化: 表示帯域とバトンパス(SoC/EL 非依存)**、
+   DRM/KMS(card0 の正体、component 束ね、pixman でも DRM は使う)
 
 6. [U-Boot の weak フックとパッチの作り方](06-uboot-weak-hooks-and-patching.md)
    — weak シンボル(箱は用意済み・中身だけ差し替え)、`spl_board_*` フック規約と

@@ -72,6 +72,10 @@ GUI 完全起動 + Calibration Pattern 表示状態で:
 
 ## 実ブート 3 stage 計測(実験モード、実機検証済み 2026-09-02)
 
+**鉄則: AprilTag で実ブートを判定するときは 3 ステージ全部を差し替える(GUI だけは禁止)。**
+一部だけだと本物ロゴ(kart-splash-wl)がパターンの上に乗った boot を「タグ 0 = 暗」と
+誤計上する(map 順レース)。詳細は `.claude/skills/lcd-validation/SKILL.md`。
+
 `target-stage-setup.sh` が可逆な差し替え一式を行う:
 
 ```bash

@@ -102,3 +102,54 @@ boot_os=yes を自動補充。
 - takeover パッチも同様に「実カーネルソースへ改変 → diff」で生成した
   (`0010〜0013`。適用先は linux-fslc-imx = NXP BSP。8MM の 0004〜0009 は
   linux-fslc 用で互いに独立)
+
+### 暗ブート(SPL ロゴ後に真っ黒)の真因と修正 — weston 12 kiosk-shell の seat レース(2026-09-07 確定)
+
+調査の道筋(誤診の経緯、決め手の実験、検証表)は [08-dark-boot.md](08-dark-boot.md)。
+
+**症状**: コールド起動で SPL ロゴの後に真っ黒のまま GUI が出ない(製品構成で ~20〜27%、
+weston を card0 直後に起動する構成では ~100%)。`systemctl restart weston` で 100% 復旧。
+
+**真因(weston `--logger-scopes=log,drm-backend,timeline` の journal と、背景色を緑にした
+暗ブートの実写で確定)**: 表示ハードは無罪。暗ブート中も LCDIFv3 は weston の初回フレーム
+(kiosk-shell の背景 = 黒)を正常に走査しており、初回 commit の flip 完了イベントも weston に
+届いている(vblank IRQ は commit 後 5s = `drm_vblank_offdelay` の間 305 回発火して切れる。
+これが以前「vblank 凍結・INT_ENABLE_D0=0」と読まれた状態)。問題はその後で、weston 12.0.4 の
+kiosk-shell `desktop_surface_committed()` は surface を map するとき
+`kiosk_shell_surface_activate()` の中でしかビューをレイヤ(normal_layer)に載せず、
+それは `if (seat && kiosk_seat)` 条件付き。起動直後は libinput の udev 列挙(event0 が
+2.1〜2.2s)より前にクライアント(kart-splash-wl / kmm)の初回 commit(1.78s)が届くので
+weston_seat がまだ無く、surface は is_mapped=true のまま**どのレイヤにも入らず永久に
+合成されない**。静的クライアントは二度と commit しないので黒のまま。weston を 1s 遅らせると
+seat(2.87s)がクライアント commit(2.95s)より先にできて明。restart weston が必ず直るのは
+udev 済みで seat が即座にできるから。drm-image-view(compositor 無し)が無縁なのも同じ理由。
+weston 13 は `kiosk_shell_output_set_active_surface_tree` で seat 非依存にレイヤへ載せるため
+該当しない(8MM は 13.0.1)。
+
+**修正**: `meta-kart/recipes-graphics/weston/files/0003-kiosk-shell-map-without-seat.patch`
+(imx8mp-debix のみ)。seat が無くても normal_layer に挿入して damage し、seat 生成時に
+最上位ビューを activate してフォーカスを与える。
+
+**検証(2026-09-07)**: 製品カーネル(g276209957d88、カーネル側パッチ無し)+ weston を card0
+直後に起動(After=seatd/udevd + card0 ポーリング)+ 3 段 AprilTag パターン、10 コールドで
+暗 **0/10**(同構成で修正前は 8/8・11/11 暗)。KLGO ロゴ → クライアント表示は 2.03〜2.20s。
+
+**weston 13.0.1(poky 標準)への切り替えも検証(2026-09-07)**: `imx8mp-debix.conf` で
+`PREFERRED_VERSION_weston:imx8mp-debix = "13.0.1"`(meta-freescale の `:imx-nxp-bsp ??= 12.0.4.imx` を
+machine オーバーライドで上書き。オーバーライド無しの代入では負ける)。パッチ無しの upstream 13 で
+同条件(製品カーネル、card0 直後起動、3 段パターン、GUI 段は weston READY + 300ms)10 コールド
+**暗 0/10、全て SPL → splash → GUI の順で最終 GUI**。KLGO→splash 2.05〜2.13s、KLGO→GUI 2.45〜2.56s
+(12 + 0003 パッチと同等)。journal にエラー/警告無し(pixman、kiosk-shell、systemd-notify 全て 13 で動作)。
+→ 8MP は 13 に揃えるのが本筋(NXP フォーク依存と 0003 パッチ、G2D の RDEPENDS 細工が不要になる)。
+0003 は PV が 12 のときだけ当たるよう条件付けし、12 へ戻す場合の保険として残してある。
+
+**否定した仮説(記録)**: カーネル側 0015〜0020(初回 enable の検証/回復、pixclk 無停止、
+PHY/PVI 維持、fb 切替のみ)は全て無効。weston の commit を blocking にする、legacy SETCRTC に
+置換する、VRR/max bpc を外す、seatd の VT ioctl を drm-image-view に足す、weston を root +
+builtin seat で動かす、いずれも結果を変えない(暗のまま / 明のまま)。カーネルに ftrace/
+tracepoint を足すと udev 列挙とクライアント起動の相対タイミングが変わり、暗率が変わる
+(観測者効果の正体)。
+
+**注意(調査で判明)**: takeover 配下の生きたパイプラインに devmem で SW_RESET を打つと、
+0012/0013 が PHY/ブリッジ再初期化をスキップするため HDMI リンクが崩れ restart でも
+戻らない。live 観測は読み取りにとどめること。

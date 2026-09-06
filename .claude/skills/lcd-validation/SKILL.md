@@ -15,6 +15,18 @@ description: LCD バリデーションシステム (tools/lcd-validation) の使
 - 起動時間の施策の前後比較 (Bootloader/Weston/GUI の first/50%/stable を秒精度で)
 - 表示のズレ/スケール/クロップ/局所歪みの検証 (PASS/FAIL 自動判定)
 - 従来の boot-visual-check.sh (輝度タイムライン) より細かい判定が要るとき
+- **起動系ユニットの変更後は必ずこのツールのパターン解析で実表示を確認する** —
+  systemd が全ユニット active・weston 無エラー・EDID/モード正常でも画面が
+  出ていないブートが実在した (2026-09-03、weston 早期化の撤回事例 =
+  docs/imx8mp-debix-bringup/30-boot-time.md)。
+  **輝度 crop での BRIGHT/DARK 判定は禁止** — GUI の暗い部分と
+  バックライトのみの黒が Y≈108-111 で重なり判別不能で、2026-09-04 に
+  暗ブートを大量に BRIGHT と誤判定した。判定は必ず AprilTag 検出
+  (measure_boot.py / calibrate.py) を使う。vblank IRQ デルタ(`/proc/interrupts` の
+  lcdif)は静止パターンでは idle の weston でも 0 になるので単独判定に使わない。
+  「INT_ENABLE_D0 に VS_BLANK を立ててもカウンタ不動」も走査停止の証拠にならない
+  (DRM 側 vblank->enabled が偽ならカウントされない。2026-09-07 に誤読と判明)。
+  走査の生死を見たいときは weston.ini の background-color を変えて画面を見る。
 
 ## クイックリファレンス (kart ベンチ)
 
@@ -63,18 +75,35 @@ ssh root@192.168.0.7 'chmod +x /tmp/wl-image-view; su kart -s /bin/sh -c \
 4. 検出が欠けたら数値だけ追わず `out/calib-debug/annotated.png` を目で見る
    (露出・フォーカス・画角のどれかはすぐ分かる)
 
-## 実ブート 3 stage 計測 (検証済み)
+## 実ブート 3 stage 計測 (検証済み) — 鉄則: 3 段とも差し替える
+
+**AprilTag で実ブートを判定するときは、必ず `target-stage-setup.sh install` で
+bootloader / weston / GUI の 3 ステージ全部をパターンに差し替える。
+GUI だけ(あるいは一部だけ)wl-image-view に差し替える自己流は禁止。**
 
 ```bash
-./target-stage-setup.sh install    # logo.bin 交換 + splash-wl/kmm drop-in (可逆)
+./target-stage-setup.sh install    # logo.bin→KLGO、kart-splash-wl→weston.raw、kmm→gui.raw (可逆)
 .venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
     --calibration out/calibration.json --power-cycle --duration 22
 ./target-stage-setup.sh uninstall  # 必ず戻す (製品状態に復帰)
 ```
 
-SPL blit の 1bit パターン (白=255) でも確定露出のまま 60/60・PASS。
-weston stable は gui が即被さるため未達になるのが正常。
-**install したまま放置しない** — uninstall まで含めて 1 実験。
+理由 (2026-09-04 に丸一日の計測が無効になった実例): kart-splash-wl(本物ロゴ)は
+退場しない常駐クライアントで、kiosk-shell は最後に map した surface を前面に置く。
+GUI だけパターンにすると、ロゴがパターンの上に乗った boot が「タグ 0 = 暗」と
+誤計上され、表示が生きているのに暗ブートと区別できない。3 段ともステージ別 ID の
+タグなら「どの段の絵が前面か」が分かり、「weston 段が前面に残って GUI が隠れる」
+(map 順レース)と「本当に真っ黒」を分けられる。
+
+- install が `/boot` の remount で失敗したら原因(vfat モジュール不整合など)を
+  直してから進める。GUI だけ手で drop-in して逃げない
+- 判定は run ごとの `measure_boot.csv`(`stage` 列と `*_tag_count`)で見る。
+  最終 2 秒の stage が gui でなければ「前面に残った段」として報告する
+- 静止パターンでは vblank IRQ デルタは使えない(repaint が無く weston が IRQ を
+  止めるので表示が生きていても 0)。判定はタグ検出のみ
+- SPL blit の 1bit パターン (白=255) でも確定露出のまま 60/60・PASS。
+  正常時は weston stable が gui に即被さって未達になる
+- **install したまま放置しない** — uninstall まで含めて 1 実験
 
 ## 未実装 (設計書 Phase 5-6 の残り)
 

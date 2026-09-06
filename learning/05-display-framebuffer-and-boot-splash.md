@@ -20,6 +20,68 @@ B,G,R,X の順)、1920×792 なら 1920×792×4 ≈ **6MB**。
 SPL のスプラッシュも、事前に PNG→生 raw に変換したものを FB に書いているだけで、
 SPL 自身は画像デコードをしない。
 
+### 1.1 表示コントローラは「自走(free-running)」する ★重要
+
+表示コントローラ(8MM=eLCDIF、8MP=**LCDIFv3** @0x32fc6000)は、CPU とは別の
+独立ハードで、**フレームごとに CPU/割り込みでキックされるのではなく、一度
+セットアップすると自分で永久に回り続ける**ステートマシン。
+
+- **心拍 = ピクセルクロック**。8MP では HDMI PHY の PLL が生成する 33.75MHz が
+  LCDIFv3 に供給され、**1 tick 進むごとに走査位置が 1 進む** → ライン末で
+  hsync、フレーム末で vsync、を延々繰り返す
+- **起動の一撃(SPL がやること)**: ①モード/同期パラメータ/FB アドレスを
+  レジスタに書く ②DISP_ON(表示 ON, DISP_PARA bit31)と CTRLDESCL の EN
+  (レイヤ DMA)を立てる ③ピクセルクロック(PHY PLL)を供給開始。この 3 つが
+  揃った瞬間から自走が始まる。**SPL はセットアップ後 kernel へジャンプして退場
+  するが、ハードは自走し続けるのでロゴが映り続ける**(takeover 中もそのまま)
+- だから「何が FB を読ませているか」= ピクセルクロックがペースメーカーで、
+  DMA はスキャンアウトのタイミングに合わせて FB を吸い続ける。**ソフトの介在ゼロ**
+- **無停止で設定を変える仕組み = shadow レジスタ**。新しい設定は shadow に書き、
+  SHADOW_LOAD_EN を立てると**次の vsync で active に latch**される(テアリング
+  防止)。=「更新のトリガは vsync(フレーム境界)」
+- 8MP の暗ブート(§8.1)は当初この「走行中ブロックへの再設定で自走が止まる」説で
+  追ったが、実際は自走は止まっておらず(暗ブート中も weston の初回フレームを走査)、
+  真因はコンポジタ側だった。走査の生死は背景色を変えれば一目で分かる
+- 一般化: どの SoC の表示コントローラも同型(自走・ピクセルクロック心拍・
+  shadow/double-buffer で無停止更新)。「走行中のコントローラへの再設定」は
+  どこでも危うい操作
+
+### 1.2 SPL と Linux で「トリガー」はどう変わるか
+
+**走査そのもののトリガーは不変**(ピクセルクロック自走)。SPL でも Linux でも
+ハードは勝手に回り続ける。変わるのは「FB を差し替えるループ」の有無:
+
+- **SPL**: ロゴ 1 枚を出しっぱなし。FB を差し替えない静的表示。ループ無し
+- **Linux(weston)**: 毎フレーム描き替えるので **vblank 割り込みを心拍にした
+  フィードバックループ**を回す:
+  `描く → atomic commit(page flip, 新 FB を shadow へ)→ 次 vsync で latch
+  → vblank 割り込み → 「フリップ完了」イベントを weston へ → 次の絵`
+- 整理: ①走査 = ピクセルクロック(自走・不変)②フレーム latch = vsync
+  (shadow-load)③コンポジタの次フレーム = **vblank 割り込み**(Linux が
+  INT_ENABLE で有効化)。**vblank 割り込みが weston 描画ループのペースメーカー**
+- **vblank "イベント" と "割り込み" を分ける**: イベント(垂直帰線そのもの)は
+  ハードに効く(shadow-load の latch トリガ)。割り込み(INT_ENABLE で発火する
+  通知)は純粋なソフト通知で走査を駆動しない。なお `INT_ENABLE_D0` を手で立てて
+  DRM の vblank カウンタが動かなくても走査停止の証拠にはならない — DRM 側の
+  `vblank->enabled` が偽だと `drm_handle_vblank` はカウントしない(暗ブート調査で
+  この誤読をした)。走査の生死は VS_BLANK ステータスの再アサートか、背景色を
+  変えて画面を見るのが確実
+- 暗ブート(§8.1)との接続: 暗ブートでも vsync/vblank は正常で、weston の初回
+  フリップ完了イベントも届いていた。問題はその先のコンポジタ内部(seat が無い時の
+  map)であって、この層ではない
+- **FB アドレスは「毎 vblank 無条件」でなく「新しい絵がある時(page flip 時)」に
+  変わる**。ダブル/トリプルバッファで weston が描くバッファを A/B/… と切り替え、
+  flip した FB を次の vsync で latch。**中身が静止なら weston は flip せず FB
+  アドレスは固定**(vblank は走査が続く限り出続ける)。アニメ中だけ毎 vblank
+  交互に変わる
+- **なぜ日常の flip は安全なのに初回だけ壊れるか**: 定常の flip は「完全に
+  カーネル管理下の健全な走行状態」への純粋な FB 切り替え 1 発。対して**初回は
+  ①takeover で adopt した直後の馴染んでいない状態の上で、②単独 flip でなく
+  atomic_enable(set_mode + enable_controller + pm_runtime_get + FB 切替 +
+  shadow-load)に束ねられて**起きる。この「adopted 状態 × enable 束ね」の初回
+  一発だけが ~60% で FSM を固める。一度明ブートになれば以後の flip は健全な
+  状態の上なので 100% 安全(= restart が効く理由・明ブート中が安定な理由)
+
 ## 2. なぜ「表示中の FB」への書き込みは激遅なのか(★核心)
 
 素朴には「6MB を DRAM に書くなんて一瞬」のはず。ところが実測 **~4MB/s**(6MB で ~1.4 秒)。
@@ -133,5 +195,106 @@ takeover が成り立つのは「ブートローダが設定した表示ハー�
 - 起動画面の描画が妙に遅い → 「表示スキャンを止める前に描いているか」を疑う。
   スキャン開始後に大量に書いていれば §2 の餓死。
 
+## 8. DRM/KMS — カーネルの表示サブシステム(card0 の正体)
+
+**DRM = Direct Rendering Manager**。コピー防止の DRM とは無関係で、Linux
+カーネルの**表示と GPU を束ねるサブシステム**の名前。§1〜3 で「カーネル DRM」
+「コンポジタがフリップ」と呼んでいたものの実体がこれ。
+
+- **何を管理するか**: ①モード設定(解像度・タイミング — KMS = Kernel Mode
+  Setting)、②表示バッファのメモリ(GEM)、③vsync 同期のページフリップ、
+  ④GPU へのコマンド投入。旧世代の fbdev(/dev/fb0 = 「1 枚の生 FB」だけの
+  素朴な口)を置き換えた
+- **デバイスノード**: `/dev/dri/card0` が「表示+モード設定の権限付き」の口、
+  `renderD128` が「描画だけ」の口。weston が開くのは card0。
+  DEBIX では card0 = `imx-drm display-subsystem`、GPU(etnaviv)は render
+  ノード側(GPU レス化後も card0 は残る — **pixman weston も表示には
+  DRM/KMS を使う**。描画が CPU になるだけで、dumb buffer を KMS で
+  ページフリップする)
+- **GEM(Graphics Execution Manager)= DRM の「バッファ」オブジェクト**。1 GEM =
+  1 個のメモリの塊(サイズ・裏付け物理メモリ・mmap の口)。ユーザ空間はハンドルで
+  扱い、dma-buf(PRIME)fd にしてプロセス/デバイス間で共有できる。
+  **フレームバッファ = GEM + 幅/高さ/形式/ストライド**で、フリップが CRTC に渡す
+  のは結局この GEM の物理アドレス。GPU 無し・CMA の構成では GEM = 物理連続の DMA
+  バッファ(weston の dumb buffer)。クライアントの `wl_shm` は GEM ではなく、
+  コンポジタが自分の GEM に合成してからフリップする。ブートローダの FB のように
+  「カーネルが確保していない物理領域」を DRM に見せるには、reserved-memory で
+  予約したうえで memremap して GEM に**包む**(simpledrm の手法)
+- **KMS のオブジェクトモデル**(§3 のバトンパスの語彙):
+  `framebuffer → plane → CRTC → encoder → connector`。
+  CRTC がスキャンアウトエンジン(= lcdif)、encoder が DSI/ブリッジ、
+  connector がパネル/HDMI。weston はこれらを ioctl で組み替える
+- **CRTC**(= "CRT Controller"、ブラウン管時代の名残の呼び名)= **スキャンアウト
+  エンジン**。FB をメモリから DMA で読み続け、ピクセル+同期信号(hsync/vsync)を
+  作ってパネルへ 1 ラインずつ流す「表示の心臓部」。DEBIX では **CRTC = LCDIFv3**
+  (`32fc6000.lcd-controller`)。暗ブースの「表示が出ない」= この CRTC が
+  スキャンしていない状態
+- **vblank(垂直帰線)** = 1 フレーム描き終えて次フレームの先頭に戻るまでの
+  谷間。**この谷間ごとに vblank 割り込みが 1 回**上がる(= 描いたフレーム数)。
+  60Hz なら毎秒 60 回。コンポジタはこの vblank に同期してページフリップし
+  ティアリングを防ぐ。**デバッグでの使い道**: `/proc/interrupts` の lcdif 行は
+  vblank IRQ の回数。ただし DRM は使用者がいないと IRQ を切る(`drm_vblank_offdelay`
+  = 5s 後)ので、静止画表示中は「commit 後 ~300 回で止まる」のが正常。走査の生死の
+  判定には使えない(2026-09-07 の暗ブート調査でこれを wedge と誤読した)。
+  「表示が出ているか」は AprilTag 検出で判定する
+- **card0 は「部品が全部揃って」初めて生える**: imx-drm は component
+  framework で lcdif/ldb/dsi 等の子ドライバを束ね、**全員の probe が完了する
+  まで /dev/dri/card0 を作らない**。ここから来た実害が 2 つ —
+  ① LDB ドライバだけ消して DTS の `&ldb` を残すと束ねが永遠に揃わず
+  display-subsystem ごと消える(kernel 減量第 2 弾の罠)、
+  ② weston を早く起動しすぎると card0 がまだ無く "no drm device found"
+  (GUI 特急レーンで After=udev-trigger にした理由。ノードは probe 完了時に
+  devtmpfs へ生えるので、本当に待つべきは coldplug 全完了でなく card0 出現)
+- **SPL スプラッシュは DRM の外**: SPL は lcdif レジスタ直叩き(DRM は
+  カーネルの仕組み)。takeover(§3)は「DRM ドライバが初期化時に、走行中の
+  スキャンアウトをリセットせず KMS の状態として養子縁組する」パッチ、と
+  言い直せる
+
+### 8.1 takeover の落とし穴 — 暗ブート(2026-09-04 観測 → 2026-09-07 真因確定)
+
+**現象**: 電源投入で一定確率で GUI が出ない(ロゴは出る・バックライトも点く・
+真っ黒)。`systemctl restart weston` で 100% 直る。
+
+**真因は表示ハードでもカーネルでもなく、コンポジタ(weston 12 kiosk-shell)だった。**
+決め手は 2 つ: ①weston.ini の背景色を緑にして暗ブートさせると**画面は緑** =
+LCDIFv3 は weston の初回フレームを正常に走査している。②weston の
+`--logger-scopes=log,drm-backend,timeline` で暗ブートの内部を見ると、初回 commit →
+クライアント 2 つの commit(1.78s)→ flip 完了イベント受信(1.82s)→ 2 回目の repaint の
+scene graph に**クライアントのビューが存在しない**(背景ビューのみ)→ 以後 idle。
+
+**機序**: kiosk-shell 12 の `desktop_surface_committed()` は surface を map するとき
+`kiosk_shell_surface_activate()` の中でしかビューをレイヤに載せず、それは
+`if (seat && kiosk_seat)` 条件付き。起動直後は libinput の udev 列挙(event0 = 2.1〜2.2s)
+より前にクライアントの初回 commit が届くので `weston_seat` がまだ無く、surface は
+is_mapped=true のままどのレイヤにも入らない = 永久に合成されない。静的クライアントは
+二度と commit しない。weston を遅らせる/restart する = seat が先にできる = 明。
+weston 13 は構造が変わって該当しない。修正は weston パッチ(kiosk-shell: seat が無くても
+normal_layer に載せ、seat 生成時に最上位を activate)。製品カーネル + weston card0 直後
+起動 + 3 段 AprilTag で 10 コールド暗 0/10(docs/imx8mp-debix-bringup/06-splash.md)。
+
+**以前ここに書いていた「LCDIFv3 の latched wedge / 走査停止」は誤り**だった。
+根拠にした「INT_ENABLE を手で立てても vblank カウンタが動かない」は、DRM 側の
+`vblank->enabled` が偽なので `drm_handle_vblank` がカウントしないだけで、走査停止の
+証拠ではない。commit 後の vblank IRQ 回数が ~305(= 5s × 60Hz、`drm_vblank_offdelay`
+の間だけ有効)で止まっているのも正常動作。
+
+**教訓**:
+- 「表示が出ない」で最初に切り分けるのは **ハードが走査しているか**(背景色を変える、
+  別クライアントを出す)と **コンポジタが何を合成したか**(weston の timeline/drm-backend
+  scope)。レジスタ/クロック/カーネルトレースはその後。今回はカーネル側の in-kernel
+  トレースが udev 列挙とクライアント起動の相対タイミングを変えて暗率を動かし
+  (観測者効果)、2 日分の誤診を生んだ。
+- **systemd 上は完全に健康**(全ユニット active、compositor 無エラー)なので
+  「サービスが上がったか」では判定できない。判定は AprilTag パターン検出
+  (tools/lcd-validation)。カメラ輝度 crop は GUI の暗部と黒が重なり誤判定する。
+- 起動を速くするほど「入力デバイス列挙 vs クライアント初回 commit」のような
+  コンポジタ内部のレースが露出する。card0 直後起動(30-boot-time #10)を採るなら
+  この修正が前提。
+
 **関連:** [01-arm-boot-and-atf.md](01-arm-boot-and-atf.md)(SPL がどの段か)、
 [02-rdc-and-domains.md](02-rdc-and-domains.md)(§7 と同じ「一般原理」の書き口)。
+
+**注意**: takeover 配下の生きたパイプラインに devmem で SW_RESET を打つと、0012/0013 が
+PHY/ブリッジ再初期化をスキップするため HDMI リンクが崩れ restart でも戻らない。
+再現実験は `uname` で製品カーネルを確認してから(falcon は BOOTA の falcon.itb をロード
+するので /boot/Image が製品版でも実機は別カーネルになりうる)。

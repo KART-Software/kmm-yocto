@@ -23,6 +23,7 @@
 | 11 | 09-03 | **GUI 特急レーン**(seatd/weston/kmm/splash-wl を DefaultDependencies=no + 最小 After に — basic/sysinit/dbus への依存を切断) | **3.96s(σ0.08)** | **-0.4s + 二峰性根絶** | 10 回統計で判明した二峰(±0.15s)の犯人 = /var/volatile マウントジョブと coldplug 洪水の PID1 発行順コイントス → GUI チェーンを local-fs/sysinit/basic から独立させて根絶。weston は After=seatd+**udev-trigger 完了**のみ(早すぎると no drm device found)、seatd は After=journald.socket のみ、kmm は data-mount のみ。8 サイクル実測: **電源→GUI min 3.82 / mean 3.96 / max 4.03s**。前回 kmm での DefaultDependencies=no 空振りは After=sysinit を残した自業自得だった。カメラ検証でロゴ→GUI 連続性維持(ロゴ点灯前 0.2s の暗転はパネル通電過渡で従来から存在、回帰でない) |
 | — | 09-03 | SPL バイナリ縮小(ROM ロード時間 ∝ サイズ狙い: GPT/SHA/RSA config 削除 + proper 用 board ファイルの SPL 除外) | 3.96s | **±0 = 効果なし、撤回** | -1.7KB(165→163KB)しか縮まず、電源→banner は 1.364〜1.372s で基準と完全一致。機序: **LTO が未使用コードを既に捨てていた**(16KB の board ファイル混入は LTO 前のシンボルサイズの誤読)+ CAAM は `select FSL_CAAM if HAS_CAAM` で外れず + SPL_HASH/CRYPTO も select 連鎖で残存。ゼロ利得で 0006 パッチ + board_early_init_f 複製を抱えるのは負債なので撤回(再現ビルドで BUILD63 と md5 一致確認)。ROM 区間を削る現実的な残り手は eMMC fast boot 化(boot0 + 8bit DDR)のみ |
 | — | 09-03 | eMMC boot0 ブート(fuse なし・partconf のみ) | 3.96s | **±0 = 効果なし(RM の予言どおり)、原状復帰** | 調査として実施: boot0 へ現行 imx-boot を置き PARTITION_CONFIG で起動 → 成功(バナー 1 バイト刻印で出所証明)だが電源→SPL は user 領域と完全一致(差分計測 mean 0.353 vs 0.352s)。normal boot は fuse 既定で既に 8bit SDR 20MHz のため置き場所では変わらない。fast boot fuse は「最後の爆弾」として保留決定。全容: [07-emmc-boot-rom.md](07-emmc-boot-rom.md) |
+| — | 09-04 | weston を card0 ピンポイント待ちで前倒し(-0.35s)+ 0014(lcdifv3 quiesce) | 3.96s | **保留 — 暗ブート未解決のため不採用** | card0 前倒し自体は weston 起動 2.0→1.6s の効果あり(open-issues #10)。だが AprilTag 判定で**約 4 割のコールドブートが暗転(GUI が出ない)**と判明。当初「輝度判定で 24/24 明・0014 で解決」としたが**輝度 crop がバックライト黒を明と誤判定した完全な誤り**。正しい AprilTag 判定では **baseline After=udev-trigger でも約 4 割暗転** = これは card0 の回帰でなく**元からある takeover bring-up の暗ブート**(open-issues #9)。0014 も効かず。ツリー変更は全て revert。教訓: 表示判定は必ず tools/lcd-validation の AprilTag で(systemd active と輝度 crop は暗ブートを見抜けない) |
 | — | 09-02 | SPL 中の A53 overdrive 1.2→1.6GHz | 5.2s | **-12ms = 効果なし、撤回** | 1.6GHz 化自体は成功(proper バナーが `at 1600MHz`。VDD_ARM は vendor SPL が元々 OD 0.95V なので PLL 切替のみ: spl_board_init で CCM 退避→ARM_PLL 1600→復帰)。しかし SPL バナー→falcon ジャンプ 627→615ms と CPU 律速でなく、さらに **proper 経路の Linux がカーネル極初期以降で沈黙する退行**(2/2 再現、falcon は健全。機序未特定)。利得ゼロ+フォールバック退行のため撤回。再挑戦するならまず proper 退行の機序(U-Boot proper の regulator sync と 1.6GHz の組か)を潰すこと |
 
 ## 現在の内訳(5.2s、2026-09-01。シリアルの ts 実測)
@@ -44,3 +45,5 @@
 全施策消化済みのため削除)。ROM 区間の eMMC fast boot 化は fuse 不可逆の
 わりに上限百 ms 級のため**保留を決定**(2026-09-03、調査の全容:
 [07-emmc-boot-rom.md](07-emmc-boot-rom.md))。
+
+- (2026-09-07) 暗ブート(open-issues #9)は weston kiosk-shell パッチで解決(カーネル側の 0018 は不採用、+0.04s は発生しない)。card0 直後起動(#10)はこの修正が前提で採用可能。要再計測。

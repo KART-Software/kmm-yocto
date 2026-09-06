@@ -20,6 +20,13 @@
   ボード上の手載せ(/usr/bin/kmm + /etc の unit 上書き、kmm.orig 残置)は
   同内容なので、次の焼き直しで /etc 上書きと kmm.orig を掃除するだけ
 
+- **weston 13.0.1 を手載せ**(2026-09-07): weston 本体 + libweston-13 + モジュール一式を rootfs に
+  直接展開(12 系一式は `/data/weston12-backup.tar`、12 用パッチ版 kiosk-shell は `/data/kiosk-shell.so.orig`
+  が元)。kmm.service に検証用 drop-in `order.conf`(After=weston + sleep 0.3)が残っている。
+  カーネルは製品版(BOOTA の `falcon.itb` = g276209957d88)に戻してある。次のフルイメージ
+  焼き直し/OTA で正規化される。調査用の `/data/strace`、`/data/libdrm-atomic-dump.so` は
+  消してよい。weston.service は「card0 直後起動」版(#10)が /etc に載ったまま
+
 ## 未解決
 
 1. **DDR 3732MTS のマージン**: ベンダーは同じ DRAM を 3264MTS で運用している。室温の
@@ -52,3 +59,18 @@
    (@11/12/13 = vpu_g1/g2/vc8000e、@4 = mlmix)。Quad Lite でヒューズアウトの
    ため DTS で無効化し、「failed to command PGC」と deferred 群は根絶
    (imx8mp-debix.dts の該当コメント参照)
+9. (解決 2026-09-07 → [06-splash.md](06-splash.md) 「暗ブートの真因と修正」、経緯は [08-dark-boot.md](08-dark-boot.md)):
+   **コールド暗ブート(SPL ロゴ後に真っ黒)**。真因は表示ハード/カーネルではなく
+   weston 12 kiosk-shell の seat レース(libinput の udev 列挙より前にクライアントが
+   commit すると surface がレイヤに載らない)。修正は weston パッチ
+   `0003-kiosk-shell-map-without-seat.patch`。製品カーネル + weston card0 直後起動 +
+   3 段 AprilTag で 10 コールド暗 0/10(GUI 段を splash の 300ms 後に起動する条件でも 10/10 で
+   SPL→splash→GUI の順)。さらに poky 標準の **weston 13.0.1 に切り替えるとパッチ無しで同じく 0/10**
+   (`imx8mp-debix.conf` で選択済み。13 は kiosk-shell の構造が変わり穴が無い)。
+   カーネル側の 0015〜0020 と kas overlay
+   (recover/pixclk/pll/traceevt 等)は不要になりツリーから外した。
+10. **card0 ピンポイント待ちによる weston 前倒し(-0.35s、保留)**:
+   `ExecStartPre=udevadm trigger --settle /dev/dri/card0` + After=udevd で
+   weston 起動が 2.0→1.6s に前倒せる(card0 はカーネル 0.30s で生成済みだが
+   weston は coldplug 完了 1.98s を待っている)。#9 が解決したので採用可能になった
+   (2026-09-07、#9 の検証はこの構成で行った)。ツリーには入れていない(baseline のまま)
