@@ -25,6 +25,8 @@
 | — | 09-03 | eMMC boot0 ブート(fuse なし・partconf のみ) | 3.96s | **±0 = 効果なし(RM の予言どおり)、原状復帰** | 調査として実施: boot0 へ現行 imx-boot を置き PARTITION_CONFIG で起動 → 成功(バナー 1 バイト刻印で出所証明)だが電源→SPL は user 領域と完全一致(差分計測 mean 0.353 vs 0.352s)。normal boot は fuse 既定で既に 8bit SDR 20MHz のため置き場所では変わらない。fast boot fuse は「最後の爆弾」として保留決定。全容: [07-emmc-boot-rom.md](07-emmc-boot-rom.md) |
 | — | 09-04 | weston を card0 ピンポイント待ちで前倒し(-0.35s)+ 0014(lcdifv3 quiesce) | 3.96s | **保留 — 暗ブート未解決のため不採用** | card0 前倒し自体は weston 起動 2.0→1.6s の効果あり(open-issues #10)。だが AprilTag 判定で**約 4 割のコールドブートが暗転(GUI が出ない)**と判明。当初「輝度判定で 24/24 明・0014 で解決」としたが**輝度 crop がバックライト黒を明と誤判定した完全な誤り**。正しい AprilTag 判定では **baseline After=udev-trigger でも約 4 割暗転** = これは card0 の回帰でなく**元からある takeover bring-up の暗ブート**(open-issues #9)。0014 も効かず。ツリー変更は全て revert。教訓: 表示判定は必ず tools/lcd-validation の AprilTag で(systemd active と輝度 crop は暗ブートを見抜けない) |
 | — | 09-02 | SPL 中の A53 overdrive 1.2→1.6GHz | 5.2s | **-12ms = 効果なし、撤回** | 1.6GHz 化自体は成功(proper バナーが `at 1600MHz`。VDD_ARM は vendor SPL が元々 OD 0.95V なので PLL 切替のみ: spl_board_init で CCM 退避→ARM_PLL 1600→復帰)。しかし SPL バナー→falcon ジャンプ 627→615ms と CPU 律速でなく、さらに **proper 経路の Linux がカーネル極初期以降で沈黙する退行**(2/2 再現、falcon は健全。機序未特定)。利得ゼロ+フォールバック退行のため撤回。再挑戦するならまず proper 退行の機序(U-Boot proper の regulator sync と 1.6GHz の組か)を潰すこと |
+| 12 | 09-07 | **weston 13.0.1 へ切り替え**(暗ブート #9 の解決。NXP フォーク 12.0.4.imx の kiosk-shell は seat レースでクライアントを表示しない) | **3.81s(σ0.06)** | -0.15s | 製品 unit のまま。実ロゴ/kart-splash-wl/Qt kmm、製品カーネル、5 コールド。計測法は下記「再計測」 |
+| — | 09-07 | card0 直後起動(#10)の再計測(weston 13、暗ブート解決後) | **3.34s(σ0.17)** | **-0.47s** | 5 本中 1 本が 3.65s(weston は最速 2.70s なのに kmm READY が +0.95s)。外れ値の原因未特定のため**採否保留**。ツリーは製品 unit のまま |
 
 ## 現在の内訳(5.2s、2026-09-01。シリアルの ts 実測)
 
@@ -46,4 +48,8 @@
 わりに上限百 ms 級のため**保留を決定**(2026-09-03、調査の全容:
 [07-emmc-boot-rom.md](07-emmc-boot-rom.md))。
 
-- (2026-09-07) 暗ブート(open-issues #9)は weston kiosk-shell パッチで解決(カーネル側の 0018 は不採用、+0.04s は発生しない)。card0 直後起動(#10)はこの修正が前提で採用可能。要再計測。
+- (2026-09-07) 再計測の方法: t0 = DP100 の出力 ON 送信(HID フレーム送出の瞬間)、電源→SPL バナー/
+  カーネル時刻原点はシリアル(/dev/ttyUSB1、chunk ごとに epoch)、GUI = journal の kmm READY
+  (Type=notify、初回ウィンドウ表示)を kernel 原点に足す。電源→SPL 0.21s、→カーネル 1.02s は両構成で同一。
+  weston 起動: 製品 unit 3.22〜3.52s / card0 直後 2.70〜2.87s。weston→kmm READY: 0.35〜0.51s /
+  0.36〜0.49s(外れ値 0.95s が 1 本)。
