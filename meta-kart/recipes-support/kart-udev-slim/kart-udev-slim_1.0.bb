@@ -1,6 +1,6 @@
 SUMMARY = "Boot-time entropy seeding for the udev-slimmed image"
-DESCRIPTION = "systemd-random-seed に SYSTEMD_RANDOM_SEED_CREDIT=1 を与え、\
-/data の seed で CRNG を即時初期化する。udev ルール/hwdb の削減は \
+DESCRIPTION = "systemd-random-seed を丸ごと差し替え (SYSTEMD_RANDOM_SEED_CREDIT=1、\
+/var/lib overlay を待たず /data マウント直後に走らせる) て CRNG を即時初期化する。udev ルール/hwdb の削減は \
 kart-image.bb の slim_udev_rules が行う。\
 経緯: 二段 coldplug (GUI クリティカルなサブシステム先行) も実測したが、\
 GUI 短縮は誤差程度 (-46ms) でばらつきが 10 倍になり、モジュールドライバとの \
@@ -10,7 +10,7 @@ LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
 SRC_URI = " \
-    file://random-seed-credit.conf \
+    file://systemd-random-seed.service \
     file://logind-defer.conf \
     file://dbus-defer.conf \
     file://cpu-weight-gui.conf \
@@ -28,9 +28,11 @@ KART_NOISE_DEFER_UNITS = "busybox-syslog.service busybox-klogd.service \
     iptables.service ip6tables.service"
 
 do_install() {
-    install -d ${D}${systemd_system_unitdir}/systemd-random-seed.service.d
-    install -m 0644 ${WORKDIR}/random-seed-credit.conf \
-        ${D}${systemd_system_unitdir}/systemd-random-seed.service.d/random-seed-credit.conf
+    # /etc 側に同名 unit を置いて出荷版を上書き (drop-in では RequiresMountsFor を
+    # 消せないため。経緯は unit ファイルのコメント参照)
+    install -d ${D}${sysconfdir}/systemd/system
+    install -m 0644 ${WORKDIR}/systemd-random-seed.service \
+        ${D}${sysconfdir}/systemd/system/systemd-random-seed.service
     # 起動嵐 (basic 直後のスタート集中) からの非クリティカル退避:
     # logind (256ms) と dbus (513ms) を GUI 表示後へ (各 conf のコメント参照)
     install -d ${D}${systemd_system_unitdir}/systemd-logind.service.d
@@ -58,7 +60,7 @@ do_install() {
 }
 
 FILES:${PN} = " \
-    ${systemd_system_unitdir}/systemd-random-seed.service.d/random-seed-credit.conf \
+    ${sysconfdir}/systemd/system/systemd-random-seed.service \
     ${systemd_system_unitdir}/systemd-logind.service.d/logind-defer.conf \
     ${systemd_system_unitdir}/dbus.service.d/dbus-defer.conf \
     ${systemd_system_unitdir}/*.service.d/cpu-weight.conf \

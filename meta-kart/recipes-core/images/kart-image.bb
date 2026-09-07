@@ -102,7 +102,8 @@ BAD_RECOMMENDATIONS:append:imx8mp-debix = " kernel-module-imx-gpu-viv"
 # udev ダイエット (i.MX 共通、RPi5 は据え置き):
 # 固定ハードのキオスクに無縁なルールと hwdb (10MB、キーボード/マウス量産品の
 # 互換 quirk 集) を rootfs から落とす。coldplug 全デバイス × 全ルールの積が
-# 縮み、kart-udev-slim の二段トリガーと合わせて GUI までの udev 区間を削る。
+# 縮み、GUI までの udev 区間を削る (二段トリガーは撤収済み、kart-udev-slim の
+# DESCRIPTION 参照)。
 # 消してよい根拠 (このシステムに消費者がいない) は
 # docs/imx8mm-xpi-bringup/05-next-steps.md の起動時間の項を参照。
 slim_udev_rules() {
@@ -116,9 +117,10 @@ slim_udev_rules() {
     done
     rm -f ${IMAGE_ROOTFS}${nonarch_base_libdir}/udev/hwdb.bin
     rm -rf ${IMAGE_ROOTFS}${nonarch_base_libdir}/udev/hwdb.d
-    # 乱数 seed を /data へ (kart-udev-slim の random-seed-credit.conf とペア。
-    # coldplug 遅延でデバイス登録由来のエントロピーが減るため、seed credit で
-    # CRNG を即時初期化しないと weston の EGL 初期化が getrandom() で止まる)
+    # 乱数 seed を /data へ (kart-udev-slim の systemd-random-seed.service とペア。
+    # この板は起動直後のエントロピー源が乏しく、seed credit で CRNG を即時初期化
+    # しないと weston (EGL) や kmm (fontconfig) の getrandom() が CRNG 初期化まで
+    # ブロックする。symlink は rootfs 上にあるので /var/lib の overlay 前でも見える)
     ln -sf /data/random-seed ${IMAGE_ROOTFS}${localstatedir}/lib/systemd/random-seed
 }
 ROOTFS_POSTPROCESS_COMMAND:append:imx-generic-bsp = " slim_udev_rules;"
