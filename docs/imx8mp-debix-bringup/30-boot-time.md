@@ -26,20 +26,34 @@
 | — | 09-04 | weston を card0 ピンポイント待ちで前倒し(-0.35s)+ 0014(lcdifv3 quiesce) | 3.96s | **保留 — 暗ブート未解決のため不採用** | card0 前倒し自体は weston 起動 2.0→1.6s の効果あり(open-issues #10)。だが AprilTag 判定で**約 4 割のコールドブートが暗転(GUI が出ない)**と判明。当初「輝度判定で 24/24 明・0014 で解決」としたが**輝度 crop がバックライト黒を明と誤判定した完全な誤り**。正しい AprilTag 判定では **baseline After=udev-trigger でも約 4 割暗転** = これは card0 の回帰でなく**元からある takeover bring-up の暗ブート**(open-issues #9)。0014 も効かず。ツリー変更は全て revert。教訓: 表示判定は必ず tools/lcd-validation の AprilTag で(systemd active と輝度 crop は暗ブートを見抜けない) |
 | — | 09-02 | SPL 中の A53 overdrive 1.2→1.6GHz | 5.2s | **-12ms = 効果なし、撤回** | 1.6GHz 化自体は成功(proper バナーが `at 1600MHz`。VDD_ARM は vendor SPL が元々 OD 0.95V なので PLL 切替のみ: spl_board_init で CCM 退避→ARM_PLL 1600→復帰)。しかし SPL バナー→falcon ジャンプ 627→615ms と CPU 律速でなく、さらに **proper 経路の Linux がカーネル極初期以降で沈黙する退行**(2/2 再現、falcon は健全。機序未特定)。利得ゼロ+フォールバック退行のため撤回。再挑戦するならまず proper 退行の機序(U-Boot proper の regulator sync と 1.6GHz の組か)を潰すこと |
 | 12 | 09-07 | **weston 13.0.1 へ切り替え**(暗ブート #9 の解決。NXP フォーク 12.0.4.imx の kiosk-shell は seat レースでクライアントを表示しない) | **3.81s(σ0.06)** | -0.15s | 製品 unit のまま。実ロゴ/kart-splash-wl/Qt kmm、製品カーネル、5 コールド。計測法は下記「再計測」 |
-| — | 09-07 | card0 直後起動(#10)の再計測(weston 13、暗ブート解決後) | **3.34s(σ0.17)** | **-0.47s** | 5 本中 1 本が 3.65s(weston は最速 2.70s なのに kmm READY が +0.95s)。外れ値の原因未特定のため**採否保留**。ツリーは製品 unit のまま |
+| — | 09-07 | card0 直後起動(#10)の再計測(weston 13、暗ブート解決後) | **3.34s(σ0.17)** | **-0.47s** | 5 本中 1 本が 3.65s(weston は最速 2.70s なのに kmm READY が +0.95s)。外れ値の原因は #13 で判明・解消(CRNG 未初期化で kmm の getrandom() がブロック)。採用は #14 |
+| 13 | 09-07 | **seed credit を udev 洪水の前へ**(systemd-random-seed を丸ごと差し替えて /var/lib overlay 待ちを外し /data マウント直後に実行、volatile-binds の逆向き Before= も除去) | **3.71s(σ0.08)** | -0.10s | 製品 unit、5 コールド。card0 直後起動は **3.17s(σ0.07、10/10 単峰)** = 前回 3.34s(σ0.17)の二峰性が消滅。crng init done は全 15 boot で 1.45〜1.56s(従来 1.62〜2.48s)。機序は下記「card0 直後起動の外れ値」 |
+| 14 | 09-07 | **weston を card0 直後起動に**(#10 採用。After=udev-trigger → After=udevd + ExecStartPre で /dev/dri/card0 出現待ち) | **3.17s(σ0.07)** | -0.54s | N=10 コールド、外れ値なし(3.08〜3.27)。weston 起動 1.99→1.65s(kernel 原点)。#9・#13 が前提 |
 
-## 現在の内訳(5.2s、2026-09-01。シリアルの ts 実測)
+## 現在の内訳(2026-09-07、#14 後。シリアル ts + journal 実測。現行 3.17s / 旧 unit 3.71s)
 
-| 区間 | 時間 | 備考 |
-|---|---|---|
-| 電源 → SPL バナー | ~0.6s | BootROM + imx-boot ロード(ROM 側の低速読み) |
-| DDR init + PHY training | 0.22s | |
-| board init(RNG/GIC) | 0.02s | |
-| eMMC init + HS400 交渉 + MBR/FAT | 0.05s | |
-| env ロード | 0.13s | 読み自体でなく 16KB のインポート処理(dcache OFF の CPU 仕事)が主と推定 |
-| デッドマン env_save + falcon.itb + シム | 0.18s | itb 読み 0.13s / save ~0.02s |
-| カーネル | 1.3s | |
-| userspace → weston → kmm READY | 2.7s | |
+電源 ON からの積算(wall)。SPL 区間はシリアルの行時刻、カーネル以降は kernel 時刻原点
+(電源 +1.02s)に journal の monotonic を足したもの。代表 1 boot(現行 3.19s / 旧 3.59s)。
+
+| 区間 | 旧 unit(udev-trigger 待ち) | 現行(card0 直後、#14) | 備考 |
+|---|---|---|---|
+| 電源 → SPL バナー | 0.21s | 0.21s | BootROM の imx-boot ロード(eMMC boot0/fast boot 化は保留、07-emmc-boot-rom.md) |
+| DDR init + PHY training | 0.20s | 0.20s | |
+| SPL スプラッシュ点灯 | 0.02s | 0.02s | 表示チェーン全段 24ms(06-splash.md) |
+| RNG/GIC + eMMC init | 0.04s | 0.04s | |
+| env ロード | 0.14s | 0.14s | 16KB のインポート処理(dcache OFF)が主 |
+| デッドマン env_save | 0.03s | 0.03s | |
+| falcon.itb ロード + ロゴ blit | 0.15s | 0.15s | itb 読みが主。ロゴはファイルから |
+| SPL ジャンプ → カーネル時刻原点 | 0.22s | 0.22s | BL31 + カーネル head(電源 +0.80 → +1.02s) |
+| カーネル → PID1 | 1.13s | 1.13s | 累計 2.15s。最大の単一区間 |
+| PID1 → /data マウント + seed credit | 0.37s | 0.42s | 累計 ~2.55s。crng init done 1.45〜1.56s(kernel 原点) |
+| udevd 起動 + coldplug 完了 | 1.45 → 1.96 | 1.45 → 2.13 | kernel 原点。旧 unit の weston はこれを待っていた |
+| weston 起動 → READY(systemd-notify) | 1.99 → 2.11 | 1.65 → 1.81 | kernel 原点。card0 直後版は coldplug を待たず card0 出現で起動 |
+| kmm: wayland socket → READY(初回 expose) | 2.10 → 2.58 | 1.83 → 2.17 | kmm 本体は 1.52〜1.56 に並行起動済みで socket を待つ。Qt/fontconfig 初期化 0.34〜0.47s |
+| **合計(電源 → GUI)** | **3.59s** | **3.19s** | 平均は 3.71s(σ0.08、N=5)/ 3.17s(σ0.07、N=10) |
+
+読み方: SPL 区間 0.80s、カーネル 1.35s(ジャンプ→PID1)、userspace 1.44s / 1.04s。
+残る大物はカーネル→PID1 の 1.13s(旧 unit が coldplug を待っていた 0.34s は #14 で回収済み)。kmm の socket→READY 0.35〜0.47s は Qt 初期化そのもの。
 
 ## 残り候補
 
@@ -53,3 +67,34 @@
   (Type=notify、初回ウィンドウ表示)を kernel 原点に足す。電源→SPL 0.21s、→カーネル 1.02s は両構成で同一。
   weston 起動: 製品 unit 3.22〜3.52s / card0 直後 2.70〜2.87s。weston→kmm READY: 0.35〜0.51s /
   0.36〜0.49s(外れ値 0.95s が 1 本)。
+- (2026-09-07、#13 後) 旧 unit: weston 3.13〜3.48s、READY 3.59〜3.80s。card0 直後(#14): weston 2.72〜2.85s、
+  READY 3.08〜3.27s、weston→READY 0.33〜0.43s で外れ値なし(N=10)。
+
+## card0 直後起動の外れ値(解決、2026-09-07)
+
+card0 直後起動で kmm READY が 2.18s と 2.55〜2.68s(kernel 原点)の二峰になっていた原因:
+
+- **kmm 主スレッドが fontconfig 初期化の `getrandom(16, 0)` で CRNG 初期化待ちにブロック**
+  (全 syscall strace で 354ms、遅い boot のみ)。カーネルは `wait_for_random_bytes()` →
+  `try_to_generate_entropy()` で呼び出しスレッド上をスピンするため、遅い boot で kmm の
+  stime が 3 倍(70〜86 tick vs 23〜26)に見えていた。READY は `crng init done` の時刻に
+  1:1 で追従(無摂動 18/18 boot)。
+- CRNG は systemd-random-seed の seed credit(8MM 由来、[04-pitfalls #21](../imx8mm-xpi-bringup/04-pitfalls.md))で
+  初期化されるが、その unit は `RequiresMountsFor=/var/lib/systemd/random-seed` と
+  volatile-binds が張る `var-volatile-lib.service: Before=systemd-random-seed.service` で
+  /var/lib の volatile overlay → var-volatile.mount → local-fs-pre.target にゲートされていた。
+- 遅い boot では var-volatile.mount のジョブが 1.40s でなく udev coldplug 終了+約 300ms(2.25s)
+  まで dispatch されない。PID1 を strace した結果、PID1 は 1.4〜3.0s の間一度も idle にならず
+  systemd タグ付き udev デバイス 49 個(tty 22 / block 21 / net 4)のイベントを連続処理していた。
+  systemd v255 の sd-event でジョブ run queue は最低優先(IDLE=100)、udev device monitor は
+  NORMAL(0)なので、イベントが途切れない間 run queue は飢餓する。local-fs-pre 到達(約 1.40s)が
+  イベント流入開始より先か後かの約 20ms のレースで遅速が決まる(無摂動 10 boot で 4/10 遅)。
+- 修正(#13): seed の実体は /data/random-seed で /var/lib を待つ必要がないため、
+  systemd-random-seed.service を `/etc` に丸ごと置き(kart-udev-slim)`Requires/After=kart-data-mount.service`
+  に直結、volatile-binds の bbappend で var-volatile-lib.service から Before=/WantedBy= を剥がす。
+  drop-in では依存を消せない(空代入 no-op)ので両方とも unit 差し替え/sed。
+- 8MM のエントロピー枯渇(pitfall #21)とは「CRNG 未初期化で getrandom がブロック」の末端が同じで、
+  8MM は種そのものの不足、8MP は種はあるが蒔く係が udev の行列に並ぶ問題。8MM で未特定だった
+  ブロック関数はこれで確定。
+- 残課題(open-issues): udev の systemd タグ対象(tty 22 個)削減による PID1 負荷低減、
+  CAAM ビルトイン化で seed 自体を不要にする案。

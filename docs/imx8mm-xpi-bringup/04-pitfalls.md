@@ -356,6 +356,10 @@ BOOTA に boot.scr を置けばベンダ復帰状態からでも自作システ�
    ブロック (`crng init done` のタイムスタンプと weston ログのギャップが一致。
    ブロックした正確な関数までは未特定だが、CRNG を早めたらギャップが消えた
    ことで因果は実測確定)。
+   (追記 2026-09-07: 8MP で同じ末端を strace で捕捉。`getrandom()` → カーネル
+   `wait_for_random_bytes()` → `try_to_generate_entropy()` の呼び出しスレッド上スピン。
+   8MP では seed credit 自体が udev イベント洪水の後ろに回る別経路で再発した —
+   imx8mp-debix-bringup/30-boot-time.md「card0 直後起動の外れ値」)
    systemd-random-seed の SYSTEMD_RANDOM_SEED_CREDIT=1 + /data 上の seed で解決
 
 エントロピー問題の背景 (このボードが枯渇しやすい理由):

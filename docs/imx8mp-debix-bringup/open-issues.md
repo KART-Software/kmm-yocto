@@ -1,4 +1,4 @@
-# DEBIX Infinity — 未解決事項と暫定対応(2026-09-02 時点、スプラッシュ移植後)
+# DEBIX Infinity — 未解決事項と暫定対応(2026-09-07 時点、weston 13 + card0 直後起動後)
 
 確定した内容は 00〜(連番)と 30-boot-time.md(起動時間の継続記録)に置き、ここには**まだ暫定のもの・未解決のもの**だけを置く。
 解決したらこのファイルから消して、確定した知見だけを該当 docs に移す。
@@ -25,7 +25,13 @@
   が元)。kmm.service に検証用 drop-in `order.conf`(After=weston + sleep 0.3)が残っている。
   カーネルは製品版(BOOTA の `falcon.itb` = g276209957d88)に戻してある。次のフルイメージ
   焼き直し/OTA で正規化される。調査用の `/data/strace`、`/data/libdrm-atomic-dump.so` は
-  消してよい。weston.service は「card0 直後起動」版(#10)が /etc に載ったまま
+  消してよい。weston.service は card0 直後版(#10、ツリーと同内容)を /etc に手載せ
+- **seed credit 前倒し(#13)を手載せ**(2026-09-07): `/etc/systemd/system/systemd-random-seed.service`
+  (kart-udev-slim の差し替え unit と同内容)、`/usr/lib/systemd/system/var-volatile-lib.service` の
+  Before=/WantedBy= から systemd-random-seed.service を sed で除去(volatile-binds bbappend と同内容)、
+  旧 drop-in は `/data/investigation/systemd-random-seed.service.d/` に退避(消してよい)。
+  次のフルイメージ焼き直し/OTA で正規化される。調査用の手載せ `kart-trace.service`(製品カーネルでは
+  tracefs 無しで no-op)も同時に消える
 
 ## 未解決
 
@@ -39,21 +45,24 @@
 3. **D8BJG 専用表(3264MTS)がコールドで training ハングする理由**: 未特定
    (DRAM 側 Mode Register の残留依存が疑い)。現状は Model A ベース表で回避しており実害なし
 4. (解決 → [06-splash.md](06-splash.md)): SPL スプラッシュ + seamless takeover は
-   falcon/proper 両経路で実機確定。残タスクはスプラッシュ導入後の起動時間再計測
-   (30-boot-time.md への追記)のみ
+   falcon/proper 両経路で実機確定。スプラッシュ導入後の起動時間は 30-boot-time.md
+   #12〜#14 で再計測済み
 5. **uuu 標準フロー(emmc_all)の再検証**: fastboot 段は未検証。SPL/imx-boot の更新は
    Linux からの dd、または 04-falcon.md のリカバリ経路(tftp)で運用中
 6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
    data-logger-zephyr の dev/imx8mp-m7 ブランチにビルド確認済み(実機未検証)。
    CAN を M7 に持たせるかの設計判断待ち
-7. **起動時間**: GUI 特急レーン(30-boot-time.md #11)まで終えて
-   **電源→GUI = 3.96s ± 0.08(min 3.82)**。userspace は掃討済み。
-   残りの候補は ROM ロード区間の eMMC fast boot 化のみだが、**fuse は
-   不可逆のわりに上限百 ms 級のため「最後の爆弾」として保留を決定**
-   (2026-09-03。fuse なしの boot0 起動は成功するが速度 ±0 を実機でも確認済み。
-   調査の全容と決定: [07-emmc-boot-rom.md](07-emmc-boot-rom.md))— SPL 縮小は実測 ±0 で
-   撤回済み(30-boot-time.md 参照)。他は weston の exec+リンク 0.29s、
-   udev-trigger 完了 1.87〜1.93s(weston の唯一の前提)。
+7. **起動時間**: weston 13 + seed credit 前倒し + card0 直後起動(30-boot-time.md #12〜#14)で
+   **電源→GUI = 3.17s(σ0.07、N=10、外れ値なし)**。内訳は同 md「現在の内訳」。
+   残りの候補:
+   - カーネル→PID1 1.13s(最大の単一区間、未着手)
+   - kmm の wayland socket→READY 0.34〜0.47s(Qt/fontconfig 初期化そのもの)
+   - udev の systemd タグ対象(tty 22 / block 21 / net 4)削減で PID1 のイベント処理を軽くする
+     (#13 の機序の副産物。効果は未計測)
+   - CAAM ビルトイン化で seed credit 自体を不要にする(8MM pitfall #21 からの持ち越し)
+   - ROM ロード区間の eMMC fast boot 化は **fuse が不可逆のわりに上限百 ms 級のため保留を決定**
+     (2026-09-03。fuse なしの boot0 起動は速度 ±0 を実機確認。[07-emmc-boot-rom.md](07-emmc-boot-rom.md))。
+     SPL 縮小は実測 ±0 で撤回済み(30-boot-time.md)
    networkd-wait-online は GUI 非ブロックのまま
 8. (解決 2026-09-03): pgc power-domain@8 = **pgc_vpumix** と確定
    (@11/12/13 = vpu_g1/g2/vc8000e、@4 = mlmix)。Quad Lite でヒューズアウトの
@@ -69,11 +78,18 @@
    (`imx8mp-debix.conf` で選択済み。13 は kiosk-shell の構造が変わり穴が無い)。
    カーネル側の 0015〜0020 と kas overlay
    (recover/pixclk/pll/traceevt 等)は不要になりツリーから外した。
-10. **card0 ピンポイント待ちによる weston 前倒し(-0.35s、保留)**:
+10. (採用 2026-09-07 → ツリーの weston.service。30-boot-time.md #14)
+   **card0 ピンポイント待ちによる weston 前倒し**:
    `ExecStartPre=udevadm trigger --settle /dev/dri/card0` + After=udevd で
    weston 起動が 2.0→1.6s に前倒せる(card0 はカーネル 0.30s で生成済みだが
    weston は coldplug 完了 1.98s を待っている)。#9 が解決したので採用可能になった
-   (2026-09-07、#9 の検証はこの構成で行った)。ツリーには入れていない(baseline のまま)
+   (2026-09-07、#9 の検証はこの構成で行った)。ツリーには入れていない(baseline のまま)。
+   再計測(weston 13)で 5 本中 1 本の +0.4s 外れ値があったが、原因(CRNG 未初期化で kmm の
+   getrandom() がブロック、seed credit が udev イベント洪水の後ろに回る)は #13 の
+   seed credit 前倒しで解消し、10/10 単峰 3.17s(σ0.07)を確認(30-boot-time.md #13)。
+   旧 unit(udev-trigger 待ち)は 3.71s。派生の残課題:
+   udev の systemd タグ対象(tty 22 / block 21 / net 4)を減らして PID1 のイベント処理を
+   軽くする、CAAM ビルトイン化で seed 自体を不要にする
 11. (解決 2026-09-07 → [04-falcon.md](04-falcon.md) 「落ち先(proper)が死んでいた」):
    **スプラッシュ中の電源断で起動不能**。デッドマンの落ち先 proper 経路でカーネルが
    console 切替直後に停止していた(SPL が稼働させたままの HDMI 電源ドメインを素の

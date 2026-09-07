@@ -13,7 +13,7 @@ weston 側(13.0.1 へ切り替え、または 12 用パッチ)で、製品カー
 
 - 電源投入後、SPL スプラッシュ(ロゴ)は出るが、その後 GUI が出ず真っ黒のまま。
   `systemctl restart weston` で 100% 復旧。systemd 上は全ユニット active で無症状。
-- 発生率は構成依存: 製品配置(weston は coldplug 完了後に起動)で 2〜3 割、
+- 発生率は構成依存: 当時の製品配置(weston は coldplug 完了後に起動。#10 採用前)で 2〜3 割、
   「weston を card0 直後に起動」(30-boot-time #10 の -0.35s 構成、以下 **Y**)で ほぼ 100%。
 - 判定は必ず 3 段 AprilTag パターン(tools/lcd-validation): SPL ロゴ → KLGO 形式の
   タグ画像、kart-splash-wl → `wl-image-view weston.raw`、kmm → `wl-image-view gui.raw`。
