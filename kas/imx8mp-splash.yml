@@ -11,7 +11,7 @@ header:
 
 local_conf_header:
   splash: |
-    SRC_URI:append:pn-u-boot-imx = " file://debix-splash.cfg file://0005-imx8mp-debix-spl-splash.patch file://kart_splash_logo.h"
+    SRC_URI:append:pn-u-boot-imx = " file://debix-splash.cfg file://0005-imx8mp-debix-spl-splash.patch file://0006-imx8mp-debix-proper-splash-adopt.patch file://kart_splash_logo.h"
     IMAGE_BOOT_FILES:append = " logo.bin"
 
   # カーネル seamless takeover (8MM の 0004-0009 に相当する 8MP 版)。

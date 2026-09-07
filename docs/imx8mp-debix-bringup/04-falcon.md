@@ -144,6 +144,51 @@ kas/imx8mp-falcon.yml が IMAGE_INSTALL)が担う: 起動早期(~3s、basic 付�
 手動アームなし 2 連続コールドブートで自律サイクル(falcon → 補充 → falcon)を
 実機確認済み(2026-09-02)。
 
+### 落ち先(proper)が死んでいた — スプラッシュ稼働中ドメインの引き継ぎ(2026-09-07)
+
+**症状**: スプラッシュ中(SPL が `boot_os=no` を書いてから falcon-rearm が `yes` を
+書き戻すまでの ≈1.5s)に電源断すると、次回から proper 経路になるが、その proper
+経路で**カーネルが console 切替直後(≈0.93s)に停止**(RCU stall、CPU2 の pid 1 が
+PC=0、`quiet` だと "Starting kernel ..." の後に無音)。5/5 再現。デッドマンの落ち先が
+死んでいたので、電源断のタイミング次第で手動介入(`setenv boot_os yes; saveenv`)まで
+二度と起動しなかった。
+
+**原因**: SPL スプラッシュは HDMIMIX / HDMI_PHY の電源ドメインと HDMI blk-ctrl の
+クロック/リセット、PHY PLL を立ち上げたまま proper に渡す(`kart_splash_quiesce()` は
+LCDIF と PHY の電源だけ落とす)。falcon 経路はカーネルに `kart,splash-active` を渡して
+養子縁組(0010〜0013)させるが、proper 経路には渡していなかったため、素の
+imx8mp-blk-ctrl がこの「稼働中ドメイン」を再シーケンスしてバスごと固まる。
+切り分け: DT で HDMI blk-ctrl ノードだけ無効化すると起動(LCDIF / dw-hdmi / PHY /
+DRM master の無効化では不変)、`pd_ignore_unused clk_ignore_unused` では不変、
+`kart,splash-active` を足すと 3/3 起動して GUI も出る。カーネル/DTB は falcon.itb の
+中身と同一、DDR(mtest)と DMA(領域 crc の時間差)は異常なし。
+フォールバック経路の最終確認は 09-01 で、takeover(09-02)以降は未検証だった。
+
+**修正**: U-Boot proper の `ft_board_setup`(`0006-imx8mp-debix-proper-splash-adopt.patch`、
+`kas/imx8mp-splash.yml` で注入)が GPC PU_PWRHSK(0x303a0190)bit13 = SPL の HDMIMIX
+ADB400 handshake 要求を見て、立っていれば `/chosen kart,splash-active` を立てる。
+u-boot.itb(kart-falcon-itb が組む proper FIT)の差し替えだけで済み、imx-boot の
+書き換えは不要。SPL の quiesce はそのまま(表示は止まった状態から養子縁組経路で
+再初期化され、GUI が出る)。
+
+**検証(2026-09-07)**: `fw_setenv boot_os no` → 電源断入 → SPL → proper → extlinux の
+実経路で 3/3 ログイン(電源→login 11s)、weston/kmm active、GUI 表示、falcon-rearm が
+`boot_os=yes` を自動補充。
+
+**電源断スイープ(2026-09-07)**: 電源投入 t 秒後に電源断 → 3s 後に再投入 → 次の起動が
+GUI(kmm READY、weston/kmm active)まで到達し `boot_os=yes` に再アームされるかを、DP100 と
+シリアルで自動判定。t = 0.61〜6.1s の 19 点(SPL のデッドマン env_save 前後 0.61/0.62/0.75、
+falcon.itb ロード、カーネル、userspace、falcon-rearm 前後 2.2〜3.5、GUI 後)で **19/19 回復**。
+0.6〜3.5s の断は次回 proper 経路(bos=0)で起動して自動再アーム、3.9s 以降は falcon 経路。
+0.6s 未満(BootROM / DDR init / SPL の env 読み込み〜デッドマン書き込み中)は
+ON→OFF を 1 プロセス内で行う経路で 7 点(0.05 / 0.15 / 0.25 / 0.35 / 0.45 / 0.55 / 0.60s、
+0.60s は "Saving Environment" の最中)、**7/7 回復**(いずれも次回 falcon 経路、env 破損なし)。
+合計 26 点で不回復ゼロ。ツール: scratchpad `powercut-sweep.py`(DP100 + シリアル + journal)。
+
+**教訓(再掲)**: フォールバック経路はその構成物(SPL / proper / カーネル / DT)を
+触るたびに `fw_setenv boot_os no` + 電源断入で回帰テストする。falcon が健全なほど
+proper 経路は走らず、壊れていても気付かない。
+
 ## リカバリ経路(SPL/imx-boot を壊した場合)
 
 falcon SPL は SDPV を受けないため、UUU 経路は stock 退避版
