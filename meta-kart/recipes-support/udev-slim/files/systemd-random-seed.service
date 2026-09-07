@@ -32,6 +32,12 @@ Type=oneshot
 RemainAfterExit=yes
 Environment=SYSTEMD_RANDOM_SEED_CREDIT=1
 ExecStart=/usr/lib/systemd/systemd-random-seed load
+# load は「二重 credit 防止」のため seed ファイルの creditable xattr を先に外して
+# fsync し、新 seed を書いて xattr を付け直すが、付け直しは fsync しない。
+# ext4 の journal commit(既定 5s)前に電源が切れると xattr 消失だけが残り、
+# 次回は credit されず CRNG のジッタ初期化待ち(~1.1s)で GUI が 4.2s に落ちる
+# (GUI 表示直後の電源断で再現、2026-09-07)。sync で即座に永続化する。
+ExecStartPost=/bin/sync
 ExecStop=/usr/lib/systemd/systemd-random-seed save
 TimeoutSec=10min
 

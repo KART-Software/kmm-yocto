@@ -29,6 +29,7 @@
 | — | 09-07 | card0 直後起動(#10)の再計測(weston 13、暗ブート解決後) | **3.34s(σ0.17)** | **-0.47s** | 5 本中 1 本が 3.65s(weston は最速 2.70s なのに kmm READY が +0.95s)。外れ値の原因は #13 で判明・解消(CRNG 未初期化で kmm の getrandom() がブロック)。採用は #14 |
 | 13 | 09-07 | **seed credit を udev 洪水の前へ**(systemd-random-seed を丸ごと差し替えて /var/lib overlay 待ちを外し /data マウント直後に実行、volatile-binds の逆向き Before= も除去) | **3.71s(σ0.08)** | -0.10s | 製品 unit、5 コールド。card0 直後起動は **3.17s(σ0.07、10/10 単峰)** = 前回 3.34s(σ0.17)の二峰性が消滅。crng init done は全 15 boot で 1.45〜1.56s(従来 1.62〜2.48s)。機序は下記「card0 直後起動の外れ値」 |
 | 14 | 09-07 | **weston を card0 直後起動に**(#10 採用。After=udev-trigger → After=udevd + ExecStartPre で /dev/dri/card0 出現待ち) | **3.17s(σ0.07)** | -0.54s | N=10 コールド、外れ値なし(3.08〜3.27)。weston 起動 1.99→1.65s(kernel 原点)。#9・#13 が前提 |
+| 15 | 09-07 | **seed の creditable 印を即 sync**(systemd-random-seed に ExecStartPost=/bin/sync) | 3.14〜3.32s | 電源断直後の起動 4.2→3.2s | GUI 表示直後(3.2〜4.5s)に電源断した次の起動が 4.2s に落ちる件の修正。機序は下記「電源断直後の起動が 1 秒遅い」。短時間断 6/6 で 3.09〜3.32s、crng init 1.43〜1.51s |
 
 ## 現在の内訳(2026-09-07、#14 後。シリアル ts + journal 実測。現行 3.17s / 旧 unit 3.71s)
 
@@ -69,6 +70,26 @@
   0.36〜0.49s(外れ値 0.95s が 1 本)。
 - (2026-09-07、#13 後) 旧 unit: weston 3.13〜3.48s、READY 3.59〜3.80s。card0 直後(#14): weston 2.72〜2.85s、
   READY 3.08〜3.27s、weston→READY 0.33〜0.43s で外れ値なし(N=10)。
+- (2026-09-07、名前一掃 7d3a64e 後の再計測、同構成) **3.19s(σ0.06、N=10、3.11〜3.27)**、
+  10/10 で SPL ロゴ blit あり。
+
+## 電源断直後の起動が 1 秒遅い(解決、2026-09-07)
+
+GUI 表示直後(電源 ON から 3.2〜4.5s)に電源を切ると、次の起動が 4.2s(通常 3.2s)になる。
+falcon 経路のままで(bos=1)、遅れは userspace: systemd-random-seed が 1.44→2.65s、
+`crng init done` 2.65s、weston 起動 2.70s(通常 1.58s)。journal に
+"Kernel entropy pool is not initialized yet, waiting until it is." = seed が credit されなかった。
+
+機序(systemd v255 `src/random-seed/random-seed.c`): load は二重 credit 防止のため
+先に seed ファイルの xattr `user.random-seed-creditable` を外して **fsync** し、credit した
+あと新 seed を書いて fsync、最後に xattr を付け直すが**付け直しは fsync しない**。
+ext4(/data、commit 既定 5s)の journal commit 前に電源が切れると「印が無い」状態だけが
+永続化され、次回は credit なし → CRNG はジッタ初期化(~1.1s)待ち → weston/kmm
+(seed の Before=)がその分遅れる。perf-boot の通常計測(前回起動が 26s)では commit 済みで
+再現せず、手動の短い電源入れ直しで見える。
+
+修正(#15): seed unit に `ExecStartPost=/bin/sync` を追加し、印を即座に永続化する。
+残る窓は xattr を外して付け直すまでの数十 ms のみ(その場合も次回 1 回だけ 1 秒遅く、自己回復)。
 
 ## card0 直後起動の外れ値(解決、2026-09-07)
 
