@@ -1,4 +1,4 @@
-From: kart <kart@localhost>
+From: build <build@localhost>
 Subject: [PATCH] kiosk-shell: show surfaces mapped before the first seat exists
 
 At boot the compositor can receive a client's first commit while

@@ -1,7 +1,7 @@
 # i.MX 向け mainline 系カーネル (IMX_DEFAULT_BSP=mainline のデフォルト)。
 #
 # - can.cfg: MCP2515 は i.MX でも SPI 接続で使い続けるため RPi5 と共通の fragment
-# - imx8mm-evk-kart.dts: MCP2515 ノード入りの EVK バリアント DTB。
+# - imx8mm-evk-bench.dts: MCP2515 ノード入りの EVK バリアント DTB。
 #   ソースツリーに複製して KERNEL_DEVICETREE に足すだけでよい
 #   (kbuild のパターンルールが dts からビルドするので Makefile パッチは不要)。
 #   ブートパーティションへの配置と U-Boot からの選択は kas/imx8mm.yml の
@@ -19,7 +19,7 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 # 強制再追加」を do_kernel_configme の後に行う。これがあると (a) fragment で
 # 切った AUTO が毎回書き戻され (b) カーネル Image は fslc 二重 + git ハッシュ、
 # out-of-tree モジュールは fslc 単一と、同一ビルド内でも vermagic が食い違い、
-# kart-rpmsg-can が modprobe できない。SCMVERSION="n" でこのブロックごと無効化し、
+# rpmsg-can が modprobe できない。SCMVERSION="n" でこのブロックごと無効化し、
 # バージョンを CONFIG_LOCALVERSION の "-fslc" だけ = "6.12.20-fslc" に固定する。
 SCMVERSION = "n"
 
@@ -33,8 +33,8 @@ LINUX_VERSION_EXTENSION = "-fslc"
 
 SRC_URI:append:mx8mm-generic-bsp = " \
     file://can.cfg \
-    file://imx8mm-evk-kart.dts \
-    file://imx8mm-xpi-kart.dts \
+    file://imx8mm-evk-bench.dts \
+    file://imx8mm-xpi.dts \
     file://display.cfg \
     file://slim-imx-arch.cfg \
     file://slim-imx.cfg \
@@ -52,10 +52,10 @@ SRC_URI:append:mx8mm-generic-bsp = " \
 # BSP 種別付きに変換する。素の "mx8mm" は OVERRIDES に存在せず、silently
 # 無視される (append は変数履歴に載るのに値へ反映されない)。BSP 非依存で
 # 効かせるトークンは "mx8mm-generic-bsp"。
-KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-kart.dtb freescale/imx8mm-xpi-kart.dtb"
+KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-bench.dtb freescale/imx8mm-xpi.dtb"
 
 do_configure:prepend:mx8mm-generic-bsp() {
-    cp ${WORKDIR}/imx8mm-evk-kart.dts ${WORKDIR}/imx8mm-xpi-kart.dts ${S}/arch/arm64/boot/dts/freescale/
+    cp ${WORKDIR}/imx8mm-evk-bench.dts ${WORKDIR}/imx8mm-xpi.dts ${S}/arch/arm64/boot/dts/freescale/
 }
 
 # ===== 8MP (DEBIX Infinity, machine imx8mp-debix) =====

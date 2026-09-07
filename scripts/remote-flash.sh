@@ -22,7 +22,7 @@
 # The -sdcard or -nvme flag is required to select the correct image.
 #
 # What it does:
-#   1. scp image (.wic.bz2 + .bmap) and flash.sh to remote:/tmp/kart-flash/
+#   1. scp image (.wic.bz2 + .bmap) and flash.sh to remote:/tmp/flash/
 #   2. ssh into remote and run flash.sh with sudo
 #   3. Clean up remote temp files
 
@@ -161,7 +161,7 @@ echo "==> Remote prerequisites OK"
 echo ""
 
 # --- Transfer files ---
-REMOTE_DIR="/tmp/kart-flash"
+REMOTE_DIR="/tmp/flash"
 
 echo "==> Creating remote directory ${REMOTE_DIR}..."
 ssh "$SSH_HOST" "mkdir -p ${REMOTE_DIR}"

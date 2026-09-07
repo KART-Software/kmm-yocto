@@ -28,13 +28,13 @@ NOTICE:  BL31: v2.10.0 ...        ← proper のバナー無しでカーネル�
 | `kas/imx8mp-falcon.yml` | u-boot-imx への cfg/パッチ注入 + falcon.itb 等の boot files 配置 |
 | `meta-kart/recipes-bsp-imx/u-boot/files/debix-falcon.cfg` | SPL_OS_BOOT 系 config(下記) |
 | `.../files/0002-imx8mp-debix-falcon-mode.patch` | SPL コード(下記 3 ファイル) |
-| `meta-kart/recipes-bsp-imx/kart-falcon-itb/` | falcon-a/b.itb・u-boot.itb・args 生成(8MM と共通レシピ、8MP は DT 無効化焼き込みが追加) |
+| `meta-kart/recipes-bsp-imx/falcon-itb/` | falcon-a/b.itb・u-boot.itb・args 生成(8MM と共通レシピ、8MP は DT 無効化焼き込みが追加) |
 
 パッチの中身(`0002-imx8mp-debix-falcon-mode.patch`):
 
 - `board/freescale/imx8mp_evk/spl.c` —
   `spl_board_boot_device()` を BOOTROM → `BOOT_DEVICE_MMC2` に(FAT 経路へ)。
-  `spl_start_uboot()`(デッドマンスイッチ、後述)、`kart_emit_bl33_shim()`(8MM と
+  `spl_start_uboot()`(デッドマンスイッチ、後述)、`emit_bl33_shim()`(8MM と
   同一の 8 命令 BL33 シム)、`spl_perform_fixups()`(/memory fixup + シム設置)、
   `board_spl_fit_buffer_addr()`(落とし穴①対策)
 - `arch/arm/mach-imx/mmc_env.c` — SPL フェーズは env dev=1 固定
@@ -87,7 +87,7 @@ VPU(g1/g2/vc8000e + blk-ctl)と NPU(vipsi)が該当。falcon はこれをスキ�
 ため、カーネルが存在しない IP を叩いて `imx-pgc ... failed to command PGC` を連発し、
 galcore(GPU/NPU 統合ドライバ)が init 失敗 → /dev/galcore 不在 → weston 起動不能
 になる。
-→ ハード構成は製品で固定なので、**kart-falcon-itb がビルド時に該当ノードを
+→ ハード構成は製品で固定なので、**falcon-itb がビルド時に該当ノードを
 status=disabled で焼き込む**(`FALCON_DTB_DISABLE_NODES:imx8mp-debix`)。
 リストは実機の `/sys/firmware/fdt` を proper ブートと falcon ブートで採取して
 diff した実測値。proper のリストにある `pgc/power-domain@19〜22` は NXP ベンダー
@@ -104,7 +104,7 @@ HS400 化後もロードに 0.86s かかり、計装で内訳を取ると **FAT 
 「境界に丸めた位置から読み → `memcpy(load_ptr, load_ptr+ズレ, 全長)`」で補正する
 ので、カーネル 35MB 全体のずらしコピーが発生する(SPL は dcache 無効なので
 CPU コピーが ~50MB/s しか出ない)。
-→ 二段で解決: kart-falcon-itb が **falcon.itb の blob を 64B の倍数へゼロ
+→ 二段で解決: falcon-itb が **falcon.itb の blob を 64B の倍数へゼロ
 パディング**(offset が常に境界に乗る)+ u-boot 側 0004 パッチで **src == dst の
 memcpy をスキップ**(mainline の後年修正と同型)。ロード合計 0.90s → 0.19s。
 
@@ -154,20 +154,20 @@ PC=0、`quiet` だと "Starting kernel ..." の後に無音)。5/5 再現。デ�
 二度と起動しなかった。
 
 **原因**: SPL スプラッシュは HDMIMIX / HDMI_PHY の電源ドメインと HDMI blk-ctrl の
-クロック/リセット、PHY PLL を立ち上げたまま proper に渡す(`kart_splash_quiesce()` は
-LCDIF と PHY の電源だけ落とす)。falcon 経路はカーネルに `kart,splash-active` を渡して
+クロック/リセット、PHY PLL を立ち上げたまま proper に渡す(`spl_splash_quiesce()` は
+LCDIF と PHY の電源だけ落とす)。falcon 経路はカーネルに `splash-active` を渡して
 養子縁組(0010〜0013)させるが、proper 経路には渡していなかったため、素の
 imx8mp-blk-ctrl がこの「稼働中ドメイン」を再シーケンスしてバスごと固まる。
 切り分け: DT で HDMI blk-ctrl ノードだけ無効化すると起動(LCDIF / dw-hdmi / PHY /
 DRM master の無効化では不変)、`pd_ignore_unused clk_ignore_unused` では不変、
-`kart,splash-active` を足すと 3/3 起動して GUI も出る。カーネル/DTB は falcon.itb の
+`splash-active` を足すと 3/3 起動して GUI も出る。カーネル/DTB は falcon.itb の
 中身と同一、DDR(mtest)と DMA(領域 crc の時間差)は異常なし。
 フォールバック経路の最終確認は 09-01 で、takeover(09-02)以降は未検証だった。
 
 **修正**: U-Boot proper の `ft_board_setup`(`0006-imx8mp-debix-proper-splash-adopt.patch`、
 `kas/imx8mp-splash.yml` で注入)が GPC PU_PWRHSK(0x303a0190)bit13 = SPL の HDMIMIX
-ADB400 handshake 要求を見て、立っていれば `/chosen kart,splash-active` を立てる。
-u-boot.itb(kart-falcon-itb が組む proper FIT)の差し替えだけで済み、imx-boot の
+ADB400 handshake 要求を見て、立っていれば `/chosen splash-active` を立てる。
+u-boot.itb(falcon-itb が組む proper FIT)の差し替えだけで済み、imx-boot の
 書き換えは不要。SPL の quiesce はそのまま(表示は止まった状態から養子縁組経路で
 再初期化され、GUI が出る)。
 
@@ -188,6 +188,34 @@ ON→OFF を 1 プロセス内で行う経路で 7 点(0.05 / 0.15 / 0.25 / 0.35
 **教訓(再掲)**: フォールバック経路はその構成物(SPL / proper / カーネル / DT)を
 触るたびに `fw_setenv boot_os no` + 電源断入で回帰テストする。falcon が健全なほど
 proper 経路は走らず、壊れていても気付かない。
+
+### OTA と SPL/proper ↔ カーネル契約の整合(2026-09-07 確定)
+
+SPL は **MBR の bootable フラグが立った BOOT パーティション**から u-boot.itb と
+falcon.itb を読む(ab-commit がフラグを新スロットへ移す)。したがって try 中
+(`upgrade_available=1`、SPL は proper 経路に落とす)は **旧スロットの u-boot.itb** が
+新スロットのカーネルを起動する。u-boot.itb と falcon.itb を新スロットの BOOT に
+コピーする OTA 手順は、commit 後にしか効かない。
+
+SPL/proper とカーネルの間の契約(`/chosen splash-active` のプロパティ名、logo.bin の
+マジック "LOGO")を変える更新では、この非対称が try 起動を殺す:
+名前の一掃(2026-09-07)で実際に踏んだ(新 SPL + 旧カーネルは falcon 経路で固まりデッドマンで
+proper に落ち、try は旧 u-boot.itb が旧プロパティ名を立てて新カーネルが養子縁組せず
+固まった → bootlimit で旧スロットへ復帰)。手順は次のとおり:
+
+1. `uboot-update <imx-boot>` で SPL を更新(A=新、B=前版)
+2. 旧スロットの BOOT(/boot、ro マウント)へ新 u-boot.itb をコピー
+3. OTA(try → commit)。commit 後は falcon.itb/u-boot.itb とも新スロットのもの
+4. もう一度 OTA して旧スロットも新イメージにする(フォールバック先を整合させる)
+
+U-Boot の A/B 環境変数名(`ab_slot` / `ab_fallback_slot` / `ab_boot` / `ab_bootpart` /
+`ab_mmcdev`)を変えた更新も同類: 変数は eMMC の saved env に永続で、
+uboot-env.bin(既定 env)は焼き直し時にしか適用されない。旧名で稼働中のデバイスは
+新ツール(ab-commit/ab-status は新名を読む)を使う前に `fw_setenv -s` で ab-env.txt
+相当(bootcmd / altbootcmd / ab_* 一式)を saved env に書き込み、旧変数は
+`fw_setenv <旧変数名>`(値なし)で消す。
+
+契約を変えない通常の OTA では不要。
 
 ## リカバリ経路(SPL/imx-boot を壊した場合)
 

@@ -114,7 +114,7 @@ ext_csd だけでの改善幅を確定してから、fuse の追加効果は別�
 
 - 効果が -0.2s 未満なら撤回(bootpart disable + boot0 にベンダー遺物を復元)
 - 採用なら: boot0/boot1 = imx-boot A/B 化、OTA(ota-update.sh)と
-  kart-uboot-\* ツールの改修、SIT/user 領域方式の撤去、docs 更新
+  uboot-\* ツールの改修、SIT/user 領域方式の撤去、docs 更新
   (04-falcon リカバリ節・06-emmc 系・30-boot-time)
 
 ## ロールバック(完全に元へ戻す)

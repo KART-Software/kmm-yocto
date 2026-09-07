@@ -15,8 +15,8 @@ weston 側(13.0.1 へ切り替え、または 12 用パッチ)で、製品カー
   `systemctl restart weston` で 100% 復旧。systemd 上は全ユニット active で無症状。
 - 発生率は構成依存: 当時の製品配置(weston は coldplug 完了後に起動。#10 採用前)で 2〜3 割、
   「weston を card0 直後に起動」(30-boot-time #10 の -0.35s 構成、以下 **Y**)で ほぼ 100%。
-- 判定は必ず 3 段 AprilTag パターン(tools/lcd-validation): SPL ロゴ → KLGO 形式の
-  タグ画像、kart-splash-wl → `wl-image-view weston.raw`、kmm → `wl-image-view gui.raw`。
+- 判定は必ず 3 段 AprilTag パターン(tools/lcd-validation): SPL ロゴ → LOGO 形式の
+  タグ画像、splash-wl → `wl-image-view weston.raw`、kmm → `wl-image-view gui.raw`。
   カメラ輝度での明暗判定は GUI の暗部と黒が重なり使えない。
 - 再現は製品カーネル(g276209957d88、BOOTA の `falcon.itb`)で行う。`uname -r` で確認。
 
@@ -67,7 +67,7 @@ weston 側(13.0.1 へ切り替え、または 12 用パッチ)で、製品カー
 2 通りとも製品カーネル + Y + 3 段パターンで 10 コールド。GUI 段のクライアントは
 weston READY + 300ms 後に起動(製品では Qt の kmm が splash より遅く map するのを模擬)。
 
-| 修正 | 暗 | 表示順 | KLGO→splash | KLGO→GUI |
+| 修正 | 暗 | 表示順 | LOGO→splash | LOGO→GUI |
 |---|---|---|---|---|
 | なし(12.0.4.imx) | 8/8、11/11 | — | — | — |
 | 12.0.4.imx + `0003-kiosk-shell-map-without-seat.patch` | 0/10 | SPL→splash→GUI 10/10 | 2.02〜2.13s | 2.46〜2.56s |
@@ -82,7 +82,7 @@ weston READY + 300ms 後に起動(製品では Qt の kmm が splash より遅�
 
 ## 5. 未検証・残作業
 
-- 製品配置(Y でない通常の起動位置)、本物の kart-splash-wl と Qt の kmm、フルイメージ
+- 製品配置(Y でない通常の起動位置)、本物の splash-wl と Qt の kmm、フルイメージ
   経由(焼き直し/OTA)、電源→GUI の再計測(30-boot-time)。
 - 実機は手載せ状態(open-issues「暫定状態」参照): weston 13 一式、weston-Y unit、
   kmm の検証用 drop-in、3 段パターン。次のフルイメージで正規化。

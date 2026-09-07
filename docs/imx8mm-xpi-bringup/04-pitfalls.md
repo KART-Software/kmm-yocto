@@ -62,7 +62,7 @@ ssh ... 'echo 1 > /proc/sys/kernel/sysrq; echo b > /proc/sysrq-trigger'
 真因: SPL 後段([SDPU](00-glossary.md#g-sdpu)/[SDPV](00-glossary.md#g-sdpv))を送っていない。`uuu <flash.bin>` のデフォルト
 内蔵スクリプトも `SDP: boot` + `SDP: done` までで後段が無い。
 回避: **`SDPV: write -skipspl` + `SDPV: jump` まで書いた uuu スクリプト**
-([03](03-boot-flow.md) の `kart-boot.uuu`)。
+([03](03-boot-flow.md) の `boot.uuu`)。
 
 ## 9. UUU スクリプトのパスが二重連結で壊れる
 
@@ -253,9 +253,9 @@ native 直送実験で使用。ただし TX 側の揺れは解決しないため
 (fw_printenv で旧値のまま)。単発の `fw_setenv name value` は成功する。
 真因: **libubootenv のバッチ形式は `名前=値`**。旧来の u-boot-tools 流の
 「名前 値」(スペース区切り) の行はエラーにならず捨てられる。
-ota-update.sh と kart-ab-commit (mx8mm 版) が両方これを踏んでいた —
+ota-update.sh と ab-commit (mx8mm 版) が両方これを踏んでいた —
 どちらも**読み戻し検証を実装していたおかげで無言破壊にならず検出できた**。
-修正: バッチファイルを `kart_slot=b` 形式に。
+修正: バッチファイルを `ab_slot=b` 形式に。
 教訓: fw_setenv 系は必ず読み戻し検証をセットにする (今回それが仕事をした)。
 
 ## 19. i.MX8MM の PERSIST_SECONDARY_BOOT は「入力」ではない — ソフトから B を試し起動する術は無い (重要)
@@ -263,7 +263,7 @@ ota-update.sh と kart-ab-commit (mx8mm 版) が両方これを踏んでいた �
 症状: SRC_GPR10[30] (PSB) を devmem で立てて reboot しても、次回起動は
 必ず A copy (プライマリ)。U-Boot の PSB ドキュメント (imx7 向け) を根拠に
 した「PSB セット → reboot で B 起動 → 確認して昇格」フロー
-(旧 kart-uboot-try) は成立しない。
+(旧 uboot-try) は成立しない。
 
 実機で確定させた事実 (2026-08-12):
 
@@ -282,22 +282,22 @@ ota-update.sh と kart-ab-commit (mx8mm 版) が両方これを踏んでいた �
   imx8m_detect_secondary_image_boot() と同じ方法。パラメータ付きイベント
   (0x8x/0x9x = 1 語、0xA0/0xC0 = 2 語) の読み飛ばしを忘れると誤検出する
 
-対応: ツールを実仕様に合わせて再設計 (kart-uboot-try / -commit は廃止)。
+対応: ツールを実仕様に合わせて再設計 (uboot-try / -commit は廃止)。
 **B 面に一つ前の版を残す方式**に統一:
 
-- **kart-uboot-update <flash.bin>**: ①現行 A を B へ退避 → ②新版を A へ。
+- **uboot-update <flash.bin>**: ①現行 A を B へ退避 → ②新版を A へ。
   結果 A=新版 / B=直前まで動いていた版 (フォールバック先 & ロールバック元)。
   UBOOT_COPIES=DIFFER が正常状態になる
-- **kart-uboot-rollback**: B (前版) を A へ書き戻す
-- **kart-uboot-selfheal** (systemd oneshot, boot 時): フォールバック起動を
+- **uboot-rollback**: B (前版) を A へ書き戻す
+- **uboot-selfheal** (systemd oneshot, boot 時): フォールバック起動を
   検出したら自動で rollback — B 起動は無症状なので人間の気づきに頼らない
-- **kart-uboot-status**: 起動コピーをイベントログで判定
+- **uboot-status**: 起動コピーをイベントログで判定
 - 安全ガード:
   - **退避スキップ**: update 時に A が不正なら退避しない (壊れた A を B へ
     複写して唯一の健全コピーを潰す事故を防ぐ)。判定は A 先頭の IVT ヘッダ検査
   - **フォールバック起動中の update 禁止**: B 起動は事故の痕跡なので、先に A を
     修復して正規状態へ戻す (boot 時 selfheal との A 同時書き込みレースも塞ぐ)
-  - **flock** (`/run/kart-uboot.lock`) で update/rollback/selfheal を相互排他。
+  - **flock** (`/run/uboot.lock`) で update/rollback/selfheal を相互排他。
     mkdir だと SIGKILL でロック残留 = プロセス途中死のときに壊れるので不可
 - 実機検証: DP100 で各局面に実電源断を当てて全て再実行一発で収束、統合検証は
   OTA → A破壊 → コールドブート → selfheal 自動修復 (journal) →プライマリ起動まで
@@ -316,23 +316,23 @@ ota-update.sh と kart-ab-commit (mx8mm 版) が両方これを踏んでいた �
 U-Boot proper (FIT) を選択させる設計になる — Falcon Mode (SPL が直接
 カーネルを選ぶ) の前提工事と同じ内容なので、やるなら Falcon と同時が良い。
 
-余談: 旧 kart-uboot-try の読み戻し検証は busybox に無い `head -c` で即死する
+余談: 旧 uboot-try の読み戻し検証は busybox に無い `head -c` で即死する
 バグも抱えていた (「busybox 構文のみ」と自称しながら)。デバイス側スクリプト
 の検証はセクタ単位 + パディング書きで行うこと (CLAUDE.md の coreutils 罠)。
 
-## 20. ベンダローダ (boot0) の env は kart env と同一オフセット 4MiB — ベンダ復帰中の saveenv は A/B 状態を破壊する
+## 20. ベンダローダ (boot0) の env は自作 U-Boot の env と同一オフセット 4MiB — ベンダ復帰中の saveenv は A/B 状態を破壊する
 
 ベンダ U-Boot (eMMC boot0 に温存している 2018.03) の環境変数は
 `CONFIG_ENV_OFFSET = 64*64K` = **eMMC user 領域の 4MiB オフセット** (size 0x1000)。
-kart の U-Boot env も**同じ 4MiB** (`fw_env.config`: 0x400000, size 0x2000) にある。
+自作 U-Boot の env も**同じ 4MiB** (`fw_env.config`: 0x400000, size 0x2000) にある。
 
-- ベンダローダは kart env を CRC 不一致として無視しデフォルト env で動く
+- ベンダローダは自作側の env を CRC 不一致として無視しデフォルト env で動く
   (読みだけなら無害)
-- しかしベンダローダのプロンプトで **`saveenv` すると kart env
-  (kart_slot / upgrade_available / bootcount) が上書き破壊**され、
+- しかしベンダローダのプロンプトで **`saveenv` すると自作側の env
+  (ab_slot / upgrade_available / bootcount) が上書き破壊**され、
   自作 U-Boot の A/B スロット選択が初期化される
 - 対処: ベンダ復帰 (`mmc partconf 2 0 1 0`) 中は saveenv 禁止。壊した場合は
-  kart-env.bin を 4MiB オフセットへ書き戻す (wic 再 dd、または ums で
+  uboot-env.bin を 4MiB オフセットへ書き戻す (wic 再 dd、または ums で
   該当 8KiB だけ dd)
 
 なおベンダローダは eMMC p1 の FAT から `boot.scr` を最優先で実行するため、
@@ -397,7 +397,7 @@ ecspi2 の dmas 削除 (PIO 固定) が性能問題にならない根拠:
   必須**で、**チップ上の RX バッファが 2 個**しかない (連続 2 フレーム分 =
   8 バイトフレームで ~240µs 以内のサービス保証が要る — 非 RT Linux では
   飽和時の無損失は PIO/DMA を問わず保証できない。RPi5 の同 HAT も同条件)
-- 現実のカート負荷 (数百〜2k フレーム/s) では CPU 数 % で余裕。
+- 実運用の CAN 負荷 (数百〜2k フレーム/s) では CPU 数 % で余裕。
   **1Mbps 飽和が本当に要件になったら直すのは PIO ではなくチップ**:
   MCP2518FD (RX FIFO 2KB、まとめ読み可、mainline mcp251xfd) への置き換え、
   さらに上は FlexCAN 内蔵 SoC (i.MX8M Plus)。キャリア基板検討 (07 §CAN) と同文脈
@@ -578,7 +578,7 @@ RDC_PDAPn(RDC_PDAP_GPIO3,  D0R | D0W | D1R | D1W),
 RDC_PDAPn(RDC_PDAP_GPIO5,  D0R | D0W | D1R | D1W),
 ```
 = ECSPI2/GPIO3/GPIO5 を両ドメイン RW に。検証は eMMC を汚さず **UUU で
-RAM ブート**(S1=Serial + `uuu scripts/kart-boot-atf-rdc.uuu` 相当、
+RAM ブート**(S1=Serial + `uuu scripts/boot-atf-rdc.uuu` 相当、
 flash.bin-atf-rdc を RAM 起動)。Linux 起動後 `devmem 0x303D058C` が
 **0x0F**(既定は 0xFF)= パッチが効いた証拠。その状態で repro を回すと
 GPIO read が数億回通り、リセットせず生存 → 真因確定。
@@ -721,7 +721,7 @@ vring da/status のテーブルで attach が噛み合わず、rpmsg が張ら�
   **出ていれば publish 済み(正常)、出ていなければスキップ(この罠)**。
   `devmem 0xb80ff000 32` が `0x1` でも、それが「今回 M4 が書いた」保証はない。
 - 解決: **BL31 が M4 起動直前に `0xB80FF000` をゼロ化**して、M4 に必ず fresh
-  table を publish させる(imx-atf の kart-bl31-start-m4 パッチ)。
+  table を publish させる(imx-atf の bl31-start-m4 パッチ)。
 - 教訓: 「firmware の状態判定」と「DDR は起動を跨いで残る」の組合せは、
   cold boot でも前回値が効いて誤動作する。跨いで残る領域の状態判定は、
   書く側(ここでは BL31)が明示的に初期化してから使う。

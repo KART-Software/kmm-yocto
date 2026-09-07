@@ -1,4 +1,4 @@
-From: kart <kart@localhost>
+From: build <build@localhost>
 Subject: [PATCH] drm/bridge: lontium-lt9611: enable 時の settle 待ちを 500ms から 100ms に短縮
 
 msleep(500) は vendor リファレンス由来の保守的な値で、モードセットごとに

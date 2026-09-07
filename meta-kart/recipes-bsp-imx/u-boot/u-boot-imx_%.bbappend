@@ -24,14 +24,14 @@ do_configure:prepend:imx8mp-debix() {
     # SPL スプラッシュのロゴ (1bit マスク)。SRC_URI の file:// は WORKDIR に
     # しか展開されないため do_configure 前にここでコピー。splash 無しビルド
     # ではヘッダが無く無害 (8MM の u-boot-fslc_%.bbappend と同じ流儀)
-    if [ -f "${WORKDIR}/kart_splash_logo.h" ]; then
-        install -m 0644 ${WORKDIR}/kart_splash_logo.h ${S}/board/freescale/imx8mp_evk/
+    if [ -f "${WORKDIR}/spl_splash_logo.h" ]; then
+        install -m 0644 ${WORKDIR}/spl_splash_logo.h ${S}/board/freescale/imx8mp_evk/
     fi
 }
 
 # extlinux の root= の差し替え口 (8MM の u-boot-fslc_%.bbappend と同じ理由で
-# 間接変数にする)。kas/imx-emmc-ab.yml が KART_EXTLINUX_ROOT を設定する。
+# 間接変数にする)。kas/imx-emmc-ab.yml が EXTLINUX_ROOT を設定する。
 # NXP BSP の machine include は extlinux 変数を use-mainline-bsp 限定で定義するため、
 # 8MP 用は imx8mp-debix.conf で定義し、root だけここで張る。
-KART_EXTLINUX_ROOT ??= "root=/dev/mmcblk2p2"
-UBOOT_EXTLINUX_ROOT:default:imx8mp-debix = "${KART_EXTLINUX_ROOT}"
+EXTLINUX_ROOT ??= "root=/dev/mmcblk2p2"
+UBOOT_EXTLINUX_ROOT:default:imx8mp-debix = "${EXTLINUX_ROOT}"

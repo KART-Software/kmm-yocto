@@ -124,7 +124,7 @@ static void main_loop(void)
 	DBG[0] = 0x11111111;            /* phase: 開始 */
 	uart4_init();
 	DBG[0] = 0x22222222;            /* phase: uart 初期化済み */
-	uart4_puts("\nkart M4: hello from hand-written bare metal!\n");
+	uart4_puts("\nM4: hello from hand-written bare metal!\n");
 	DBG[0] = 0x33333333;            /* phase: バナー送信完了 (TXFULL 待ちで固まればここに来ない) */
 
 	for (;;) {

@@ -62,7 +62,7 @@ Geniatech 公式 BSP `imx8mm_xpi_yocto-kernel-uboot-source-20210909.zip`
 
 一致確認済み: LT9611 一式 / eMMC usdhc3(8bit, 400MHz, パッド値)/
 i2c4 パッド / Ethernet PHY 種別(AR803x @0, rgmii-id)/ usbotg1 host。
-CAN 用 MCP2515 はカート側アドオンでありベンダ DT には存在しない
+CAN 用 MCP2515 はこの製品側のアドオンでありベンダ DT には存在しない
 (ecspi2 に spidev "rpispi" @12MHz、cs=GPIO5_IO13 — 40 ピン互換 SPI の
 裏付け)。`pinctrl_ecspi1_mcp2515t`(GPIO1_IO13)は**どこからも参照されない
 死に定義**で、別製品向けの残骸。
@@ -81,7 +81,7 @@ CAN 用 MCP2515 はカート側アドオンでありベンダ DT には存在し
    **実測追記 (2026-08-12)**: 有効化したところ usb2 バスにハブ経由で
    **Marvell Wireless Device (1286:2045) = 基板搭載 WiFi/BT モジュール
    (88W8897、ベンダカーネルの MRVL8897U ドライバと符合) が出現**。
-   usbotg2 は外部ポートではなく板載 WiFi の接続先だった。カートでは
+   usbotg2 は外部ポートではなく板載 WiFi の接続先だった。この製品では
    WiFi 不使用のため放置で無害 (mainline mwifiex_usb が 8897 対応なので
    使いたければ有効化余地あり)。
    実物照合 (訂正あり): **Marvell 88W8897 の実体は表面ヘッダーに縦挿しの
@@ -96,7 +96,7 @@ CAN 用 MCP2515 はカート側アドオンでありベンダ DT には存在し
    gumstick/db11/gtw810/smarc (loong/devices/)。
    **最終判断 (2026-08-12)**: usbotg2 配下はハブ + この WiFi モジュールのみで
    外部ポートが無いことが確定したため、**usbotg2 は意図的に disabled へ戻した**
-   (カートは WiFi/BT 不使用。モジュール物理撤去はパターン損傷リスクが高く
+   (この製品は WiFi/BT 不使用。モジュール物理撤去はパターン損傷リスクが高く
    却下。使う日が来たら host 有効化 + mwifiex_usb)
 3. **RTC AM1805 @ i2c2 0x69**(電池バックアップ、ベンダは専用ドライバ):
    現行 DTS にノード無し。mainline は `rtc-abx80x`(`abracon,ab1805`)で
@@ -142,10 +142,10 @@ fsl-imx8mm-ddr4-evk.dtb + root=/dev/mmcblk2p3`。
   boot.scr 無しだと Image は見つかるが DTB 名(`fsl-imx8mm-ddr4-evk.dtb`)が
   無くて fdt で止まる → netboot に落ちる
 - **env 衝突(要注意、[04-pitfalls](04-pitfalls.md) #20)**: ベンダローダの
-  env は eMMC の **4MiB オフセット**(size 0x1000) — **kart env と同一位置**
+  env は eMMC の **4MiB オフセット**(size 0x1000) — **自作 U-Boot の env と同一位置**
   (`fw_env.config`: 0x400000, size 0x2000)。ベンダローダで `saveenv` すると
-  kart_slot/A/B 状態が破壊される。ベンダ復帰中は saveenv 禁止。壊したら
-  kart-env.bin を書き戻す(wic 再 dd か ums で該当領域だけ dd)
+  ab_slot/A/B 状態が破壊される。ベンダ復帰中は saveenv 禁止。壊したら
+  uboot-env.bin を書き戻す(wic 再 dd か ums で該当領域だけ dd)
 - AM1805 ウォッチドッグ無効化もこのローダの毎起動処理(上記 §3-3)
 
 ## 5. 現代カーネルでのデバッグ用ヒント(ベンダが踏んだ地雷の痕跡)

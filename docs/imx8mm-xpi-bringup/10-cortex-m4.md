@@ -48,7 +48,7 @@ M4 は ROM から直接ブートせず、A コアが起こす。**起動は ATF 
 
 ## Linux 側の配線 (このリポジトリで追加済み)
 
-- `meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi-kart.dts` —
+- `meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi.dts` —
   末尾の M4 ブロック: `imx8mm-cm4` ノード + reserved-memory
   (vring/vdevbuffer/rsc-table、NXP BSP 実績配置 0xb8000000 帯。
   mem=2042M の splash 構成でも可視域内)
@@ -166,10 +166,10 @@ BL31 側の仕組みは不変):
 2. **BL31**(`imx-atf` パッチ `0001-...-bl31-start-m4`、OCRAM で走る):
    `bl31_platform_setup` で ① **`0xB80FF000` をゼロ化**(下記 rsc_table 残存
    対策)② DDR→TCML コピー ③ `SRC_M4RCR` で M4 解除。A53 コンソールに
-   `NOTICE: kart: Cortex-M4 released from BL31 (SP=... PC=...)`
+   `NOTICE: bl31: Cortex-M4 released from BL31 (SP=... PC=...)`
 3. **M4**: `rsc_table published to 0xB80FF000 (attach mode)` → CAN gw 起動
 4. **Linux**: `attaching to imx-rproc → is now attached →
-   kart-can channel bound (ept 0x400)` → **can0 UP、kmm active、restart 0**
+   rpmsg-can channel bound (ept 0x400)` → **can0 UP、kmm active、restart 0**
 
 **踏んだバグ: DDR の rsc_table 残存**。DDR は warm reboot で消えないため、
 前回の LOAD 起動が書いた `0xB80FF000` の version=1 が残っていると、M4 が
@@ -177,8 +177,8 @@ BL31 側の仕組みは不変):
 attach が不成立(state=attached になるが can0 が出ない)。**BL31 が M4 起動
 直前に `0xB80FF000` をゼロ化**して、M4 に必ず fresh table を publish させる。
 
-構成: `kas/imx8mm-m4.yml`(`KART_M4` + BL31 パッチ)、
-`meta-kart/recipes-bsp-imx/kart-falcon-itb`(M4 loadable を DDR staging へ)、
+構成: `kas/imx8mm-m4.yml`(`FALCON_M4` + BL31 パッチ)、
+`meta-kart/recipes-bsp-imx/falcon-itb`(M4 loadable を DDR staging へ)、
 `meta-kart/recipes-bsp-imx/imx-atf/files/0001-...-bl31-start-m4.patch`。
 firmware の rsc_table 自己 publish は data-logger-zephyr の can-gw。
 
@@ -249,7 +249,7 @@ probe 後は kernel が上書きする) ので、以下を組み合わせて検�
 ### 1. SPL 自身の検証ログ
 
 ```
-kart: A53 1.8GHz (VDD_ARM 1.00V)
+spl: A53 1.8GHz (VDD_ARM 1.00V)
 ```
 
 このメッセージは「BD71847 BUCK2 への書き込みが**読み戻し一致**し、かつ

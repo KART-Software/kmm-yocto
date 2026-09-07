@@ -12,7 +12,7 @@ prebuilt U-Boot の実機ログ (DRAM: 4 GiB, docs/imx8mp-debix-bringup/00-plan.
  
  
 -/* Totally 6GB DDR */
-+/* kart DEBIX Infinity D4E32: 4GB DDR (3GB @0x40000000 + 1GB @0x100000000) */
++/* DEBIX Infinity D4E32: 4GB DDR (3GB @0x40000000 + 1GB @0x100000000) */
  #define CFG_SYS_SDRAM_BASE		0x40000000
  #define PHYS_SDRAM			0x40000000
  #define PHYS_SDRAM_SIZE			0xC0000000	/* 3 GB */
@@ -21,7 +21,7 @@ prebuilt U-Boot の実機ログ (DRAM: 4 GiB, docs/imx8mp-debix-bringup/00-plan.
  #define PHYS_SDRAM_2_SIZE		0x40000000	/* 1 GB */
  #else
 -#define PHYS_SDRAM_2_SIZE		0xC0000000	/* 3 GB */
-+#define PHYS_SDRAM_2_SIZE		0x40000000	/* 1 GB (kart DEBIX 4GB) */
++#define PHYS_SDRAM_2_SIZE		0x40000000	/* 1 GB (DEBIX 4GB) */
  #endif
  
  #define CFG_MXC_UART_BASE		UART2_BASE_ADDR

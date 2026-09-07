@@ -64,19 +64,19 @@ There is no single monolithic config — configs are composed from fragments. Un
 
 `*-prod.yml` and `*-dev.yml` deliberately omit the boot layout, so they are **not buildable alone** — always append a `boot-*.yml`. (The `build.sh` wrapper enforces this.)
 
-**App version pinning:** the app recipe (`recipes-app/kart-machine-manager/kart-machine-manager_2.0.bb`) pins a single `SRCREV`. Bumping the app = update `SRCREV` (and the `branch=` parameter if the app branch changed).
+**App version pinning:** the app recipe (`recipes-app/kmm/kmm_2.0.bb`) pins a single `SRCREV`. Bumping the app = update `SRCREV` (and the `branch=` parameter if the app branch changed).
 
 ## meta-kart layer
 
 Priority 10 (above meta-openembedded), depends on `core qt6-layer`, compatible with scarthgap only. Recipes are grouped by `recipes-<category>/`:
 
 - `recipes-core/images/kart-image.bb` — the image. Defines package set, `read-only-rootfs`, and a chain of `ROOTFS_POSTPROCESS_COMMAND` functions worth knowing about: create the persistent `/data` ext4 mount (`LABEL=data`, plus tmpfiles for `/data/log` and `/data/tailscale`), install pre-generated SSH host keys (and mask `sshdgenkeys`), and **delay `systemd-timesyncd`/`systemd-resolved`** via timers gated on `kmm.service` so they don't slow boot before the GUI appears (kmm is `Type=notify` and reports READY at first window expose, so "kmm active" = GUI on screen). These are all boot-time optimizations — edit carefully.
-- `recipes-app/kart-machine-manager/` — cross-compiles the C++ app (`app-cpp/`, qt6-cmake) from GitHub at a pinned `SRCREV` into `/usr/bin/kmm`. One systemd unit: **`kmm.service`** (`After=weston.service`, `Type=notify`, shows the GUI immediately — the old kmmd daemon + kmm-start notifier split existed only to hide PyQt6 import time). On QEMU a drop-in sets `DEBUG=TRUE` (built-in mock CAN).
+- `recipes-app/kmm/` — cross-compiles the C++ app (`app-cpp/`, qt6-cmake) from GitHub at a pinned `SRCREV` into `/usr/bin/kmm`. One systemd unit: **`kmm.service`** (`After=weston.service`, `Type=notify`, shows the GUI immediately — the old kmmd daemon + kmm-start notifier split existed only to hide PyQt6 import time). On QEMU a drop-in sets `DEBUG=TRUE` (built-in mock CAN).
 - `recipes-graphics/weston/` — Weston kiosk config (`weston.ini`). The bbappend **replaces `weston.service` wholesale and masks `weston.socket`** to disable socket-activation, then wires weston into `multi-user.target` directly.
 - `recipes-kernel/linux/` — config fragments `can.cfg`, `nvme.cfg`, `usb-net.cfg`, `slim.cfg` for the RPi kernel.
 - `recipes-support/can-setup/` — `can0-up.service` brings up SocketCAN; bitrate configured via `/etc/default/can0`.
 - `recipes-connectivity/tailscale/` — prebuilt Tailscale binary recipe (plus first-boot auto-connect via an auth key injected onto the boot partition).
-- `wic/*-ab.wks` — **A/B (tryboot) disk layouts**: p1 AUTOBOOT (slot selector, generated at build), p2/p3 BOOTA/B, p5/p6 rootA/B, p7 shared data. OS updates go over SSH via `scripts/ota-update.sh` (writes the inactive slot, one-shot tryboot, interactive commit via `kart-ab-commit`; firmware auto-falls-back on boot failure). Slot roots are `--fixed-size` so dd between slots always fits; boot slots are updated by file copy (not dd) to preserve the BOOTA/BOOTB labels.
+- `wic/*-ab.wks` — **A/B (tryboot) disk layouts**: p1 AUTOBOOT (slot selector, generated at build), p2/p3 BOOTA/B, p5/p6 rootA/B, p7 shared data. OS updates go over SSH via `scripts/ota-update.sh` (writes the inactive slot, one-shot tryboot, interactive commit via `ab-commit`; firmware auto-falls-back on boot failure). Slot roots are `--fixed-size` so dd between slots always fits; boot slots are updated by file copy (not dd) to preserve the BOOTA/BOOTB labels.
 
 **`BBFILES_DYNAMIC` (in `conf/layer.conf`):** `recipes-kernel/` is excluded from the normal `BBFILES` glob and loaded only when `meta-raspberrypi` is present. This keeps RPi kernel bbappends out of QEMU builds.
 

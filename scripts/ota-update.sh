@@ -1,7 +1,7 @@
 #!/bin/bash
 # ota-update.sh — A/B OTA update over SSH, no storage removal needed.
 #
-# Platforms (自動判別: イメージのパーティション構成 + デバイスの kart-ab-status):
+# Platforms (自動判別: イメージのパーティション構成 + デバイスの ab-status):
 #   RPi5  : firmware tryboot (reboot '0 tryboot', 失敗時はファームが自動復帰)
 #   i.MX  : U-Boot bootcount (upgrade_available=1 で試行、失敗時は altbootcmd が
 #           旧スロットへ復帰。電源断でも旧スロットに戻る)
@@ -20,14 +20,14 @@
 #
 # What it does (each step is printed; nothing is silent):
 #   1. Extract boot-FAT and rootfs-ext4 partition images from the local wic
-#   2. Query the device's active slot (kart-ab-status)
+#   2. Query the device's active slot (ab-status)
 #   3. Write the INACTIVE slot over SSH:
 #        - rootfs: dd (then relabel roota/rootb + fresh UUID)
 #        - boot:   file-level copy into the slot's FAT (keeps BOOTA/BOOTB label)
 #        - fix root= in the slot's cmdline.txt
 #   4. reboot '0 tryboot'  -> firmware boots the new slot ONCE
 #   5. Wait for the device, verify it came up on the NEW slot, show health
-#   6. Ask for confirmation, then kart-ab-commit (make it permanent)
+#   6. Ask for confirmation, then ab-commit (make it permanent)
 #      - If the new slot fails to boot, the firmware falls back automatically;
 #        just re-run after fixing the image. Nothing to clean up.
 set -euo pipefail
@@ -81,7 +81,7 @@ IMAGE="${IMAGE:-$(readlink -f "$IMAGE_DIR/kart-image-raspberrypi5-nvme.wic.bz2")
 SSH=(ssh -n -o BatchMode=yes -o ConnectTimeout=10 "root@$HOST")
 SSH_PIPE=(ssh -o BatchMode=yes -o ConnectTimeout=10 "root@$HOST")
 
-WORK=$(mktemp -d /tmp/kart-ota.XXXXXX)
+WORK=$(mktemp -d /tmp/ota.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 
 echo "==> [1/6] Extracting partitions from $(basename "$IMAGE")..."
@@ -114,18 +114,18 @@ rm -f "$WORK/image.wic"
 echo "    boot.img: $(du -h "$WORK/boot.img" | cut -f1), root.img: $(du -h "$WORK/root.img" | cut -f1)"
 
 echo "==> [2/6] Querying device slot state..."
-STATUS=$("${SSH[@]}" kart-ab-status)
+STATUS=$("${SSH[@]}" ab-status)
 echo "$STATUS" | grep -E "ACTIVE_SLOT|INACTIVE_SLOT"
 ACTIVE=$(echo "$STATUS"      | sed -n 's/^ACTIVE_SLOT=//p')
 IN_SLOT=$(echo "$STATUS"     | sed -n 's/^INACTIVE_SLOT=//p')
 IN_BOOT=$(echo "$STATUS"     | sed -n 's/^INACTIVE_BOOT_PART=//p')
 IN_ROOT=$(echo "$STATUS"     | sed -n 's/^INACTIVE_ROOT_PART=//p')
 BASE=$(echo "$STATUS"        | sed -n 's/^BASE_DEV=//p')
-[ -n "$IN_BOOT" ] && [ -n "$IN_ROOT" ] && [ -n "$BASE" ] || { echo "ERROR: could not parse kart-ab-status" >&2; exit 1; }
+[ -n "$IN_BOOT" ] && [ -n "$IN_ROOT" ] && [ -n "$BASE" ] || { echo "ERROR: could not parse ab-status" >&2; exit 1; }
 
-# デバイス側プラットフォーム判別 (i.MX 版 kart-ab-status は UBOOT_* を出す)
+# デバイス側プラットフォーム判別 (i.MX 版 ab-status は UBOOT_* を出す)
 # — イメージのレイアウト判別と食い違ったら即中断
-if echo "$STATUS" | grep -q '^UBOOT_KART_SLOT='; then DEV_PLATFORM=imx; else DEV_PLATFORM=rpi; fi
+if echo "$STATUS" | grep -q '^UBOOT_AB_SLOT='; then DEV_PLATFORM=imx; else DEV_PLATFORM=rpi; fi
 if [ "$DEV_PLATFORM" != "$PLATFORM" ]; then
     echo "ERROR: image layout is '$PLATFORM' but device is '$DEV_PLATFORM' — wrong image for this device" >&2
     exit 1
@@ -177,12 +177,12 @@ echo "==> [4/6] Rebooting into slot $IN_SLOT (one-shot try)..."
 if [ "$PLATFORM" = "rpi" ]; then
     # Pre-flight: the [tryboot] section must point at the slot we just wrote,
     # otherwise tryboot would boot the WRONG slot (seen once when a commit did
-    # not persist). Read the selector fresh from disk via kart-ab-status.
-    TB_TARGET=$("${SSH[@]}" kart-ab-status | sed -n '/^\[tryboot\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p' | head -n 1)
+    # not persist). Read the selector fresh from disk via ab-status.
+    TB_TARGET=$("${SSH[@]}" ab-status | sed -n '/^\[tryboot\]/,/^\[/s/^boot_partition=\([0-9]*\)/\1/p' | head -n 1)
     if [ "$TB_TARGET" != "$IN_BOOT" ]; then
         echo "ERROR: autoboot.txt [tryboot] points at partition '$TB_TARGET' but we wrote partition $IN_BOOT." >&2
-        echo "       Selector state is inconsistent — run 'kart-ab-status' on the device and fix" >&2
-        echo "       (usually: run 'kart-ab-commit' on the device to resync, then re-run this update)." >&2
+        echo "       Selector state is inconsistent — run 'ab-status' on the device and fix" >&2
+        echo "       (usually: run 'ab-commit' on the device to resync, then re-run this update)." >&2
         exit 1
     fi
     "${SSH[@]}" "reboot '0 tryboot'" || true
@@ -193,16 +193,16 @@ else
     UA=$(echo "$STATUS" | sed -n 's/^UBOOT_UPGRADE_AVAILABLE=//p')
     if [ "$UA" = "1" ]; then
         echo "ERROR: upgrade_available=1 — a previous update try is still pending." >&2
-        echo "       Commit it (kart-ab-commit) or power-cycle to fall back, then re-run." >&2
+        echo "       Commit it (ab-commit) or power-cycle to fall back, then re-run." >&2
         exit 1
     fi
     IN_LC=$(echo "$IN_SLOT" | tr 'AB' 'ab')
     ACTIVE_LC=$(echo "$ACTIVE" | tr 'AB' 'ab')
     "${SSH[@]}" "
 set -e
-printf 'kart_slot=${IN_LC}\nkart_fallback_slot=${ACTIVE_LC}\nupgrade_available=1\nbootcount=0\n' > /tmp/ota-env
+printf 'ab_slot=${IN_LC}\nab_fallback_slot=${ACTIVE_LC}\nupgrade_available=1\nbootcount=0\n' > /tmp/ota-env
 fw_setenv -s /tmp/ota-env
-v=\$(fw_printenv -n kart_slot)
+v=\$(fw_printenv -n ab_slot)
 [ \"\$v\" = \"${IN_LC}\" ] || { echo 'ERROR: fw_setenv read-back failed' >&2; exit 1; }
 rm -f /tmp/ota-env
 "
@@ -212,7 +212,7 @@ fi
 if [ -n "$AUTHKEY" ]; then
     echo "    NOTE (--authkey): 新スロットが prod の場合、LAN の ssh では戻ってこないため"
     echo "    以降の復帰待ちはタイムアウトする。tailscale-autoconnect の接続を待って"
-    echo "    'ssh root@<tailscale名> kart-ab-commit' で確定すること。"
+    echo "    'ssh root@<tailscale名> ab-commit' で確定すること。"
     echo "    (未コミットのままなら電源入れ直し数回で旧スロットへ自動復帰する)"
 fi
 
@@ -223,7 +223,7 @@ until "${SSH[@]}" true 2>/dev/null; do
     n=$((n+1)); [ $n -ge 60 ] && { echo "TIMEOUT: device did not come back; if it fell back to slot $ACTIVE, re-run after investigating." >&2; exit 1; }
     sleep 3
 done
-NEW_STATUS=$("${SSH[@]}" kart-ab-status)
+NEW_STATUS=$("${SSH[@]}" ab-status)
 NEW_ACTIVE=$(echo "$NEW_STATUS" | sed -n 's/^ACTIVE_SLOT=//p')
 echo "    came back on slot: $NEW_ACTIVE (expected: $IN_SLOT)"
 if [ "$NEW_ACTIVE" != "$IN_SLOT" ]; then
@@ -241,7 +241,7 @@ else
     read -rp "    Make slot $IN_SLOT permanent? [y/N] " ok
 fi
 if [[ "$ok" =~ ^[Yy]$ ]]; then
-    "${SSH[@]}" kart-ab-commit
+    "${SSH[@]}" ab-commit
     echo "==> OTA complete: slot $IN_SLOT is now the boot slot."
 else
     echo "==> NOT committed. Next reboot returns to slot $ACTIVE."

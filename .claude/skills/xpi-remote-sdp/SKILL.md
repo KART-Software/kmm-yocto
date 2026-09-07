@@ -43,14 +43,14 @@ lsusb | grep 1fc9:0134
 # 4. stock U-Boot を RAM 起動して ums(ベンチスキルの UUU 節と同じ。
 #    uboot_catch.py はこのスキルのディレクトリに同梱)
 python3 .claude/skills/xpi-remote-sdp/uboot_catch.py /dev/kart-a53-console ums.log 45 "ums 0 mmc 2" &
-timeout 60 uuu scripts/kart-boot.uuu
+timeout 60 uuu scripts/boot.uuu
 # → /dev/sda が eMMC。ここで flash.bin 更新など目的の作業をする
 
 # 5. 復旧: バックアップを書き戻し → 読み戻し照合 → 電源サイクル
 sudo dd if=sec65.bin of=/dev/sda bs=512 seek=65 conv=fsync
 sudo dd if=sec66.bin of=/dev/sda bs=512 seek=66 conv=fsync   # 4162 は壊した場合のみ
 sudo python3 scripts/dp100.py cycle --off-time 3
-# 起動後: kart-uboot-status で ACTIVE_COPY=A と A/B MD5 が実験前と一致すること
+# 起動後: uboot-status で ACTIVE_COPY=A と A/B MD5 が実験前と一致すること
 ```
 
 ## 注意
@@ -72,4 +72,4 @@ sudo python3 scripts/dp100.py cycle --off-time 3
 ## 関連
 
 - 電源・シリアル・uuu の基礎操作: `imx8mm-xpi-bench` スキル
-- ROM フォールバック仕様と kart-uboot-* ツール群: `docs/imx8mm-xpi-bringup/04-pitfalls.md` #19
+- ROM フォールバック仕様と uboot-* ツール群: `docs/imx8mm-xpi-bringup/04-pitfalls.md` #19

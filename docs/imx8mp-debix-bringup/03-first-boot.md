@@ -68,7 +68,7 @@ D8BJG 表そのものを使わなかった理由: コールドから直接流す
   (23.75〜297MHz)しか出せず 32MHz が無いため、mode_valid で全モードが落ち weston が
   `no available modes` で起動しない
 - 解: pclk **33.75MHz** + ブランキング拡張(htotal 1072、vtotal 525 → 59.97Hz)の EDID を
-  ファイル供給する。`kart-edid-firmware` の `tfp401-edid-33m75.bin` +
+  ファイル供給する。`edid-firmware` の `tfp401-edid-33m75.bin` +
   `drm.edid_firmware=HDMI-A-1:edid/tfp401-edid-33m75.bin`(machine conf の extlinux
   KERNEL_ARGS)+ kernel の `CONFIG_DRM_LOAD_EDID_FIRMWARE=y`(`edid-firmware.cfg`)。
   コールドブートから手当てなしで kmm GUI のフル表示をカメラ確認済み
@@ -87,10 +87,10 @@ D8BJG 表そのものを使わなかった理由: コールドから直接流す
 
 ## 5. eMMC A/B(rootfs の A/B + ブートローダの A/B)
 
-8MM の構成(`kart-uboot-env`、`kart-ab-tools`、`kart-data-mount`、`scripts/ota-update.sh`)を
+8MM の構成(`uboot-env`、`ab-tools`、`data-mount`、`scripts/ota-update.sh`)を
 i.MX 共通化して 8MP でも使う。kas は 8MM/8MP 共通の `kas/imx-emmc-ab.yml`
-(`./scripts/build.sh imx8mp --emmc`)で、wks の実体は machine conf の `KART_EMMC_AB_WKS`
-(= `meta-kart/wic/imx8mp-emmc-ab.wks`)。`kart-ab-tools` のスクリプトは
+(`./scripts/build.sh imx8mp --emmc`)で、wks の実体は machine conf の `EMMC_AB_WKS`
+(= `meta-kart/wic/imx8mp-emmc-ab.wks`)。`ab-tools` のスクリプトは
 `files/imx-generic-bsp/` の 1 組で、imx-boot のセクタ定数と env の場所だけレシピの
 machine 別変数から埋める。イメージの i.MX 共通パッケージは `kart-image.bb` の
 `imx-generic-bsp` ブロック。
@@ -99,21 +99,21 @@ machine 別変数から埋める。イメージの i.MX 共通パッケージは
 |---|---|---|
 | imx-boot A | 32KiB | 通常起動(BootROM 固定オフセット、IMX_BOOT_SEEK=32) |
 | imx-boot B | **4MiB** | ROM フォールバック先。8MP は SIT ではなくヒューズ `IMG_CNTN_SET1_OFFSET` で位置が決まり、未ヒューズ(実機で bank2 word1 = 0 を確認)= 4MiB |
-| U-Boot env | 7MiB / 16KiB | NXP defconfig 既定(0x700000 / 0x4000)。`kart-uboot-env` が A/B 変数を seed した `kart-env.bin` を焼き込む |
+| U-Boot env | 7MiB / 16KiB | NXP defconfig 既定(0x700000 / 0x4000)。`uboot-env` が A/B 変数を seed した `uboot-env.bin` を焼き込む |
 | p1 / p2 | 256MB ×2 | BOOTA / BOOTB(Image + DTB + extlinux) |
 | p3 | 4MB | 予約(番号合わせ) |
 | p5 / p6 | 1.5GB ×2(固定) | rootA / rootB |
-| p7 | 128MB | data(`kart-data-mount` が p7 をマウント) |
+| p7 | 128MB | data(`data-mount` が p7 をマウント) |
 
 8MM との差分:
-- **SIT 不要**(`kart-uboot-env` は `KART_MAKE_SIT` で 8MM のみ生成)
+- **SIT 不要**(`uboot-env` は `MAKE_SIT` で 8MM のみ生成)
 - U-Boot は NXP 系(u-boot-imx)なので extlinux 変数は machine conf で自前定義し、
   `debix-ab.cfg` で bootcount / env を eMMC / sysboot を有効化
-- `kart-ab-tools` の定数: A=0x40、B=0x2000、領域 3MiB、fw_env.config 0x700000/0x4000。
+- `ab-tools` の定数: A=0x40、B=0x2000、領域 3MiB、fw_env.config 0x700000/0x4000。
   ROM イベントログによる起動コピー判定は 8MM と同じ
 
-実機確認(2026-08-31): 初回ブート `KART: booting slot a` → `root=/dev/mmcblk2p5`、
+実機確認(2026-08-31): 初回ブート `A/B: booting slot a` → `root=/dev/mmcblk2p5`、
 `/data` = p7。`ota-update.sh --host <ip> --yes <wic.bz2>` で slot B へ書き込み → 試行ブート →
-自動コミット(`kart_slot=b`)まで成功。A copy の IVT セクタを零化して電源サイクル →
+自動コミット(`ab_slot=b`)まで成功。A copy の IVT セクタを零化して電源サイクル →
 **ROM が 4MiB の B copy から起動**(`UBOOT_ACTIVE_COPY=B`、source=rom-event-log)→
-`kart-uboot-selfheal` が A を修復 → 次の電源サイクルで A 起動に復帰。
+`uboot-selfheal` が A を修復 → 次の電源サイクルで A 起動に復帰。

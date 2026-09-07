@@ -10,13 +10,13 @@ seamless takeover)と同型の設計を、8MP の表示チェーンに再実装�
 
 | 何 | どこ |
 |---|---|
-| SPL 側実装(表示チェーン直叩き + ロゴ blit + proper 用停止) | `meta-kart/recipes-bsp-imx/u-boot/files/0005-imx8mp-debix-spl-splash.patch`(kart_splash.c/.h + spl.c フック) |
-| SPL config | `debix-splash.cfg`(CONFIG_KART_SPL_SPLASH) |
-| ロゴ画素 | `kart_splash_logo.h`(8MM/kart-splash-wl と単一ソース)→ ビルド時に `logo.bin` へ変換(`kart-falcon-itb.bb`)し boot パーティションから供給 |
+| SPL 側実装(表示チェーン直叩き + ロゴ blit + proper 用停止) | `meta-kart/recipes-bsp-imx/u-boot/files/0005-imx8mp-debix-spl-splash.patch`(spl_splash.c/.h + spl.c フック) |
+| SPL config | `debix-splash.cfg`(CONFIG_SPL_SPLASH) |
+| ロゴ画素 | `spl_splash_logo.h`(8MM/splash-wl と単一ソース)→ ビルド時に `logo.bin` へ変換(`falcon-itb.bb`)し boot パーティションから供給 |
 | カーネル takeover パッチ | `meta-kart/recipes-kernel-imx/linux/files/0010〜0013`(下記) |
 | busfreq 無効化 | `imx8mp-debix.dts`(`&{/busfreq} status="disabled"`) |
 | kas 配線 | `kas/imx8mp-splash.yml`(u-boot 側 + `pn-linux-fslc-imx` 側) |
-| weston 区間の連続化 | `kart-splash-wl`(8MM と共通レシピ。`kart-image.bb` の imx8mp-debix 追加分) |
+| weston 区間の連続化 | `splash-wl`(8MM と共通レシピ。`kart-image.bb` の imx8mp-debix 追加分) |
 
 ## 表示チェーン(SPL が直接叩く順)
 
@@ -47,12 +47,12 @@ CCM (HDMI AXI/APB/24M ゲート)
 
 | 経路 | SPL の挙動 | 理由 |
 |---|---|---|
-| **falcon**(通常) | 表示を回したまま渡す。`/chosen` に `kart,splash-active` を注入し、/memory から FB の 2MB(0xBFE00000〜)を隠す | カーネル側 takeover(下記)が引き継ぐ |
-| **proper**(フォールバック) | **必ず停止してから渡す**(`kart_splash_quiesce()`: LCDIF EN 落とし → DISP_PARA off → PHY 電源断) | proper U-Boot は **DDR 最上部 = FB 直上へ自己再配置**し、extlinux 経由の DTB には prop も /memory 隠しも無い。表示を回したまま渡すと、ブート途中の恒久ハングやカーネル text 破壊のパニックになる(両方実測)。フォールバック経路の黒画面は許容 |
+| **falcon**(通常) | 表示を回したまま渡す。`/chosen` に `splash-active` を注入し、/memory から FB の 2MB(0xBFE00000〜)を隠す | カーネル側 takeover(下記)が引き継ぐ |
+| **proper**(フォールバック) | **必ず停止してから渡す**(`spl_splash_quiesce()`: LCDIF EN 落とし → DISP_PARA off → PHY 電源断) | proper U-Boot は **DDR 最上部 = FB 直上へ自己再配置**し、extlinux 経由の DTB には prop も /memory 隠しも無い。表示を回したまま渡すと、ブート途中の恒久ハングやカーネル text 破壊のパニックになる(両方実測)。フォールバック経路の黒画面は許容 |
 
 ## カーネル seamless takeover(0010〜0013 + busfreq 無効)
 
-すべて `/chosen kart,splash-active` があるときだけ発火(無ければ完全に従来動作)。
+すべて `/chosen splash-active` があるときだけ発火(無ければ完全に従来動作)。
 
 - **0010 gpcv2**: `hdmimix`/`hdmi-phy` ドメインを「最初から ON +
   GENPD_FLAG_ALWAYS_ON」で登録。素のままだと genpd の帳簿(off)と実ハード(on)が
@@ -118,7 +118,7 @@ weston を card0 直後に起動する構成では ~100%)。`systemctl restart w
 kiosk-shell `desktop_surface_committed()` は surface を map するとき
 `kiosk_shell_surface_activate()` の中でしかビューをレイヤ(normal_layer)に載せず、
 それは `if (seat && kiosk_seat)` 条件付き。起動直後は libinput の udev 列挙(event0 が
-2.1〜2.2s)より前にクライアント(kart-splash-wl / kmm)の初回 commit(1.78s)が届くので
+2.1〜2.2s)より前にクライアント(splash-wl / kmm)の初回 commit(1.78s)が届くので
 weston_seat がまだ無く、surface は is_mapped=true のまま**どのレイヤにも入らず永久に
 合成されない**。静的クライアントは二度と commit しないので黒のまま。weston を 1s 遅らせると
 seat(2.87s)がクライアント commit(2.95s)より先にできて明。restart weston が必ず直るのは
@@ -132,13 +132,13 @@ weston 13 は `kiosk_shell_output_set_active_surface_tree` で seat 非依存に
 
 **検証(2026-09-07)**: 製品カーネル(g276209957d88、カーネル側パッチ無し)+ weston を card0
 直後に起動(After=seatd/udevd + card0 ポーリング)+ 3 段 AprilTag パターン、10 コールドで
-暗 **0/10**(同構成で修正前は 8/8・11/11 暗)。KLGO ロゴ → クライアント表示は 2.03〜2.20s。
+暗 **0/10**(同構成で修正前は 8/8・11/11 暗)。LOGO ロゴ → クライアント表示は 2.03〜2.20s。
 
 **weston 13.0.1(poky 標準)への切り替えも検証(2026-09-07)**: `imx8mp-debix.conf` で
 `PREFERRED_VERSION_weston:imx8mp-debix = "13.0.1"`(meta-freescale の `:imx-nxp-bsp ??= 12.0.4.imx` を
 machine オーバーライドで上書き。オーバーライド無しの代入では負ける)。パッチ無しの upstream 13 で
 同条件(製品カーネル、card0 直後起動、3 段パターン、GUI 段は weston READY + 300ms)10 コールド
-**暗 0/10、全て SPL → splash → GUI の順で最終 GUI**。KLGO→splash 2.05〜2.13s、KLGO→GUI 2.45〜2.56s
+**暗 0/10、全て SPL → splash → GUI の順で最終 GUI**。LOGO→splash 2.05〜2.13s、LOGO→GUI 2.45〜2.56s
 (12 + 0003 パッチと同等)。journal にエラー/警告無し(pixman、kiosk-shell、systemd-notify 全て 13 で動作)。
 → 8MP は 13 に揃えるのが本筋(NXP フォーク依存と 0003 パッチ、G2D の RDEPENDS 細工が不要になる)。
 0003 は PV が 12 のときだけ当たるよう条件付けし、12 へ戻す場合の保険として残してある。

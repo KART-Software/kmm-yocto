@@ -28,7 +28,7 @@ EnvironmentFile=/etc/default/weston
 # (seatd 経由で開くので device ACL は不要)
 ExecStartPre=/bin/sh -c 'i=0; while [ ! -e /dev/dri/card0 ] && [ $i -lt 500 ]; do sleep 0.01; i=$((i+1)); done'
 ExecStart=/usr/bin/weston --modules=systemd-notify.so
-# Fixed runtime dir (systemd-managed, kart-owned): keeps uid out of unit
+# Fixed runtime dir (systemd-managed, owned by the kart user): keeps uid out of unit
 # files entirely (kart's uid is dynamically assigned at build time).
 Environment=XDG_RUNTIME_DIR=/run/wayland
 Environment=SEATD_SOCK=/run/seatd.sock

@@ -11,12 +11,12 @@ header:
 
 local_conf_header:
   splash: |
-    SRC_URI:append:pn-u-boot-imx = " file://debix-splash.cfg file://0005-imx8mp-debix-spl-splash.patch file://0006-imx8mp-debix-proper-splash-adopt.patch file://kart_splash_logo.h"
+    SRC_URI:append:pn-u-boot-imx = " file://debix-splash.cfg file://0005-imx8mp-debix-spl-splash.patch file://0006-imx8mp-debix-proper-splash-adopt.patch file://spl_splash_logo.h"
     IMAGE_BOOT_FILES:append = " logo.bin"
 
   # カーネル seamless takeover (8MM の 0004-0009 に相当する 8MP 版)。
-  # SPL が /chosen kart,splash-active を立てたときだけ発火し、
+  # SPL が /chosen splash-active を立てたときだけ発火し、
   # probe 時の電源断・クロック断・PHY リセットからスプラッシュを守る。
   # busfreq ハング対策は imx8mp-debix.dts 側 (無条件無効化) を参照。
   splash-takeover: |
-    SRC_URI:append:pn-linux-fslc-imx = " file://0010-pmdomain-imx-gpcv2-kart-splash-adopt-8mp.patch file://0011-pmdomain-imx8mp-blk-ctrl-kart-splash-adopt.patch file://0012-drm-imx-dw-hdmi-kart-splash-skip-probe-phy-reset.patch file://0013-phy-fsl-samsung-hdmi-kart-splash-skip-probe-reset.patch"
+    SRC_URI:append:pn-linux-fslc-imx = " file://0010-pmdomain-imx-gpcv2-splash-adopt-8mp.patch file://0011-pmdomain-imx8mp-blk-ctrl-splash-adopt.patch file://0012-drm-imx-dw-hdmi-splash-skip-probe-phy-reset.patch file://0013-phy-fsl-samsung-hdmi-splash-skip-probe-reset.patch"

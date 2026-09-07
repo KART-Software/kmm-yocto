@@ -1,6 +1,6 @@
 # 09 — ブートシーケンス完全解説(電源 ON → GUI 表示)
 
-XPI-iMX8MM(kart 構成)が電源投入から GUI 表示(約 4.9 秒)に至るまでの
+XPI-iMX8MM(自作構成)が電源投入から GUI 表示(約 4.9 秒)に至るまでの
 全段階を、初学者向けに一枚で解説する。用語は本文中と文末の
 [用語ミニ辞典](#用語ミニ辞典)で注釈する。
 
@@ -127,7 +127,7 @@ flowchart TD
 
 **どのスロットから起動するか**は「**MBR の bootable フラグ**」で決まる。
 MBR とはディスク先頭 512 バイトのパーティション表で、各パーティションに
-「起動可能」印を 1 つ付けられる。`kart-ab-commit` が OTA 確定時に
+「起動可能」印を 1 つ付けられる。`ab-commit` が OTA 確定時に
 この印を新スロットへ付け替える。
 
 ---
@@ -217,7 +217,7 @@ flowchart TD
     SEATD --> W["weston 起動 (0.5s)<br/>Wayland コンポジタ<br/>= 画面の描画基盤"]
     SYS -.->|"並行"| NET["networkd / tailscaled<br/>(優先度を下げてある)"]
     SYS -.->|"並行"| CAN["can0-up<br/>(CAN バス有効化)"]
-    W --> KMM["kmm 起動 (0.45s)<br/>Qt アプリ = カート GUI"]
+    W --> KMM["kmm 起動 (0.45s)<br/>Qt アプリ = 機体 GUI"]
     CAN --> KMM
     KMM --> GUI(["🖥 GUI 表示 = kmm READY<br/>(systemd に「窓を出した」と通知)"])
     GUI -.->|"表示後に後送り"| LATE["logind / dbus / iptables /<br/>syslog / U-Boot selfheal など<br/>(GUI に不要なものは後回し)"]
@@ -250,7 +250,7 @@ flowchart TD
     RB --> SPL2["SPL: upgrade_available=1 を検知"]
     SPL2 --> UB["u-boot.itb (proper) を起動"]
     UB --> TRY["proper が新スロットを試し起動<br/>(bootcount を数えながら)"]
-    TRY -->|"正常起動 + 健全性 OK"| COMMIT["kart-ab-commit:<br/>env 確定 + MBR フラグを<br/>新スロットへ付替え"]
+    TRY -->|"正常起動 + 健全性 OK"| COMMIT["ab-commit:<br/>env 確定 + MBR フラグを<br/>新スロットへ付替え"]
     TRY -->|"起動失敗が続く"| FB["altbootcmd が旧スロットへ<br/>自動巻き戻し (実測 84s 無人)"]
     COMMIT --> NEXT["次回から新スロットで<br/>Falcon 高速起動"]
 
@@ -299,7 +299,7 @@ flowchart TD
 | sector 0x41 | SIT(B 面の場所を ROM に教える表。バイト構造・実測記録は [migration-design](../imx8mm-migration-design.md) の U-Boot A/B 節) |
 | sector 0x42〜 | U-Boot A 面(SPL + proper 入り flash.bin) |
 | sector 0x1042〜 | U-Boot B 面(前バージョン温存) |
-| 4MiB | U-Boot env(kart_slot / upgrade_available 等) |
+| 4MiB | U-Boot env(ab_slot / upgrade_available 等) |
 | p1 / p2 | BOOTA / BOOTB(FAT)— falcon.itb・u-boot.itb・extlinux 等 |
 | p5 / p6 | rootA / rootB(読み取り専用 rootfs) |
 | p7 | /data(永続領域: tailscale 識別・乱数 seed・シェーダキャッシュ) |
@@ -328,4 +328,4 @@ flowchart TD
 | **extlinux** | ブートメニューの標準的な設定ファイル形式。U-Boot proper がこれを読んでカーネルを起動する(従来路) |
 | **DDR training** | メインメモリの信号タイミングを電気的に調整する初期化処理。SPL が毎回実行する |
 | **coldplug** | 起動時に「既に接続済みのデバイス」を udev が一括処理すること |
-| **kmm READY** | kart-machine-manager が最初のウィンドウを表示した瞬間に systemd へ送る通知。本書で「GUI 表示」と呼ぶ計測点 |
+| **kmm READY** | kmm が最初のウィンドウを表示した瞬間に systemd へ送る通知。本書で「GUI 表示」と呼ぶ計測点 |

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * imx8mp-debix.dts — Polyhex DEBIX Infinity (EMB-IMX8MP-06) 用 kart 製品 DT
+ * imx8mp-debix.dts — Polyhex DEBIX Infinity (EMB-IMX8MP-06) 用製品 DT
  *
  * 根拠は工場イメージ (Ubuntu 20.04 + 5.10 NXP BSP) の実行中 FDT との突き合わせ:
  *  - 実行中 FDT = /boot/imx8mp-evk.dtb (= imx8mp-debix-core-board.dtb と同一物)
@@ -15,10 +15,10 @@
  *    (pca6416) を DEBIX で触らないよう supply/assert-gpios を削除する。
  *  - micfil (PDM): EVK で flexcan2 と SAI5 パッドを取り合う相手。DEBIX では PDM
  *    マイク未配線なので disabled (EVK の「can2 pin conflict with pdm」コメント参照)。
- *  - pcie/mipi_dsi/dsp: DEBIX/kart では未使用 (PCIe は 19pin FPC のみ、表示は HDMI、
+ *  - pcie/mipi_dsi/dsp: DEBIX では未使用 (PCIe は 19pin FPC のみ、表示は HDMI、
  *    DSP は使わない)。工場 DT も disabled — 未接続プローブのエラーと起動遅延を避ける。
  *  - uart4: EVK 既定の disabled のまま = M7 コンソール予約 (01-m7.md)。
- *  - WiFi (88W8987 / usdhc1): kart 不使用 → EVK 既定の disabled のまま。
+ *  - WiFi (88W8987 / usdhc1): 不使用 → EVK 既定の disabled のまま。
  */
 
 #include "imx8mp-evk.dts"
@@ -86,7 +86,7 @@
 };
 
 /* ===== EVK 遺産の死にノード掃除 (2026-09-03、起動時間: udev/probe 削減) =====
- * DEBIX/kart で消費者がいない EVK 有効化ノードを落とす。効果は
+ * DEBIX で消費者がいない EVK 有効化ノードを落とす。効果は
  * ① probe 時間 (eqos 0.2s+PHY 等) ② coldplug の uevent 数 ③ dmesg ノイズ
  * (ov5640/pca953x/csis の probe エラー消滅)。根拠: 実配線 (02-dts-delta.md)
  * と実機 dmesg。カーネル config 側は既に SND/V4L2 等を削っており、

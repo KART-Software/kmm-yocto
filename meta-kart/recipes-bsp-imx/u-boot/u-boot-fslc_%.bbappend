@@ -1,33 +1,33 @@
-# kart A/B (U-Boot bootcount) の設定フラグメント。
-# 環境変数の中身は recipes-bsp-imx/kart-uboot-env/ が wic に焼き込む。
+# A/B (U-Boot bootcount) の設定フラグメント。
+# 環境変数の中身は recipes-bsp-imx/uboot-env/ が wic に焼き込む。
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 SRC_URI += " \
-    file://kart-ab.cfg \
-    file://kart-uboot-slim.cfg \
-    file://0012-imx8mm-kart-spl-a53-overdrive-1800mhz.patch \
+    file://ab.cfg \
+    file://uboot-slim.cfg \
+    file://0012-imx8mm-spl-a53-overdrive-1800mhz.patch \
 "
 
 # extlinux の root= の差し替え口。machine include (imx8mm-evk.inc) が
 # UBOOT_EXTLINUX_ROOT:default:use-mainline-bsp のフル修飾で = 代入しており、
 # local.conf からは同じ修飾で書いても parse 順 (conf → machine conf) で負ける。
 # レシピ/bbappend は全 conf の後に parse されるため、ここで同修飾を張り直して
-# 間接変数 KART_EXTLINUX_ROOT に逃がす。kas フラグメント (local.conf) からは
+# 間接変数 EXTLINUX_ROOT に逃がす。kas フラグメント (local.conf) からは
 # この間接変数を設定する。デフォルトは machine include と同じ値。
-KART_EXTLINUX_ROOT ??= "root=/dev/mmcblk1p2"
-UBOOT_EXTLINUX_ROOT:default:use-mainline-bsp = "${KART_EXTLINUX_ROOT}"
+EXTLINUX_ROOT ??= "root=/dev/mmcblk1p2"
+UBOOT_EXTLINUX_ROOT:default:use-mainline-bsp = "${EXTLINUX_ROOT}"
 
 # SPL スプラッシュ (kas/imx8mm-splash.yml) 時のみ SRC_URI に入る 1bit ロゴ
-# マスクヘッダを SPL ソースツリーへ置く。0010 パッチの kart_splash.c が
+# マスクヘッダを SPL ソースツリーへ置く。0010 パッチの spl_splash.c が
 # #include する。file:// は WORKDIR にしか展開されないため do_patch 後・
 # do_configure 前にここでコピー。splash 無しビルドではヘッダが無く無害。
 do_configure:prepend() {
-    if [ -f "${WORKDIR}/kart_splash_logo.h" ]; then
-        install -m 0644 ${WORKDIR}/kart_splash_logo.h ${S}/board/freescale/imx8mm_evk/
+    if [ -f "${WORKDIR}/spl_splash_logo.h" ]; then
+        install -m 0644 ${WORKDIR}/spl_splash_logo.h ${S}/board/freescale/imx8mm_evk/
     fi
 }
 
-# falcon の proper フォールバック FIT (kart-falcon-itb が組む u-boot.itb) 用に
+# falcon の proper フォールバック FIT (falcon-itb が組む u-boot.itb) 用に
 # 素材を deploy へ出す。falcon 非使用ビルドでも小物 2 ファイルで無害
 do_deploy:append:mx8mm-generic-bsp() {
     # UBOOT_CONFIG 使用時は ${B}/${config}/ 配下に成果物ができる

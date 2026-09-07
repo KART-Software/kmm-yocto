@@ -13,7 +13,7 @@ python3 -m venv .venv
 .venv/bin/pip install opencv-python-headless numpy
 ```
 
-kart ベンチのカメラは udev 永続名 `/dev/kart-debix-cam`(C930e)。
+実機ベンチのカメラは udev 永続名 `/dev/kart-debix-cam`(C930e)。
 
 ## 使い方
 
@@ -73,24 +73,24 @@ GUI 完全起動 + Calibration Pattern 表示状態で:
 ## 実ブート 3 stage 計測(実験モード、実機検証済み 2026-09-02)
 
 **鉄則: AprilTag で実ブートを判定するときは 3 ステージ全部を差し替える(GUI だけは禁止)。**
-一部だけだと本物ロゴ(kart-splash-wl)がパターンの上に乗った boot を「タグ 0 = 暗」と
+一部だけだと本物ロゴ(splash-wl)がパターンの上に乗った boot を「タグ 0 = 暗」と
 誤計上する(map 順レース)。詳細は `.claude/skills/lcd-validation/SKILL.md`。
 
 `target-stage-setup.sh` が可逆な差し替え一式を行う:
 
 ```bash
-# 素材 (bootloader は KLGO、weston/gui は raw)
+# 素材 (bootloader は LOGO、weston/gui は raw)
 .venv/bin/python generate_pattern.py --stage bootloader \
-    --output out/bootloader.png --klgo out/bootloader.klgo
+    --output out/bootloader.png --logo out/bootloader.logo
 ./target-stage-setup.sh install     # logo.bin 交換 + unit drop-in x2
 .venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
     --calibration out/calibration.json --power-cycle --duration 22
 ./target-stage-setup.sh uninstall   # 完全に元へ戻す
 ```
 
-差し替えの中身: ① `/boot/logo.bin` → bootloader パターンの KLGO
+差し替えの中身: ① `/boot/logo.bin` → bootloader パターンの LOGO
 (SPL がそのまま blit する。原本は logo.bin.orig に退避)
-② kart-splash-wl.service → wl-image-view weston.raw(drop-in)
+② splash-wl.service → wl-image-view weston.raw(drop-in)
 ③ kmm.service → wl-image-view gui.raw(drop-in、Type=simple 化)。
 
 実測: SPL blit のパターンでも **60/60・RMS 0.56px で全検証 PASS**
@@ -109,7 +109,7 @@ gui が ~50ms 後に被さるため未達になるのが正常(Mixed フレー�
 
 ## ベンチ実測で決めた設定 (§35 マイルストーン、2026-09-02)
 
-kart ベンチ (C930e + DEBIX 800x480 パネル、暗環境) での確定値:
+実機ベンチ (C930e + DEBIX 800x480 パネル、暗環境) での確定値:
 
 | 項目 | 値 | 根拠 |
 |---|---|---|

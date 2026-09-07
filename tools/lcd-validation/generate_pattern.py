@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--stage", required=True, choices=layout.STAGES)
     ap.add_argument("--output", required=True, help="PNG 出力パス")
     ap.add_argument("--raw", help="XRGB8888 raw 出力パス (wl-image-view 用)")
-    ap.add_argument("--klgo", help="KLGO 1bit 出力パス (SPL logo.bin 差し替え用)。"
+    ap.add_argument("--logo", help="LOGO 1bit 出力パス (SPL logo.bin 差し替え用)。"
                     "1bit なので白=255 になる (白レベル指定は無視される) 点に注意")
     ap.add_argument("--tag-size", type=int, default=layout.DEFAULT_TAG_SIZE)
     ap.add_argument("--white", type=int, default=128,
@@ -62,9 +62,9 @@ def main():
             f.write(bgra.tobytes())
         print(f"wrote {args.raw} ({bgra.nbytes} bytes)")
 
-    if args.klgo:
-        # SPL の kart_splash_try_logo が読む形式:
-        #   "KLGO" + LE32 x4 (w, h, x, y) + 1bit マスク (MSB first、
+    if args.logo:
+        # SPL の spl_splash_try_logo が読む形式:
+        #   "LOGO" + LE32 x4 (w, h, x, y) + 1bit マスク (MSB first、
         #   bit=1 の画素を白 0x00FFFFFF で塗る。背景は SPL 側で黒)。
         # パターンは白背景 + 黒モジュールなので「白い画素 = bit 1」。
         import struct
@@ -73,12 +73,12 @@ def main():
         for i, on in enumerate(flat):
             if on:
                 bits[i >> 3] |= 0x80 >> (i & 7)
-        with open(args.klgo, "wb") as f:
-            f.write(b"KLGO")
+        with open(args.logo, "wb") as f:
+            f.write(b"LOGO")
             f.write(struct.pack("<4I", layout.DISPLAY_W, layout.DISPLAY_H,
                                 0, 0))
             f.write(bits)
-        print(f"wrote {args.klgo} ({20 + len(bits)} bytes, 1bit 全画面)")
+        print(f"wrote {args.logo} ({20 + len(bits)} bytes, 1bit 全画面)")
 
 
 if __name__ == "__main__":

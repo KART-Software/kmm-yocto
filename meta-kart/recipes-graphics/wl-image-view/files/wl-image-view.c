@@ -10,7 +10,7 @@
  *   file.raw = XRGB8888 (LE) の生ピクセル、既定 800x480 (1536000 bytes)。
  *   tools/lcd-validation/generate_pattern.py --raw が生成する。
  *
- * 実装は kart-splash-wl.c (実機検証済み) の描画部を差し替えたもの。 */
+ * 実装は splash-wl.c (実機検証済み) の描画部を差し替えたもの。 */
 #define _GNU_SOURCE
 #include <fcntl.h>
 #include <stdint.h>

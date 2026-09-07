@@ -5,33 +5,13 @@
 
 ## 実機(ベンチの eMMC)に残っている暫定状態
 
-- **falcon-rearm.service が hot-install**(2026-09-02): rootfs へ手で置いて enable
-  してある(動作は実機確認済み)。レシピ版(falcon-rearm)は kart-image に
-  組み込み済みで、次のイメージ焼き直し/OTA で正規化される
-- **検証中の手配布が多数**(2026-09-02 時点、いずれもツリーの最新ビルドと機能同等):
-  boot の Image/DTB/falcon.itb と rootfs のモジュール一式(GPU 削減後の
-  BUILD73 相当)、imx-boot(BUILD63 相当)、weston.ini の renderer=pixman
-  手編集。また GPU 削減の runtime 実験で rootfs から退避したライブラリ群は
-  復元/削除処理済み。GUI 特急レーンのユニット群 (seatd/weston/kmm/splash-wl) も
-  /etc 上書きで手載せ (ツリーへは反映済み・同内容)。
-  次のイメージ焼き直し/OTA で /etc 上書きごと完全に正規化される
-- **kmm 並行起動は正規化済み**(2026-09-03): app リポジトリ d32e66b
-  (waitForWaylandSocket)+ レシピの SRCREV/unit 更新でツリーに反映。
-  ボード上の手載せ(/usr/bin/kmm + /etc の unit 上書き、kmm.orig 残置)は
-  同内容なので、次の焼き直しで /etc 上書きと kmm.orig を掃除するだけ
-
-- **weston 13.0.1 を手載せ**(2026-09-07): weston 本体 + libweston-13 + モジュール一式を rootfs に
-  直接展開(12 系一式は `/data/weston12-backup.tar`、12 用パッチ版 kiosk-shell は `/data/kiosk-shell.so.orig`
-  が元)。kmm.service に検証用 drop-in `order.conf`(After=weston + sleep 0.3)が残っている。
-  カーネルは製品版(BOOTA の `falcon.itb` = g276209957d88)に戻してある。次のフルイメージ
-  焼き直し/OTA で正規化される。調査用の `/data/strace`、`/data/libdrm-atomic-dump.so` は
-  消してよい。weston.service は card0 直後版(#10、ツリーと同内容)を /etc に手載せ
-- **seed credit 前倒し(#13)を手載せ**(2026-09-07): `/etc/systemd/system/systemd-random-seed.service`
-  (kart-udev-slim の差し替え unit と同内容)、`/usr/lib/systemd/system/var-volatile-lib.service` の
-  Before=/WantedBy= から systemd-random-seed.service を sed で除去(volatile-binds bbappend と同内容)、
-  旧 drop-in は `/data/investigation/systemd-random-seed.service.d/` に退避(消してよい)。
-  次のフルイメージ焼き直し/OTA で正規化される。調査用の手載せ `kart-trace.service`(製品カーネルでは
-  tracefs 無しで no-op)も同時に消える
+- **2026-09-07 に両スロットをビルド済みイメージで正規化**(名前一掃後の
+  `kart-image-imx8mp-debix-emmc`、OTA で A/B とも書き換え、imx-boot も `uboot-update` で
+  更新、saved env は `ab_*` へ移行済み)。それまでの手載せ(weston 13、seed unit、
+  トレース unit、3 段パターン、/data の調査残骸 strace / libdrm-atomic-dump.so 等)は
+  rootfs 側は全て消えた。/data に残る `weston12-backup.tar` / `kiosk-shell.so.orig` /
+  `investigation/` / `strace` は消してよい
+- 暫定状態なし。以降の手載せはここに追記する
 
 ## 未解決
 
@@ -94,5 +74,14 @@
    **スプラッシュ中の電源断で起動不能**。デッドマンの落ち先 proper 経路でカーネルが
    console 切替直後に停止していた(SPL が稼働させたままの HDMI 電源ドメインを素の
    blk-ctrl が再シーケンスしてバスごと固まる)。修正 = U-Boot proper の DT fixup で
-   `kart,splash-active` を立てて養子縁組(u-boot.itb の差し替えのみ)。実経路 3/3。
+   `splash-active` を立てて養子縁組(u-boot.itb の差し替えのみ)。実経路 3/3。
    起動中の任意時刻での電源断スイープの結果は 04-falcon.md に追記。
+
+12. **OTA の rootfs dd 中に ssh が切れることがある**(2026-09-07、4 回中 2 回):
+   `ota-update.sh` の「rootfs -> /dev/mmcblk2p{5,6} (dd over ssh)」の途中で
+   `Connection reset by peer` / `Timeout, server not responding`。1 回目はその直後に
+   ボードが応答不能(ただし同時に SPL/カーネル契約不整合のハングが重なっており切り分け
+   不能)、2 回目はボードは生きたまま ssh だけ切断。成功時は 1.5GB を約 70s で書く。
+   RuntimeWatchdogSec=15 のハード WDT リセットか、eMMC 書き込み中の sshd/ネットワーク
+   の問題かは未特定。再現時はシリアルを並行記録して SPL バナーの有無(= リセットか否か)
+   を先に確定すること

@@ -1,7 +1,7 @@
 # XPI-iMX8MM bring up 記録
 
 Geniatech **XPI-iMX8MM**(NXP i.MX8M Mini、RPi 互換フォームファクタ SBC)に、
-kart の自作 [Yocto](00-glossary.md#g-yocto) イメージ(自作 [SPL](00-glossary.md#g-spl) / [U-Boot](00-glossary.md#g-u-boot) / カーネル 6.12)を載せるまでの
+自作 [Yocto](00-glossary.md#g-yocto) イメージ(自作 [SPL](00-glossary.md#g-spl) / [U-Boot](00-glossary.md#g-u-boot) / カーネル 6.12)を載せるまでの
 実機 bring up 全記録。**2026-08-10 に実施。**
 
 到達点(すべて実機で実証):
@@ -44,7 +44,7 @@ disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿し
 | [12-m4-standalone-bin-design.md](12-m4-standalone-bin-design.md) | M4 ファーム分離配布 — FIT loadable を使わず SPL がファイルとして読む(Yocto 非接触の M4 更新。実機検証済み) |
 
 関連: [../imx8mm-migration-design.md](../imx8mm-migration-design.md)(移行の設計判断)、
-`meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi-kart.dts`(XPI 用 [DT](00-glossary.md#g-dt))。
+`meta-kart/recipes-kernel-imx/linux/files/imx8mm-xpi.dts`(XPI 用 [DT](00-glossary.md#g-dt))。
 
 ---
 
@@ -54,7 +54,7 @@ disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿し
 2. **偵察** — UART と SSH でベンダ環境を調査し、DDR/eMMC/表示チップ/ピンを確定
 3. **BSP 解析** — ベンダ配布物(暗号化 zip は開けず、しかし `.sdcard` イメージから
    コンパイル済み DTB を carve → 逆コンパイル)で LT9611・ECSPI2・eMMC の実配線を採取
-4. **XPI 用 DTS 作成** — 採取した実配線で `imx8mm-xpi-kart.dts` を書く
+4. **XPI 用 DTS 作成** — 採取した実配線で `imx8mm-xpi.dts` を書く
 5. **netboot 環境** — 自作カーネルを eMMC に焼かず、TFTP + NFS root で試す仕組みを構築
 6. **SDP/UUU で自作 U-Boot 起動** — DDR 関門を自作 SPL で突破、UUU の SPL 後段
    ハンドオフを解決して `u-boot=>` に到達

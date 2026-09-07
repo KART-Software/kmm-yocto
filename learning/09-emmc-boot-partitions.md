@@ -36,7 +36,7 @@ user 領域を先頭から dd で埋めても boot0/boot1 は無傷 (逆も同�
 標準装備されている。ext_csd は mmc-utils (`mmc bootpart enable`,
 `mmc bootbus set`) で Linux から設定できる。
 
-## i.MX での 2 つのブート方式 (kart での対比)
+## i.MX での 2 つのブート方式 (この製品での対比)
 
 | | user 領域方式 (現行) | boot パーティション方式 (fast boot) |
 |---|---|---|

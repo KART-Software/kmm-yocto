@@ -6,10 +6,10 @@
 #   ./target-stage-setup.sh uninstall [root@host]
 #
 # install が行うこと:
-#  1. /boot/logo.bin を bootloader パターンの KLGO に交換 (原本は logo.bin.orig)
+#  1. /boot/logo.bin を bootloader パターンの LOGO に交換 (原本は logo.bin.orig)
 #     → SPL スプラッシュが bootloader パターンを表示する
 #  2. wl-image-view を /usr/bin へ、weston/gui パターン raw を /etc/lcdval へ
-#  3. kart-splash-wl.service を drop-in で wl-image-view (weston パターン) に差し替え
+#  3. splash-wl.service を drop-in で wl-image-view (weston パターン) に差し替え
 #  4. kmm.service を drop-in で wl-image-view (gui パターン) に差し替え
 #     (Type=notify → simple。GUI アプリの代わりにパターンが出る)
 #
@@ -24,13 +24,13 @@ DEPLOY=$HERE/../../build/tmp/deploy/images/imx8mp-debix
 case "$MODE" in
 install)
     # パターン素材を生成 (無ければ)
-    for f in out/bootloader.klgo out/weston.raw out/gui.raw; do
+    for f in out/bootloader.logo out/weston.raw out/gui.raw; do
         [ -f "$HERE/$f" ] || {
             echo "素材が無い: $f — generate_pattern.py で生成してから" >&2
             exit 1
         }
     done
-    scp -O "$DEPLOY/wl-image-view" "$HERE/out/bootloader.klgo" \
+    scp -O "$DEPLOY/wl-image-view" "$HERE/out/bootloader.logo" \
         "$HERE/out/weston.raw" "$HERE/out/gui.raw" "$BOARD:/tmp/" >/dev/null
 
     ssh "$BOARD" '
@@ -40,9 +40,9 @@ mkdir -p /etc/lcdval
 cp /tmp/wl-image-view /usr/bin/wl-image-view && chmod 755 /usr/bin/wl-image-view
 cp /tmp/weston.raw /tmp/gui.raw /etc/lcdval/
 
-mkdir -p /etc/systemd/system/kart-splash-wl.service.d
+mkdir -p /etc/systemd/system/splash-wl.service.d
 printf "[Service]\nExecStart=\nExecStart=/usr/bin/wl-image-view /etc/lcdval/weston.raw\n" \
-    > /etc/systemd/system/kart-splash-wl.service.d/lcdval.conf
+    > /etc/systemd/system/splash-wl.service.d/lcdval.conf
 mkdir -p /etc/systemd/system/kmm.service.d
 printf "[Service]\nType=simple\nExecStart=\nExecStart=/usr/bin/wl-image-view /etc/lcdval/gui.raw\n" \
     > /etc/systemd/system/kmm.service.d/lcdval.conf
@@ -50,7 +50,7 @@ systemctl daemon-reload
 
 mount -o remount,rw /boot
 [ -f /boot/logo.bin.orig ] || cp /boot/logo.bin /boot/logo.bin.orig
-cp /tmp/bootloader.klgo /boot/logo.bin
+cp /tmp/bootloader.logo /boot/logo.bin
 sync
 mount -o remount,ro /boot
 mount -o remount,ro /
@@ -60,9 +60,9 @@ uninstall)
     ssh "$BOARD" '
 set -e
 mount -o remount,rw /
-rm -f /etc/systemd/system/kart-splash-wl.service.d/lcdval.conf
+rm -f /etc/systemd/system/splash-wl.service.d/lcdval.conf
 rm -f /etc/systemd/system/kmm.service.d/lcdval.conf
-rmdir /etc/systemd/system/kart-splash-wl.service.d 2>/dev/null || true
+rmdir /etc/systemd/system/splash-wl.service.d 2>/dev/null || true
 rmdir /etc/systemd/system/kmm.service.d 2>/dev/null || true
 rm -rf /etc/lcdval /usr/bin/wl-image-view
 systemctl daemon-reload

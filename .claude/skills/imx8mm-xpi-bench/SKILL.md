@@ -83,9 +83,9 @@ ffmpeg -y -ss 3 -i rec.mkv -t 7 -vf "fps=3,scale=200:-1,tile=7x3:padding=2:color
   BootROM が SDP に入る → `lsusb` に **`1fc9:0134` (SE Blank M845S)** が見える。
 - **重要な制約: falcon 版 flash.bin は UUU で RAM 起動できない**。falcon SPL は SDP の
   SDPV ハンドシェイクを受けず、`SDP: boot -f flash.bin` を送っても SPL が走らない
-  (USB は 0134 のまま遷移せず/HID timeout)。`scripts/kart-falcon-bench.uuu` は動かない。
+  (USB は 0134 のまま遷移せず/HID timeout)。`scripts/falcon-bench.uuu` は動かない。
   → **UUU 経路は常に stock 退避版** `local/recovery/flash.bin-stock`
-  (`scripts/build-recovery-uboot.sh` で生成、`scripts/kart-boot.uuu` が参照)を使う。
+  (`scripts/build-recovery-uboot.sh` で生成、`scripts/boot.uuu` が参照)を使う。
 - **SDP は繰り返し試行で wedge する** (HID timeout)。詰まったら `dp100 cycle` で仕切り直し。
   1 電源投入 = 1 発勝負のつもりで。
 - **S1=eMMC のまま SDP に入る**(遠隔で S1 を触れない時): 稼働中 Linux から
@@ -103,7 +103,7 @@ OTA は rootfs + falcon.itb + env しか触らない。**SPL/U-Boot コード = 
 # 2. stock U-Boot を RAM 起動しつつ autoboot を打鍵 (\n 連打) で止めて `=>` へ、
 #    そこで ums を送る (scratchpad/uboot_catch.py が自動化: プロンプト検出→コマンド送信)
 python3 scratchpad/uboot_catch.py /dev/ttyACM0 out.log 45 "ums 0 mmc 2" &
-uuu scripts/kart-boot.uuu
+uuu scripts/boot.uuu
 # 3. eMMC user 領域が /dev/sda で見える (MODEL="UMS disk", ~7.8GB。ホストの nvme0n1 とは別物 — 必ず確認)
 sudo blockdev --getsize64 /dev/sda        # 7.8GB なら eMMC
 # 4. imx-boot(=flash.bin) は 33KiB (A コピー) に置く。SIT=32KiB, B コピー=2081KiB (wic の align 参照)

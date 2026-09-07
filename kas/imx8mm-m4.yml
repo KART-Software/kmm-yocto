@@ -4,7 +4,7 @@
 #   (splash も付ける場合は falcon の後、m4 の前後どちらでも可)
 #
 # M4 ファームは falcon.itb に埋め込まず、boot パーティション上の独立ファイル
-# m4-fw.img (ヘッダ付きコンテナ: magic K4FW + size + CRC32 + version) にする。
+# m4-fw.img (ヘッダ付きコンテナ: magic M4FW + size + CRC32 + version) にする。
 # 起動チェーン:
 #   SPL  : m4-fw.img を FAT から読み検証 → DDR ステージング (0x46000000) へ
 #          (u-boot パッチ 0011。SPL は TCM 内で実行されるため TCM に直接
@@ -28,10 +28,10 @@ header:
 
 local_conf_header:
   m4: |
-    KART_M4:pn-kart-falcon-itb = "1"
+    FALCON_M4:pn-falcon-itb = "1"
     # SPL に m4-fw.img のファイル読み + 検証 + DDR ステージングを追加
-    SRC_URI:append:pn-u-boot-fslc = " file://0011-imx8mm-kart-spl-m4-file-read.patch"
+    SRC_URI:append:pn-u-boot-fslc = " file://0011-imx8mm-spl-m4-file-read.patch"
     # BL31 に M4 起動 (rsc ゼロ化 → DDR→TCML コピー → SRC 解除) を追加
-    SRC_URI:append:pn-imx-atf = " file://0001-imx8mm-kart-bl31-start-m4.patch"
-    # 既定の m4-fw.img (kart-falcon-itb が生成) を boot パーティションへ
+    SRC_URI:append:pn-imx-atf = " file://0001-imx8mm-bl31-start-m4.patch"
+    # 既定の m4-fw.img (falcon-itb が生成) を boot パーティションへ
     IMAGE_BOOT_FILES:append = " m4-fw.img"

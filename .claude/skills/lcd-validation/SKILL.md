@@ -28,7 +28,7 @@ description: LCD バリデーションシステム (tools/lcd-validation) の使
   (DRM 側 vblank->enabled が偽ならカウントされない。2026-09-07 に誤読と判明)。
   走査の生死を見たいときは weston.ini の background-color を変えて画面を見る。
 
-## クイックリファレンス (kart ベンチ)
+## クイックリファレンス (実機ベンチ)
 
 ```bash
 cd tools/lcd-validation          # venv 無ければ README のセットアップを実行
@@ -82,13 +82,13 @@ bootloader / weston / GUI の 3 ステージ全部をパターンに差し替え
 GUI だけ(あるいは一部だけ)wl-image-view に差し替える自己流は禁止。**
 
 ```bash
-./target-stage-setup.sh install    # logo.bin→KLGO、kart-splash-wl→weston.raw、kmm→gui.raw (可逆)
+./target-stage-setup.sh install    # logo.bin→LOGO、splash-wl→weston.raw、kmm→gui.raw (可逆)
 .venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
     --calibration out/calibration.json --power-cycle --duration 22
 ./target-stage-setup.sh uninstall  # 必ず戻す (製品状態に復帰)
 ```
 
-理由 (2026-09-04 に丸一日の計測が無効になった実例): kart-splash-wl(本物ロゴ)は
+理由 (2026-09-04 に丸一日の計測が無効になった実例): splash-wl(本物ロゴ)は
 退場しない常駐クライアントで、kiosk-shell は最後に map した surface を前面に置く。
 GUI だけパターンにすると、ロゴがパターンの上に乗った boot が「タグ 0 = 暗」と
 誤計上され、表示が生きているのに暗ブートと区別できない。3 段ともステージ別 ID の

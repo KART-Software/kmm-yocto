@@ -1,6 +1,6 @@
 # 06 — eMMC 初回書き込み(新品ボード → スタンドアロン起動)
 
-新品(またはベンダ環境)の XPI-iMX8MM を、**電源投入だけで kart イメージが
+新品(またはベンダ環境)の XPI-iMX8MM を、**電源投入だけで 自作イメージが
 [eMMC](00-glossary.md#g-emmc) から起動する状態**にするまでの手順書。
 
 一度この手順を通せば、以後の更新は `scripts/ota-update.sh`(SSH 経由の A/B OTA)
@@ -12,7 +12,7 @@ TFTP/NFS サーバも netboot イメージも不要で、authkey 注入と `part
 同じセッションで完結する。
 
 ```
-[PC] uuu (scripts/kart-boot.uuu) → XPI RAM 上で自作 U-Boot (eMMC 無関係)
+[PC] uuu (scripts/boot.uuu) → XPI RAM 上で自作 U-Boot (eMMC 無関係)
 u-boot=> ums 0 mmc 2 ───────────→ eMMC user 領域が PC の /dev/sdX に
 [PC] bmaptool + authkey ────────→ A/B wic 書き込み + tailscale 鍵
 u-boot=> mmc partconf ──────────→ ROM のブート元を user 領域へ
@@ -39,7 +39,7 @@ U-Boot が上がらない・USB が使えない等の深い状態からの復旧
 - `uuu`(NXP mfgtools。導入は [02-debug-setup.md](02-debug-setup.md))
 - `bmaptool`(Debian/Ubuntu: `sudo apt install bmap-tools`。無ければ dd でも可)
 - **stock U-Boot** — `./scripts/build-recovery-uboot.sh` で
-  `local/recovery/flash.bin-stock` を生成しておく(kart-boot.uuu が参照)。
+  `local/recovery/flash.bin-stock` を生成しておく(boot.uuu が参照)。
   falcon 運用 ([08-falcon.md](08-falcon.md)) の flash.bin は SDPV を受けず
   `u-boot=>` に到達できないため、**UUU 経路は常に stock 版**を使う
 
@@ -74,7 +74,7 @@ lsusb | grep 1fc9:0134    # NXP Semiconductors SE Blank M845S
 リポジトリ直下から:
 
 ```bash
-uuu -v scripts/kart-boot.uuu
+uuu -v scripts/boot.uuu
 # SDP: boot ... Okay / SDPV: write ... Okay / SDPV: jump ... Okay
 ```
 
@@ -100,7 +100,7 @@ lsblk -S | grep -i usb      # デバイス名を確認 (以下 sdX と表記)
 パーティションは公開されないので、**ベンダブートローダ(boot0)には触れようがない**。
 
 なお falcon 構成の wic は U-Boot A/B の**両面とも falcon** になる(既存ボードの
-「B 面 = stock」は kart-uboot-update の温存による)。新品ボードの最終復旧は
+「B 面 = stock」は uboot-update の温存による)。新品ボードの最終復旧は
 UUU + stock (`local/recovery/flash.bin-stock`) と覚えておくこと。
 
 ## Step 3 — wic を書き込む
@@ -115,7 +115,7 @@ sudo bmaptool copy \
   (bz2 のまま食わせられる)。USB 2.0 HS 越しなので生 dd よりだいぶ速い
 - bmaptool が無い場合: `bunzip2 -kc …-emmc.wic.bz2 | sudo dd of=/dev/sdX bs=4M`
 - 途中で失敗しても板はもともと空 — やり直すだけ
-- wic には [SIT](00-glossary.md#g-sit) / U-Boot A/B コピー / env(kart_slot)まで
+- wic には [SIT](00-glossary.md#g-sit) / U-Boot A/B コピー / env(ab_slot)まで
   rawcopy で全部入っている。書くのはこの 1 ファイルだけ
 
 ### Step 3.5 — tailscale authkey 注入(prod イメージのとき必須級)
@@ -129,14 +129,14 @@ echo 'tskey-auth-…' | sudo tee /mnt/tailscale.authkey
 sudo umount /mnt
 ```
 
-初回起動時に `kart-boot-mount.service` が BOOTA を `/boot` にマウントし、
+初回起動時に `boot-mount.service` が BOOTA を `/boot` にマウントし、
 `tailscale-autoconnect.service` が `tailscale up --ssh` で接続、成功したら
 鍵を自動削除する。失敗時は鍵を残して毎起動リトライするので、ネットが
 繋がった起動で自動回復する。
 
 鍵は admin console で **pre-approved・非 ephemeral** で発行すること
 (approval 待ちは `tailscale up` がブロック、ephemeral は切断で識別が消える)。
-複数台展開は reusable + タグ付き(例 `tag:kart`)にして ACL をタグで書く。
+複数台展開は reusable + タグ付き(例 `tag:kiosk`)にして ACL をタグで書く。
 
 なお**稼働中**ボードのスロット更新で注入する場合は
 `ota-update.sh --authkey <file>` を使う(boot コピーが書き込み先を
@@ -163,13 +163,13 @@ S1 を **eMMC(`0110 1010`)** にして電源投入。UART で確認:
 
 ```
 Trying to boot from MMC2          ← ROM が user 領域から SPL を読んだ
-KART: booting slot a (mmc 2:1)    ← wic に焼き込んだ A/B env が機能
+A/B: booting slot a (mmc 2:1)    ← wic に焼き込んだ A/B env が機能
 ```
 
 - dev イメージなら login プロンプトまで(実測 +15.4s、シリアル初バイト起点)
 - prod はシリアルログイン不可。健全性は tailnet 参加
   (`tailscale status | grep <ホスト名>`)→ Tailscale SSH で確認:
-  `kart-ab-status`(slot A / upgrade_available=0)、
+  `ab-status`(slot A / upgrade_available=0)、
   `systemctl is-active weston kmm can0-up`、`systemctl --failed` が空
 
 ## Step 6 — プロビジョニング(デバイス個体ごとに一度)
@@ -209,7 +209,7 @@ U-Boot は上がるが USB が使えない、eMMC の状態をデバイス上の
 netboot rootfs を `/srv/nfs/kart` に展開)、
 `./scripts/build.sh imx8mm --netboot` の成果物(flash.bin / Image / DTB /
 rootfs.tar.zst)を配置。焼く wic は NFS root 内に置く
-(`cp … /srv/nfs/kart/root/kart-emmc.wic`)。
+(`cp … /srv/nfs/kart/root/emmc.wic`)。
 
 Step 1 の `u-boot=>` から、以下を **1 コマンドずつプロンプト同期で** 流す
 (まとめ貼りはシリアル RX オーバーランで化ける — [04](04-pitfalls.md))。
@@ -223,7 +223,7 @@ setenv netmask 255.255.255.0
 setenv loadaddr 0x40480000
 setenv fdt_addr 0x43000000
 tftp ${loadaddr} Image
-tftp ${fdt_addr} imx8mm-xpi-kart.dtb
+tftp ${fdt_addr} imx8mm-xpi.dtb
 setenv bootargs 'console=ttymxc1,115200 root=/dev/nfs nfsroot=192.168.0.136:/srv/nfs/kart,vers=3,tcp ip=192.168.0.16:192.168.0.136:192.168.0.1:255.255.255.0:xpi:eth0:off rw rootwait net.ifnames=0'
 booti ${loadaddr} - ${fdt_addr}
 ```
@@ -233,16 +233,16 @@ login プロンプトまで到達したら(NFS root 特有の networkd mask な�
 (rootfs は NFS なので eMMC はどこもマウントされていない):
 
 ```sh
-dd if=/root/kart-emmc.wic of=/dev/mmcblk2 bs=1M
+dd if=/root/emmc.wic of=/dev/mmcblk2 bs=1M
 sync
 ```
 
 authkey を置くなら dd 直後に `mount /dev/mmcblk2p1 /mnt` して
 `tailscale.authkey` を書く(Step 3.5 と同じ内容)。あとは `poweroff` して
 Step 4(partconf)以降は本編と同じ — ただし netboot 経路では ums を
-使っていないので、もう一度 `uuu -v scripts/kart-boot.uuu` で `u-boot=>` に
+使っていないので、もう一度 `uuu -v scripts/boot.uuu` で `u-boot=>` に
 入り直してから `mmc partconf 2 0 7 0` を打つ。
 
 注意: U-Boot のネットワークは製品ビルドでは削られている
-(kart-uboot-slim.cfg)。netboot には `kas/imx8mm-netboot.yml` を合成した
+(uboot-slim.cfg)。netboot には `kas/imx8mm-netboot.yml` を合成した
 flash.bin が必要(`./scripts/build.sh imx8mm --netboot` はそれを含む)。

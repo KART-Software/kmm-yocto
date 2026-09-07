@@ -4,8 +4,8 @@
 # volatile overlay を待つ必要がない。むしろこの辺があると var-volatile.mount の
 # ジョブが udev coldplug のイベント洪水で遅れる boot (PID1 の run queue 飢餓) で
 # seed credit が weston/kmm の getrandom() より後ろに回り、GUI が +0.4s 遅れる。
-# systemd-random-seed 側は kart-udev-slim が /etc に置く丸ごと差し替え unit が
-# After=kart-data-mount.service で直結する (docs/imx8mp-debix-bringup/30-boot-time.md)。
+# systemd-random-seed 側は udev-slim が /etc に置く丸ごと差し替え unit が
+# After=data-mount.service で直結する (docs/imx8mp-debix-bringup/30-boot-time.md)。
 # drop-in では依存を消せないので upstream の do_compile の後で sed で剥がす。
 do_compile:append() {
     if [ -e var-volatile-lib.service ]; then

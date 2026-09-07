@@ -4,7 +4,7 @@
 依存ゼロ (pip 不要)。プロトコルは lessu/open_dp100 のリバースエンジニアリング
 結果 (DP100_Protocol.md + Rust 実装 frame.rs/data.rs) を独自に再実装したもの。
 
-用途: kart 実機の電源断/投入の自動化 (コールドブート計測、A/B フォールバック検証)。
+用途: 実機の電源断/投入の自動化 (コールドブート計測、A/B フォールバック検証)。
 
 フレーム (64B 固定, すべて little-endian):
   [0]=0xFB(送信)/0xFA(受信)  [1]=opcode  [2]=serial(0)  [3]=payload長

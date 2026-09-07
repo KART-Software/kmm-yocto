@@ -1,4 +1,4 @@
-# kmm-yocto — Kart Product Yocto Build (XPI-iMX8MM)
+# kmm-yocto — Yocto build (XPI-iMX8MM)
 
 Geniatech **XPI-iMX8MM**(NXP i.MX8M Mini、RPi 互換フォームファクタ SBC)向けの
 組み込み Linux イメージを Yocto (scarthgap) + kas-container で構築するプロジェクト。
@@ -103,13 +103,13 @@ kas-container build \
 | `imx8mm.yml` | マシン | `imx8mm-xpi` machine、meta-freescale、NXP EULA |
 | `imx8mm-dev.yml` | 組み合わせ | base + imx8mm + debug-tweaks |
 | `imx8mm-prod.yml` | 組み合わせ | base + imx8mm(debug-tweaks なし = Tailscale SSH のみ) |
-| `imx8mm-emmc-ab.yml` | フラグメント | eMMC A/B WKS(`kart-imx8mm-emmc-ab.wks`) |
+| `imx8mm-emmc-ab.yml` | フラグメント | eMMC A/B WKS(`imx8mm-emmc-ab.wks`) |
 | `imx8mm-falcon.yml` | オーバーレイ | SPL 直カーネル起動(falcon.itb)。[08-falcon](docs/imx8mm-xpi-bringup/08-falcon.md) |
 | `imx8mm-splash.yml` | オーバーレイ | SPL スプラッシュ + シームレス引き継ぎ。[11-splash](docs/imx8mm-xpi-bringup/11-splash-optimization.md) |
 | `imx8mm-netboot.yml` | オーバーレイ | TFTP/NFS root(bring-up 用) |
 
 アプリ(C++ 版 kart-machine-manager)は**常にイメージに含まれる**。レシピ
-(`meta-kart/recipes-app/kart-machine-manager/`)が GitHub から `SRCREV` 固定で
+(`meta-kart/recipes-app/kmm/`)が GitHub から `SRCREV` 固定で
 取得しクロスビルドする。アプリ更新 = `SRCREV` を上げて再ビルド。
 
 > **`.env`(秘密設定)はイメージに焼き込まれない。** `kmm.service` は
@@ -145,7 +145,7 @@ kas-container build \
   - **rootfs/boot の A/B**:p2/p3=BOOTA/B、p5/p6=rootA/B、p7=data(共有)。
     OTA が非アクティブ面へ書き、`upgrade_available=1` で 1 回だけ試起動
   - **U-Boot(flash.bin)の A/B**:BootROM の SIT 機構で A 面 IVT 不正時に
-    B 面へ自動フォールバック。`kart-uboot-*` ツールが管理
+    B 面へ自動フォールバック。`uboot-*` ツールが管理
     ([04-pitfalls](docs/imx8mm-xpi-bringup/04-pitfalls.md) #19)
 
 ## 初回書き込み(新品ボード → 自立起動)
@@ -161,7 +161,7 @@ eMMC が空の新品は **UUU(SDP)** で書き込む。S1 を Serial Download �
 > dd する。詳細は `imx8mm-xpi-bench` スキルと 06-emmc-flash。
 
 bootloader(flash.bin)自体の更新は OTA では配れない(eMMC 33KiB 固定位置)。
-稼働機では `kart-uboot-update <flash.bin>`(A=新版 / B=前版、header-last 書き込み、
+稼働機では `uboot-update <flash.bin>`(A=新版 / B=前版、header-last 書き込み、
 電源断で ROM が前版へ自動フォールバック)を使う。
 
 ### 遠隔で SDP に入る(S1 を触れないとき)
@@ -188,16 +188,16 @@ IMAGE_DIR=build/tmp/deploy/images/imx8mm-xpi \
 デバイス側コマンド:
 
 ```bash
-kart-ab-status      # 現用スロットの確認
-kart-ab-commit      # 試起動した面の手動 commit
-kart-uboot-status   # U-Boot A/B の起動元・状態
+ab-status      # 現用スロットの確認
+ab-commit      # 試起動した面の手動 commit
+uboot-status   # U-Boot A/B の起動元・状態
 ```
 
 ## Cortex-M4 / CAN ゲートウェイ
 
 MCP2515(ECSPI2)は **Cortex-M4 に譲渡**してあり、M4 上の CAN ゲートウェイ
 ファーム(`can-gw`、Zephyr)が rpmsg でカーネルの candev ドライバ
-(`kart-rpmsg-can`)と繋がり、通常の `can0`(SocketCAN)として見える。
+(`rpmsg-can`)と繋がり、通常の `can0`(SocketCAN)として見える。
 
 - カーネルは `clk-imx8mm.mcore_booted=1`(machine conf)で M4 のルートクロックを維持
 - M4 ファームは別リポジトリ [data-logger-zephyr](https://github.com/KART-Software/data-logger-zephyr)(Zephyr west workspace)
@@ -284,12 +284,12 @@ kmm-yocto/
 │   ├── conf/machine/imx8mm-xpi.conf
 │   ├── recipes-core/images/kart-image.bb
 │   ├── recipes-bsp-imx/           # SPL/U-Boot パッチ、falcon.itb、SIT/env
-│   ├── recipes-kernel-imx/        # 6.12 config、DTS、kart-rpmsg-can (candev)
-│   ├── recipes-app/kart-machine-manager/   # C++/Qt6 GUI
+│   ├── recipes-kernel-imx/        # 6.12 config、DTS、rpmsg-can (candev)
+│   ├── recipes-app/kmm/   # C++/Qt6 GUI
 │   ├── recipes-graphics/weston/   # kiosk 設定
 │   ├── recipes-connectivity/tailscale/
-│   ├── recipes-support/kart-ab-tools/       # A/B・U-Boot A/B 管理ツール
-│   └── wic/kart-imx8mm-emmc-ab.wks
+│   ├── recipes-support/ab-tools/       # A/B・U-Boot A/B 管理ツール
+│   └── wic/imx8mm-emmc-ab.wks
 ├── m4/                            # M4 ベアメタル雛形・診断 ELF (clk-test 等)
 ├── learning/                     # M4/ブート低レベル知識の教材
 ├── docs/imx8mm-xpi-bringup/      # bring-up 全記録(下記索引)
