@@ -42,8 +42,8 @@
 + * バッファ) を超えると DDR FW 末尾が切られ Training FAILED になるため。
 + * 復帰は RLE 圧縮ロゴで行う (docs 予定)。 */
 +
-+/* FB は DRAM バンク 0 の末尾 2MB (spl.c の fixups が /memory から隠す)。
-+ * 800x480 XRGB8888 = 1.5MB */
++/* FB は 0xBFE00000 (bank0 3GB の中ほど)。カーネル側は dts の reserved-memory
++ * splash-fb@bfe00000 (2MB, no-map) が隠す。800x480 XRGB8888 = 1.5MB */
 +#define SPLASH_FB_ADDR		0xBFE00000UL
 +#define SPLASH_W		800
 +#define SPLASH_H		480
@@ -469,7 +469,7 @@
  
  #define FALCON_SHIM_ADDR	0x40200000UL	/* ATF PLAT_NS_IMAGE_OFFSET */
  #define FALCON_KERNEL_ADDR	0x40400000UL	/* falcon.its の load/entry と一致必須 */
-@@ -278,14 +284,48 @@
+@@ -278,14 +284,50 @@
  	 * u-boot proper (u-boot.itb、os="u-boot") は素通しする。falcon.itb の
  	 * atf ノードは os 無し (8MM 実測で os=255)。
  	 */
@@ -487,12 +487,14 @@
  			   (ulong)fdt + fdt_totalsize(fdt) + 64);
  
 +	/* スプラッシュ点灯中: カーネルへ通知 (seamless takeover パッチの
-+	 * 発動条件) + FB の 2MB を /memory から隠す (LCDIF が走査中の領域を
-+	 * カーネルに使わせない)。バンク末尾を切り詰めるだけなので
-+	 * spl_fixup_fdt が書いた /memory を直接編集する */
++	 * 発動条件)。/memory は SPL の bi_dram (dram_init_banksize、3GB + 1GB) で
++	 * 書き直す。以前は bank0 を 2GB-2MB / bank1 を 2GB と決め打ちしていて
++	 * 存在しない上位 1GB をカーネルに見せていた (2026-09-08)。FB の 2MB は
++	 * dts の reserved-memory (splash-fb@bfe00000, no-map) が隠す */
 +	if (spl_splash_active()) {
 +		int off;
 +
++		dram_init_banksize();
 +		fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
 +		off = fdt_path_offset(fdt, "/chosen");
 +		if (off >= 0)
@@ -501,12 +503,12 @@
 +		if (off < 0)
 +			off = fdt_subnode_offset(fdt, 0, "memory");
 +		if (off >= 0) {
-+			/* bank0 = 0x40000000 + 2GB を 2MB 減らす */
++			/* 実 DRAM 構成 (PHYS_SDRAM*: 3GB + 1GB)。FB は dts の reserved-memory が隠す */
 +			u64 regs[4] = {
-+				cpu_to_fdt64(0x40000000ULL),
-+				cpu_to_fdt64(0x80000000ULL - SZ_2M),
-+				cpu_to_fdt64(0x100000000ULL),
-+				cpu_to_fdt64(0x80000000ULL),
++				cpu_to_fdt64(gd->bd->bi_dram[0].start),
++				cpu_to_fdt64(gd->bd->bi_dram[0].size),
++				cpu_to_fdt64(gd->bd->bi_dram[1].start),
++				cpu_to_fdt64(gd->bd->bi_dram[1].size),
 +			};
 +			fdt_setprop(fdt, off, "reg", regs, sizeof(regs));
 +		}

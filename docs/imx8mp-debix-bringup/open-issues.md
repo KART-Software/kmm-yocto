@@ -11,12 +11,20 @@
   トレース unit、3 段パターン、/data の調査残骸 strace / libdrm-atomic-dump.so 等)は
   rootfs 側は全て消えた。/data に残る `weston12-backup.tar` / `kiosk-shell.so.orig` /
   `investigation/` / `strace` は消してよい
-- 暫定状態なし。以降の手載せはここに追記する
+- **2026-09-08: falcon の /memory 修正入りイメージで両スロットを OTA 正規化**
+  (カーネル ge32abde26f10 + 一致モジュール、imx-boot A copy = 修正版 SPL、B copy は前版)。
+  暫定状態なし。/data/memtest(memtester と結果ログ)は消してよい
 
 ## 未解決
 
 1. **DDR 3732MTS のマージン**: ベンダーは同じ DRAM を 3264MTS で運用している。室温の
    パターンループ 20 周(128GB)は化けゼロだが、温度をかけた長時間試験は未実施。
+   2026-09-08: Linux 上の memtester 2000M 1 周(全 16 パターン、33 分)エラー 0。
+   続けて **memtester 3000M × 2 周 + CPU 3 コア常時負荷(SoC 温度 79〜81℃、
+   1 時間 40 分)でもエラー 0・リセットなし**。ベンチで出せる温度域(ヒータ無し、
+   SoC 内蔵センサ)ではマージン問題は見えない。工業温度域(105℃)や低温は未試験。
+   それ以前に「memtester 開始 20s でリセット」があったが DDR ではなく falcon の
+   /memory 決め打ちバグ(04-falcon.md「DRAM バンクと /memory」)だった。
    製品化前に NXP RPA + DDR Tool で本機用に正規生成する(NXP アカウントが必要)か、
    3264MTS 版の単一表を作って比較する
 2. **U-Boot の ADV7535 プローブがカーネル HDMI TX を殺す機序**: 未特定

@@ -27,6 +27,11 @@ SRC_URI:append:imx8mp-debix = " file://spl_splash_logo.h"
 # ロゴ画像は不要。SPL_SPLASH は splash ビルドの印 (kas/imx8mm-splash.yml が "1"):
 # mem=2042M と /chosen splash-active を付けるかの分岐に使う
 SPL_SPLASH ?= ""
+# SPL の FB をカーネルから隠す手段。8MM (2GB) は mem= で上位 6MB を切る。
+# 8MP は DRAM が 2 バンク 4GB で mem= が壊す (存在しない上位 1GB を残す) ため、
+# dts の reserved-memory (splash-fb@bfe00000, no-map) で隠す → 空
+SPLASH_FB_HIDE_ARG ?= " mem=2042M"
+SPLASH_FB_HIDE_ARG:imx8mp-debix = ""
 
 # FALCON_M4 は M4 ビルドの印 (kas/imx8mm-m4.yml が "1")。m4-fw.bin をヘッダ付き
 # コンテナ m4-fw.img (magic M4FW + size + CRC32 + version) に包んで deploy し、
@@ -123,14 +128,14 @@ do_compile() {
     # 描く。よって falcon.itb に splash loadable (ロゴ画像) は載せない。
     # 旧方式 (帯 raw を FIT で FB へ直接ロード) は表示 DMA 稼働中の FB 書きが
     # ~4MB/s と激遅く FIT ロードを膨らませていた — RUN 前描画でこれを解消。
-    # mem=2042M で FB 領域 (上位 6MB) をカーネルから隠す (reserved-memory の
-    # 代わり。fdtput は空プロパティ no-map を作れないため簡潔なこちらを採用)。
+    # FB 領域はカーネルから隠す: 8MM は mem=2042M (上位 6MB を切る)、8MP は
+    # dts の reserved-memory (SPLASH_FB_HIDE_ARG のコメント参照)。
     # clk/pd_ignore_unused: SPL が立ち上げた表示クロック/電源ドメインを
     # カーネルの「未使用掃除」から守る (養子縁組パッチ 0004/0005 の補完)
     loadables='"kernel"'
     splash_node=""
     if [ -n "${SPL_SPLASH}" ]; then
-        splash_args=" mem=2042M clk_ignore_unused pd_ignore_unused"
+        splash_args="${SPLASH_FB_HIDE_ARG} clk_ignore_unused pd_ignore_unused"
     else
         splash_args=""
     fi

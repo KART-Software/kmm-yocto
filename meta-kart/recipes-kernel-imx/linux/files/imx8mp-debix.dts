@@ -25,6 +25,32 @@
 
 / {
 	model = "Polyhex DEBIX Infinity";
+
+	/*
+	 * DEBIX Infinity D4E32 の DRAM は 4GB = 3GB @0x40000000 + 1GB @0x100000000
+	 * (U-Boot の PHYS_SDRAM/PHYS_SDRAM_2 と同じ)。EVK dts は 6GB (3GB + 3GB) を
+	 * 宣言しており、U-Boot proper 経由なら fdt_fixup_memory_banks が直すが、
+	 * falcon 経路は DTB をそのまま使うため、上位 1GB (0x140000000〜) が存在しない
+	 * RAM としてカーネルに見えていた (memtester 2GB でバス停止 → WDT リセット、
+	 * 2026-09-08)。ここで正しい 2 バンクに固定する。
+	 */
+	memory@40000000 {
+		reg = <0x0 0x40000000 0 0xc0000000>,
+		      <0x1 0x00000000 0 0x40000000>;
+	};
+
+	reserved-memory {
+		/*
+		 * SPL スプラッシュのフレームバッファ (0005 パッチの SPLASH_FB_ADDR、
+		 * 800x480x4 = 1.5MB)。カーネルは表示を養子縁組して weston の初回 flip まで
+		 * この FB を走査し続けるので、no-map で触らせない (以前は falcon の
+		 * bootargs mem=2042M で隠していたが、それは 4GB 構成を壊す)。
+		 */
+		splash_fb: splash-fb@bfe00000 {
+			reg = <0x0 0xbfe00000 0 0x200000>;
+			no-map;
+		};
+	};
 };
 
 &flexcan1 {

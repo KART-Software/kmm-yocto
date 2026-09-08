@@ -53,6 +53,27 @@ NOTICE:  BL31: v2.10.0 ...        ← proper のバナー無しでカーネル�
 | 0x43100000 | DTB | falcon.its の fdt load |
 | 0x48000000 | FIT メタデータ退避 | 落とし穴①対策(パッチで固定) |
 | 0x4A000000 | SPL ヒープ | 落とし穴②対策(cfg で移動) |
+| 0xBFE00000 | SPL スプラッシュ FB(2MB) | 0005 パッチ SPLASH_FB_ADDR。dts の reserved-memory `splash-fb@bfe00000`(no-map)でカーネルから隠す |
+
+### DRAM バンクと /memory(2026-09-08 修正)
+
+DEBIX D4E32 の 4GB は **3GB @0x40000000 + 1GB @0x100000000**(U-Boot の PHYS_SDRAM /
+PHYS_SDRAM_2、SoC のアドレス空間で 0xC0000000 まで + 4GB 境界の上)。falcon 経路では
+SPL の `spl_perform_fixups()` が /memory を書くが、8MP スプラッシュパッチはこれを
+「2GB-2MB @0x40000000 + 2GB @0x100000000」と決め打ちしていた(8MM の 2GB 設計の名残)。
+結果、カーネルは存在しない 0x140000000〜0x17FFFFFFF の 1GB を RAM と信じ、実在する
+0xC0000000〜0xFFFFFFFF の 1GB を使わず、memtester 2GB がその領域に触った瞬間にバスが
+止まり WDT → PMIC 経由リセット(SRSR は POR のみ、シリアルに panic なし、DP100 の
+出力は 5.106V/0.5A で無傷)。通常運用ではメモリ使用量が少なく踏まないが、OTA の
+rootfs dd(1.5GB のページキャッシュ)で ssh が切れた open-issues #12 も同根の疑い。
+U-Boot proper 経路は `fdt_fixup_memory_banks` が正しく 3GB+1GB を書くため無症状だった。
+
+修正: SPL は `dram_init_banksize()` の bi_dram(3GB+1GB)で /memory を書き、FB の
+2MB は dts の reserved-memory(no-map)で隠す(旧 `mem=2042M` は 8MP では廃止、
+falcon-itb の `SPLASH_FB_HIDE_ARG`)。修正後の `/proc/iomem` は 0x40000000〜0xFFFFFFFF
+と 0x110000000〜0x13FFFFFFF(0x100000000〜 の 256MB は EVK dts の gpu_reserved)、
+memtester 2000M 1 周(33 分)エラー 0・リセットなし。0xC0000000〜0xFFFFFFFF の 1GB は
+EVK dts の `linux,cma`(960MB)が占めるが、VPU/GPU 不使用なので縮められる(未着手)。
 
 ## 落とし穴(すべて実機で踏んで特定)
 
