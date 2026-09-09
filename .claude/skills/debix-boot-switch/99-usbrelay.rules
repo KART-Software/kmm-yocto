@@ -1,0 +1,11 @@
+# DEBIX ブートモード DIP 切替用 USB リレー (dcttech USBRelay, 16c0:05df) の
+# hidraw ノードを一般ユーザから開けるようにし、安定名 /dev/usbrelay を張る。
+# 既定の hidraw は root 専用 (0600) で毎回 sudo が要るのを避けるため。
+#
+# インストール:
+#   sudo cp 99-usbrelay.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+#   ls -l /dev/usbrelay
+#
+# 操作は同ディレクトリの bootsel.py (status / emmc / uuu / sd)。
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="05df", SYMLINK+="usbrelay", GROUP="plugdev", MODE="0660"
