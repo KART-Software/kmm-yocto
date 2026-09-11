@@ -16,6 +16,7 @@ SRC_URI = " \
     file://cpu-weight-gui.conf \
     file://cpu-weight-noise.conf \
     file://noise-defer.conf \
+    file://udev-trigger-after-seed.conf \
 "
 
 # 起動時 CPU 配分: GUI チェーンを優遇し、ノイズ系を絞る (conf のコメント参照)
@@ -57,6 +58,10 @@ do_install() {
         install -m 0644 ${WORKDIR}/noise-defer.conf \
             ${D}${systemd_system_unitdir}/$u.d/noise-defer.conf
     done
+    # coldplug を seed 後へ (eMMC の取り合いで起動時間が二峰になるのを防ぐ。conf のコメント参照)
+    install -d ${D}${systemd_system_unitdir}/systemd-udev-trigger.service.d
+    install -m 0644 ${WORKDIR}/udev-trigger-after-seed.conf \
+        ${D}${systemd_system_unitdir}/systemd-udev-trigger.service.d/after-seed.conf
 }
 
 FILES:${PN} = " \
@@ -65,4 +70,5 @@ FILES:${PN} = " \
     ${systemd_system_unitdir}/dbus.service.d/dbus-defer.conf \
     ${systemd_system_unitdir}/*.service.d/cpu-weight.conf \
     ${systemd_system_unitdir}/*.service.d/noise-defer.conf \
+    ${systemd_system_unitdir}/systemd-udev-trigger.service.d/after-seed.conf \
 "
