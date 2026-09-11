@@ -71,13 +71,10 @@ FALCON_KERNEL_ADDR = "0x40400000"
 FALCON_FDT_ADDR = "0x43100000"
 FALCON_UBOOT_ADDR = "0x40200000"
 
-# extlinux と同じカーネル引数系 (machine conf の UBOOT_EXTLINUX_KERNEL_ARGS を共有)
-# clk_ignore_unused: falcon(=U-Boot proper を飛ばす)では M7 が自前で立てた
-# ペリフェラルクロック(CAN1 root 等)に Linux 側コンシューマが無いため、
-# Linux の clk_disable_unused が「未使用」として掃除してしまう(実測: falcon で
-# M7 の FlexCAN が動かず can0 RX=0。can1 クロック root が 0 に戻される)。
-# M-core が占有するクロックを保護するため無条件で付ける(splash 有無に非依存)。
-FALCON_BOOTARGS_COMMON = "console=ttymxc1,115200 clk_ignore_unused ${UBOOT_EXTLINUX_KERNEL_ARGS}"
+# extlinux と同じカーネル引数系 (machine conf の UBOOT_EXTLINUX_KERNEL_ARGS を共有)。
+# M コアのクロック保護 (clk_ignore_unused) は falcon だけでなく proper/extlinux 経路にも
+# 要るので、ここではなく kas/imx8mp-m7.yml が UBOOT_EXTLINUX_KERNEL_ARGS に付ける
+FALCON_BOOTARGS_COMMON = "console=ttymxc1,115200 ${UBOOT_EXTLINUX_KERNEL_ARGS}"
 
 # falcon は U-Boot proper の ft_system_setup (ヒューズ由来の DT fixup) を通らない。
 # proper が実機で無効化しているノード (i.MX8MP Quad Lite = VPU/NPU 非搭載) を

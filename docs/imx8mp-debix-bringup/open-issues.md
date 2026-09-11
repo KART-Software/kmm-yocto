@@ -37,13 +37,6 @@
    #12〜#14 で再計測済み
 5. **uuu 標準フロー(emmc_all)の再検証**: fastboot 段は未検証。SPL/imx-boot の更新は
    Linux からの dd、または 04-falcon.md のリカバリ経路(tftp)で運用中
-6a. **M7 が warm reboot 後に 1 回だけ黙った(要観察、2026-09-11)**: OTA の tryboot(`reboot`)で slot B に
-   上がった直後、rproc は attached・rpmsgcan0 も生えたが M7 の RAM console が
-   「ept created, waiting for Linux peer」の次行「can」で途切れ、Linux からの制御メッセージを受けず
-   CAN が始まらなかった(rx 0)。直後の cold ×2 / warm ×1 では再現せず(started=1、受信正常)。
-   疑い: BL31 start_m7 が **稼働中の M7 を止めずに ITCM を上書き**している(warm reset で M7 は
-   リセットされない前提なら、コピー前に SRC で M7 を reset に落とすべき)。再現したら BL31 側で
-   NON_SCLR_RST を立ててからコピーする修正を入れる
 6. **M7**: falcon 統合まで実機動作(01-m7.md「falcon 統合」。BL31 起動 → Linux attach →
    rpmsgcan0 で外部 CAN 受信 → kmm 表示)。`kas/imx8mp-m7.yml` + data-logger-zephyr dev/imx8mp-m7。
    残りは CAN を M7 に持たせるかの設計判断と、BL31 diag NOTICE の扱い(現状 1 行)。
