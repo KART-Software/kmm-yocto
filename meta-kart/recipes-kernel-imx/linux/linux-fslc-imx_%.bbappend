@@ -16,8 +16,8 @@ LINUX_VERSION_EXTENSION = "-fslc"
 
 SRC_URI:append:mx8mm-generic-bsp = " \
     file://can.cfg \
-    file://imx8mm-evk-kart.dts \
-    file://imx8mm-xpi-kart.dts \
+    file://imx8mm-evk-bench.dts \
+    file://imx8mm-xpi.dts \
     file://display.cfg \
     file://slim-imx-arch.cfg \
     file://slim-imx.cfg \
@@ -31,10 +31,10 @@ SRC_URI:append:mx8mm-generic-bsp = " \
     file://0003-drm-lontium-lt9611-reduce-enable-settle-delay.patch \
 "
 
-KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-kart.dtb freescale/imx8mm-xpi-kart.dtb"
+KERNEL_DEVICETREE:append:mx8mm-generic-bsp = " freescale/imx8mm-evk-bench.dtb freescale/imx8mm-xpi.dtb"
 
 do_configure:prepend:mx8mm-generic-bsp() {
-    cp ${WORKDIR}/imx8mm-evk-kart.dts ${WORKDIR}/imx8mm-xpi-kart.dts ${S}/arch/arm64/boot/dts/freescale/
+    cp ${WORKDIR}/imx8mm-evk-bench.dts ${WORKDIR}/imx8mm-xpi.dts ${S}/arch/arm64/boot/dts/freescale/
 }
 
 # ===== 8MP (DEBIX Infinity, machine imx8mp-debix) =====
@@ -42,11 +42,12 @@ do_configure:prepend:mx8mm-generic-bsp() {
 # KERNEL_DEVICETREE への追加は machine conf (imx8mp-debix.conf) 側で行う。
 SRC_URI:append:imx8mp-debix = " \
     file://imx8mp-debix.dts \
+    file://imx8mp-debix-m7.dts \
     file://edid-firmware.cfg \
     file://can-builtin.cfg \
     file://slim-imx8mp.cfg \
 "
 
 do_configure:prepend:imx8mp-debix() {
-    cp ${WORKDIR}/imx8mp-debix.dts ${S}/arch/arm64/boot/dts/freescale/
+    cp ${WORKDIR}/imx8mp-debix.dts ${WORKDIR}/imx8mp-debix-m7.dts ${S}/arch/arm64/boot/dts/freescale/
 }

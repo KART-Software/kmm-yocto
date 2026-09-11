@@ -1,0 +1,32 @@
+# Cortex-M7 オーバーレイ (DEBIX) — imx8mp-falcon.yml の後ろに付ける:
+#
+#   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml:kas/imx8mp-m7.yml
+#
+# カーネル DT に cm7 ノード + 共有メモリを持つ imx8mp-debix-m7.dtb を falcon.itb /
+# extlinux に選び、Linux 側に rpmsg-can (rpmsgcan0) を入れる。M7 ファームは boot
+# パーティションの m7-fw.img から SPL/BL31 が起動する (下記)。開発イテレーションは
+# /lib/firmware に ELF を置いて /sys/class/remoteproc/remoteproc0 から start
+# (稼働中の M7 は stop → start で差し替わる)。
+# 調査: docs/imx8mp-debix-bringup/01-m7.md
+header:
+  version: 14
+local_conf_header:
+  m7: |
+    # レシピ/machine conf の :imx8mp-debix 代入は OVERRIDES 上 pn- より後ろで勝つため、
+    # forcevariable で上書きする (falcon-itb.bb の FALCON_DTB:imx8mp-debix、
+    # imx8mp-debix.conf の UBOOT_EXTLINUX_FDT:default)
+    FALCON_DTB:forcevariable = "imx8mp-debix-m7.dtb"
+    UBOOT_EXTLINUX_FDT:default:forcevariable = "../imx8mp-debix-m7.dtb"
+    IMAGE_INSTALL:append = " rpmsg-can"
+    # kmm が読む CAN は M7 経由の rpmsgcan0 (Linux 側 FlexCAN2 は can0 のまま残る)。
+    # can0-up.service で上げる IF を差し替え、kmm 側は /data/kmm.env の
+    # CAN_INTERFACE=rpmsgcan0 で選ぶ
+    CAN_IFACE:pn-can-setup = "rpmsgcan0"
+    # falcon 統合 (8MM の kas/imx8mm-m4.yml と同型): m7-fw.img を boot パーティションに
+    # 置き、SPL が検証 → DDR ステージング、BL31 が M7 ルートクロック起動 + ITCM 配置 +
+    # CPUWAIT 解除。Linux は稼働中 M7 に attach (imx_rproc が SIP STARTED で検出)。
+    # 実機で can-gw まで動作確認済み (01-m7.md「falcon 統合」)。
+    FALCON_M7:pn-falcon-itb = "1"
+    SRC_URI:append:pn-u-boot-imx = " file://0007-imx8mp-debix-spl-m7-file-read.patch"
+    SRC_URI:append:pn-imx-atf = " file://0001-imx8mp-bl31-start-m7.patch"
+    IMAGE_BOOT_FILES:append = " m7-fw.img"

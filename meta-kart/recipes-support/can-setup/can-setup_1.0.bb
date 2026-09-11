@@ -11,6 +11,11 @@ SRC_URI = " \
 
 inherit systemd
 
+# 上げる CAN netdev。既定は Linux 自身の CAN コントローラ (can0)。M コアの CAN
+# ゲートウェイを使う構成 (kas/imx8mp-m7.yml) は rpmsgcan0 に差し替える。
+# ユニット名 (can0-up.service) は kmm.service の Wants から参照されるので固定。
+CAN_IFACE ?= "can0"
+
 RDEPENDS:${PN} = "iproute2"
 
 do_install() {
@@ -21,10 +26,12 @@ do_install() {
     # Default config
     install -d ${D}${sysconfdir}/default
     install -m 0644 ${WORKDIR}/can0.default ${D}${sysconfdir}/default/can0
+    sed -i 's/^IFACE=.*/IFACE=${CAN_IFACE}/' ${D}${sysconfdir}/default/can0
 
     # systemd service
     install -d ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/can0-up.service ${D}${systemd_system_unitdir}/can0-up.service
+    sed -i 's/@CAN_IFACE@/${CAN_IFACE}/g' ${D}${systemd_system_unitdir}/can0-up.service
 }
 
 SYSTEMD_SERVICE:${PN} = "can0-up.service"

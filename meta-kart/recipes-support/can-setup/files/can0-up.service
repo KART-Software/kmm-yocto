@@ -1,7 +1,7 @@
 [Unit]
-Description=Bring up CAN0 interface
-After=sys-subsystem-net-devices-can0.device
-BindsTo=sys-subsystem-net-devices-can0.device
+Description=Bring up CAN interface @CAN_IFACE@
+After=sys-subsystem-net-devices-@CAN_IFACE@.device
+BindsTo=sys-subsystem-net-devices-@CAN_IFACE@.device
 DefaultDependencies=no
 
 [Service]
@@ -9,7 +9,7 @@ Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=/etc/default/can0
 ExecStart=/usr/sbin/can0-up.sh
-ExecStop=/sbin/ip link set can0 down
+ExecStop=/sbin/ip link set @CAN_IFACE@ down
 
 [Install]
 WantedBy=multi-user.target

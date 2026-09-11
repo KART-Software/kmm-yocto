@@ -94,7 +94,7 @@ get_authkey() {
 
 # Write the auth key to the active slot's boot partition (label=BOOTA) of the
 # flashed device. autoboot.txt ships with boot_partition=2, so a freshly
-# flashed card always boots slot A; kart-boot-mount.service then mounts BOOTA
+# flashed card always boots slot A; boot-mount.service then mounts BOOTA
 # on /boot, where tailscale-autoconnect.sh looks for the key.
 inject_tailscale_key() {
     local device="$1"
@@ -227,7 +227,7 @@ DATA_BACKUP=""
 if [ "$KEEP_DATA" = true ]; then
     dataname=$(lsblk -rno NAME,LABEL "$DEVICE" 2>/dev/null | awk '$2=="data"{print $1; exit}')
     if [ -n "$dataname" ]; then
-        DATA_BACKUP=$(mktemp /tmp/kart-data-backup.XXXXXX)
+        DATA_BACKUP=$(mktemp /tmp/data-backup.XXXXXX)
         trap '[ -n "$DATA_BACKUP" ] && rm -f "$DATA_BACKUP"' EXIT
         echo "==> Backing up data partition /dev/$dataname ($(lsblk -rno SIZE "/dev/$dataname" 2>/dev/null | head -1))..."
         dd if="/dev/$dataname" of="$DATA_BACKUP" bs=4M status=none conv=fsync

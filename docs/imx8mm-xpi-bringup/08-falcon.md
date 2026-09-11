@@ -27,11 +27,11 @@ BL33 = `0x40200000` へ x0〜x7=0 で盲目ジャンプする
 
 | ファイル | 役割 |
 |---|---|
-| `recipes-bsp-imx/u-boot/files/0001-imx8mm-kart-falcon-mode.patch` | SPL 改造本体(下記) |
-| `recipes-bsp-imx/u-boot/files/kart-falcon.cfg` | SPL_OS_BOOT/FS_FAT/ENV ほか config |
-| `recipes-bsp-imx/kart-falcon-itb/` | falcon-{a,b}.itb / u-boot.itb / args を生成・deploy |
+| `recipes-bsp-imx/u-boot/files/0001-imx8mm-falcon-mode.patch` | SPL 改造本体(下記) |
+| `recipes-bsp-imx/u-boot/files/falcon.cfg` | SPL_OS_BOOT/FS_FAT/ENV ほか config |
+| `recipes-bsp-imx/falcon-itb/` | falcon-{a,b}.itb / u-boot.itb / args を生成・deploy |
 | `kas/imx8mm-falcon.yml` | 上記を有効化するオーバーレイ(通常ビルド無影響) |
-| `scripts/kart-falcon-bench.uuu` | eMMC 無書き込みの RAM ベンチ用 |
+| `scripts/falcon-bench.uuu` | eMMC 無書き込みの RAM ベンチ用 |
 
 パッチ内容:
 - `spl_start_uboot()`: env(eMMC 4MiB)を読み、`upgrade_available=1`(OTA 試行中)
@@ -49,7 +49,7 @@ BL33 = `0x40200000` へ x0〜x7=0 で盲目ジャンプする
 ## A/B・OTA との統合(重要)
 
 - **スロット選択 = MBR bootable フラグ**(`SYS_MMCSD_FS_BOOT_PARTITION=-1`)。
-  slot a → p1、slot b → p2。`kart-ab-commit` が env 確定と同時にフラグを
+  slot a → p1、slot b → p2。`ab-commit` が env 確定と同時にフラグを
   付け替える(dd による MBR 512B 再構成 + 読み戻し検証。busybox 制約対応済み)。
   初回イメージは wks の `--active` で p1 に付与
 - **OTA 試行は従来どおり U-Boot proper が担当**: `upgrade_available=1` を SPL が
@@ -64,7 +64,7 @@ BL33 = `0x40200000` へ x0〜x7=0 で盲目ジャンプする
 ## ブートパーティション内容(falcon 構成)
 
 ```
-Image, imx8mm-xpi-kart.dtb, extlinux/     ← 従来分 (proper フォールバック用に温存)
+Image, imx8mm-xpi.dtb, extlinux/     ← 従来分 (proper フォールバック用に温存)
 falcon.itb                                ← SPL が起動する実体 (スロット変種の複写)
 falcon-a.itb, falcon-b.itb                ← 両変種
 u-boot.itb                                ← OTA 試行時の proper (nodtb+ATF+control DTB)
@@ -80,11 +80,11 @@ args                                      ← SPL falcon 機構が要求する�
 - 復旧の多層: falcon FIT 読めず → u-boot.itb(proper) → それも駄目なら
   U-Boot A/B の B 面(stock、ROM の IVT フォールバック) → 最終 UUU/SDP。
   **UUU リカバリには stock ビルド(falcon オーバーレイ無し)の flash.bin を使う**
-  (falcon SPL は SDPV を受けないため kart-boot.uuu は stock 専用になった)。
+  (falcon SPL は SDPV を受けないため boot.uuu は stock 専用になった)。
   stock 版は `scripts/build-recovery-uboot.sh` が `local/recovery/flash.bin-stock`
-  へ退避し、kart-boot.uuu はそこを参照する(deploy の上書き合戦から独立)
-- 検証手順: 変更時はまず `kart-falcon-bench.uuu` で RAM 起動ベンチ
-  (eMMC 無書き込み) → 通ってから `kart-uboot-update`(B 面に前版温存)
+  へ退避し、boot.uuu はそこを参照する(deploy の上書き合戦から独立)
+- 検証手順: 変更時はまず `falcon-bench.uuu` で RAM 起動ベンチ
+  (eMMC 無書き込み) → 通ってから `uboot-update`(B 面に前版温存)
 
 ## 計測(2026-08-13、eMMC コールドブート N=5)
 

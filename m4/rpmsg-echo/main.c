@@ -103,7 +103,7 @@ int main(void)
 	uart4_init();
 	CCM_CCGR_MU_SET = 0x30; /* MU クロック (Linux 側も握っているが自衛) */
 	DBG[0] = 1; /* phase: started */
-	uart4_puts("\nkart M4: rpmsg echo starting\n");
+	uart4_puts("\nM4: rpmsg echo starting\n");
 
 	rl = rpmsg_lite_remote_init((void *)SHMEM_BASE,
 				    RL_PLATFORM_IMX8MM_M4_USER_LINK_ID,

@@ -31,7 +31,8 @@
 5. [フレームバッファとブートスプラッシュ](05-display-framebuffer-and-boot-splash.md)
    — FB とは、**なぜ表示中の FB への書き込みは激遅なのか(表示 DMA の帯域競合)**、
    ブートスプラッシュのバトンパス(SPL→カーネル→コンポジタ)、データ駆動 vs 手続き描画、
-   コードとデータで配布経路が違う話、**一般化: 表示帯域とバトンパス(SoC/EL 非依存)**
+   コードとデータで配布経路が違う話、**一般化: 表示帯域とバトンパス(SoC/EL 非依存)**、
+   DRM/KMS(card0 の正体、component 束ね、pixman でも DRM は使う)
 
 6. [U-Boot の weak フックとパッチの作り方](06-uboot-weak-hooks-and-patching.md)
    — weak シンボル(箱は用意済み・中身だけ差し替え)、`spl_board_*` フック規約と
@@ -48,6 +49,12 @@
    — SPL の malloc の実体(OS 無し・自前ヒープ・決め打ちプール)、ヒープの二段構え、
    FIT メタデータのバッファ戦略とフォールバック、
    **「SPL が生かすバッファはロードする全ペイロードの射程外に置く」の法則**(falcon の教訓)
+
+9. [eMMC の中身: boot0/boot1 とブートモード](09-emmc-boot-partitions.md)
+   — eMMC のハードウェアパーティション(boot0/boot1/RPMB は MBR でなく別アドレス空間)、
+   ブートモード(識別手続き省略のストリーミング送信)、ext_csd の PARTITION_CONFIG /
+   BOOT_BUS_CONDITIONS、user 領域方式との対比、
+   **「どこから起動するかはサイズ削減より速度を支配する」**(SPL -1.7KB=±0ms の実測から)
 
 ## 関連する既存ドキュメント(実務側)
 

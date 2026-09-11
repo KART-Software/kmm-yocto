@@ -1,9 +1,9 @@
 --- /dev/null
-+++ b/board/freescale/imx8mp_evk/kart_splash.c
++++ b/board/freescale/imx8mp_evk/spl_splash.c
 @@ -0,0 +1,392 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
-+ * kart SPL splash: DEBIX (i.MX8MP) の電源投入直後スプラッシュ。
++ * SPL splash: DEBIX (i.MX8MP) の電源投入直後スプラッシュ。
 + *
 + * 経路: CCM (HDMI APB/AXI/24M) → GPC (HDMIMIX 電源) → HDMI blk-ctrl
 + *       → Samsung HDMI PHY (33.75MHz PLL = ピクセルクロック源)
@@ -37,13 +37,13 @@
 +#include <linux/delay.h>
 +#include <linux/kernel.h>
 +#include <linux/types.h>
-+#include "kart_splash.h"
++#include "spl_splash.h"
 +/* ロゴは一旦外している: SPL サイズが ROM のブートイメージ上限 (OCRAM
 + * バッファ) を超えると DDR FW 末尾が切られ Training FAILED になるため。
 + * 復帰は RLE 圧縮ロゴで行う (docs 予定)。 */
 +
-+/* FB は DRAM バンク 0 の末尾 2MB (spl.c の fixups が /memory から隠す)。
-+ * 800x480 XRGB8888 = 1.5MB */
++/* FB は 0xBFE00000 (bank0 3GB の中ほど)。カーネル側は dts の reserved-memory
++ * splash-fb@bfe00000 (2MB, no-map) が隠す。800x480 XRGB8888 = 1.5MB */
 +#define SPLASH_FB_ADDR		0xBFE00000UL
 +#define SPLASH_W		800
 +#define SPLASH_H		480
@@ -290,7 +290,7 @@
 +
 +/* ---------------- エントリポイント ---------------- */
 +
-+void kart_splash_prepare(void)
++void spl_splash_prepare(void)
 +{
 +	ulong start = get_timer(0);
 +	u32 *p = (u32 *)SPLASH_FB_ADDR;
@@ -319,7 +319,7 @@
 +	printf("logo on (%lu ms)\n", get_timer(start));
 +}
 +
-+bool kart_splash_active(void)
++bool spl_splash_active(void)
 +{
 +	return splash_ok;
 +}
@@ -328,13 +328,13 @@
 + * ロゴを ROM ロードイメージ (SPL) に埋め込むと、SPL+DDR FW のローダ全長が
 + * BootROM の OCRAM 上限 (0x3c7e8=OK / 0x3e1c8=NG を実測) を超えて DDR FW
 + * 末尾が切られ、Training FAILED で文鎮化する。そこでロゴは boot パーティ
-+ * ションの logo.bin (kart-falcon-itb が kart_splash_logo.h から生成、
-+ * ヘッダ: "KLGO" w h x y 各 LE32 + 1bit マスク) とし、falcon の FAT が
++ * ションの logo.bin (falcon-itb が spl_splash_logo.h から生成、
++ * ヘッダ: "LOGO" w h x y 各 LE32 + 1bit マスク) とし、falcon の FAT が
 + * 使える時点で読んで blit する。6.5KB なので表示 DMA 稼働中でも ~2ms。
 + * ファイルが無ければ黒背景のまま (安全に何もしない)。 */
 +#define LOGO_SCRATCH	0x48100000UL
 +
-+void kart_splash_try_logo(void)
++void spl_splash_try_logo(void)
 +{
 +	u8 *b = (u8 *)LOGO_SCRATCH;
 +	u32 *hdr = (u32 *)LOGO_SCRATCH;
@@ -348,7 +348,7 @@
 +		return;
 +	if (fat_read_file("logo.bin", b, 0, 64 * 1024, &got) || got < 20)
 +		return;
-+	if (hdr[0] != 0x4f474c4b)	/* "KLGO" (LE) */
++	if (hdr[0] != 0x4f474f4c)	/* "LOGO" (LE) */
 +		return;
 +	w = hdr[1]; h = hdr[2]; x = hdr[3]; y = hdr[4];
 +	if (!w || !h || x + w > SPLASH_W || y + h > SPLASH_H ||
@@ -376,10 +376,10 @@
 + *
 + * proper (u-boot.itb) へ渡す前の表示停止。proper は DDR 最上部 = FB
 + * (0xBFE00000) 直上へ自己再配置し、extlinux 経由の DTB には
-+ * kart,splash-active も /memory の FB 隠しも無い。表示を回したまま渡すと
++ * splash-active も /memory の FB 隠しも無い。表示を回したまま渡すと
 + * カーネルがハング/パニックする実測 (takeover が発火できない経路)。
 + * フォールバック経路の黒画面は許容し、確実に止めてから渡す。 */
-+void kart_splash_quiesce(void)
++void spl_splash_quiesce(void)
 +{
 +	if (!splash_ok)
 +		return;
@@ -394,26 +394,26 @@
 +	printf("splash: off (proper handoff)\n");
 +}
 --- /dev/null
-+++ b/board/freescale/imx8mp_evk/kart_splash.h
++++ b/board/freescale/imx8mp_evk/spl_splash.h
 @@ -0,0 +1,21 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
-+ * kart SPL splash (DEBIX / i.MX8MP): 電源投入直後スプラッシュ。
-+ * 実装と設計メモは kart_splash.c 冒頭コメント参照。
++ * SPL splash (DEBIX / i.MX8MP): 電源投入直後スプラッシュ。
++ * 実装と設計メモは spl_splash.c 冒頭コメント参照。
 + */
-+#ifndef __KART_SPLASH_H
-+#define __KART_SPLASH_H
++#ifndef __SPL_SPLASH_H
++#define __SPL_SPLASH_H
 +
-+#ifdef CONFIG_KART_SPL_SPLASH
-+void kart_splash_prepare(void);
-+bool kart_splash_active(void);
-+void kart_splash_try_logo(void);
-+void kart_splash_quiesce(void);
++#ifdef CONFIG_SPL_SPLASH
++void spl_splash_prepare(void);
++bool spl_splash_active(void);
++void spl_splash_try_logo(void);
++void spl_splash_quiesce(void);
 +#else
-+static inline void kart_splash_prepare(void) {}
-+static inline bool kart_splash_active(void) { return false; }
-+static inline void kart_splash_try_logo(void) {}
-+static inline void kart_splash_quiesce(void) {}
++static inline void spl_splash_prepare(void) {}
++static inline bool spl_splash_active(void) { return false; }
++static inline void spl_splash_try_logo(void) {}
++static inline void spl_splash_quiesce(void) {}
 +#endif
 +
 +#endif
@@ -424,8 +424,8 @@
  
  endif
 +
-+config KART_SPL_SPLASH
-+	bool "kart: SPL splash on DEBIX (LCDIFv3/DW-HDMI/Samsung PHY direct init)"
++config SPL_SPLASH
++	bool "SPL splash on DEBIX (LCDIFv3/DW-HDMI/Samsung PHY direct init)"
 +	depends on SPL_OS_BOOT
 +	help
 +	  DEBIX (i.MX8MP) の HDMI 表示チェーンを SPL で直接初期化し、
@@ -436,7 +436,7 @@
  
  ifdef CONFIG_SPL_BUILD
  obj-y += spl.o
-+obj-$(CONFIG_KART_SPL_SPLASH) += kart_splash.o
++obj-$(CONFIG_SPL_SPLASH) += spl_splash.o
  ifdef CONFIG_IMX8M_LPDDR4_FREQ0_3200MTS
  obj-y += lpddr4_timing_ndm.o
  else
@@ -446,7 +446,7 @@
  #include <mmc.h>
  #include <asm/arch/ddr.h>
  #include <asm/sections.h>
-+#include "kart_splash.h"
++#include "spl_splash.h"
  
  DECLARE_GLOBAL_DATA_PTR;
  
@@ -454,9 +454,9 @@
  	/* DDR initialization */
  	spl_dram_init();
  
-+	/* kart splash: DDR が使えた瞬間に表示チェーンを立ち上げる。
++	/* splash: DDR が使えた瞬間に表示チェーンを立ち上げる。
 +	 * FIT ロードや env 読みより先 = 電源投入から最速でロゴを出す */
-+	kart_splash_prepare();
++	spl_splash_prepare();
 +
  	board_init_r(NULL, 0);
  }
@@ -467,9 +467,9 @@
  #include <linux/libfdt.h>
 +#include <linux/sizes.h>
  
- #define KART_FALCON_SHIM_ADDR	0x40200000UL	/* ATF PLAT_NS_IMAGE_OFFSET */
- #define KART_FALCON_KERNEL_ADDR	0x40400000UL	/* falcon.its の load/entry と一致必須 */
-@@ -278,14 +284,48 @@
+ #define FALCON_SHIM_ADDR	0x40200000UL	/* ATF PLAT_NS_IMAGE_OFFSET */
+ #define FALCON_KERNEL_ADDR	0x40400000UL	/* falcon.its の load/entry と一致必須 */
+@@ -278,14 +284,50 @@
  	 * u-boot proper (u-boot.itb、os="u-boot") は素通しする。falcon.itb の
  	 * atf ノードは os 無し (8MM 実測で os=255)。
  	 */
@@ -477,7 +477,7 @@
 +	if (spl_image->os == IH_OS_U_BOOT || !fdt) {
 +		/* proper は FB 直上へ再配置し、prop も /memory 隠しも
 +		 * 渡せない経路 — 表示を止めてから渡す (関数コメント参照) */
-+		kart_splash_quiesce();
++		spl_splash_quiesce();
  		return;
 +	}
  
@@ -487,35 +487,37 @@
  			   (ulong)fdt + fdt_totalsize(fdt) + 64);
  
 +	/* スプラッシュ点灯中: カーネルへ通知 (seamless takeover パッチの
-+	 * 発動条件) + FB の 2MB を /memory から隠す (LCDIF が走査中の領域を
-+	 * カーネルに使わせない)。バンク末尾を切り詰めるだけなので
-+	 * spl_fixup_fdt が書いた /memory を直接編集する */
-+	if (kart_splash_active()) {
++	 * 発動条件)。/memory は SPL の bi_dram (dram_init_banksize、3GB + 1GB) で
++	 * 書き直す。以前は bank0 を 2GB-2MB / bank1 を 2GB と決め打ちしていて
++	 * 存在しない上位 1GB をカーネルに見せていた (2026-09-08)。FB の 2MB は
++	 * dts の reserved-memory (splash-fb@bfe00000, no-map) が隠す */
++	if (spl_splash_active()) {
 +		int off;
 +
++		dram_init_banksize();
 +		fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
 +		off = fdt_path_offset(fdt, "/chosen");
 +		if (off >= 0)
-+			fdt_setprop_empty(fdt, off, "kart,splash-active");
++			fdt_setprop_empty(fdt, off, "splash-active");
 +		off = fdt_path_offset(fdt, "/memory@40000000");
 +		if (off < 0)
 +			off = fdt_subnode_offset(fdt, 0, "memory");
 +		if (off >= 0) {
-+			/* bank0 = 0x40000000 + 2GB を 2MB 減らす */
++			/* 実 DRAM 構成 (PHYS_SDRAM*: 3GB + 1GB)。FB は dts の reserved-memory が隠す */
 +			u64 regs[4] = {
-+				cpu_to_fdt64(0x40000000ULL),
-+				cpu_to_fdt64(0x80000000ULL - SZ_2M),
-+				cpu_to_fdt64(0x100000000ULL),
-+				cpu_to_fdt64(0x80000000ULL),
++				cpu_to_fdt64(gd->bd->bi_dram[0].start),
++				cpu_to_fdt64(gd->bd->bi_dram[0].size),
++				cpu_to_fdt64(gd->bd->bi_dram[1].start),
++				cpu_to_fdt64(gd->bd->bi_dram[1].size),
 +			};
 +			fdt_setprop(fdt, off, "reg", regs, sizeof(regs));
 +		}
 +	}
 +
 +	/* ロゴはここ (falcon FIT ロード後 = FAT 登録済み) でファイルから blit。
-+	 * 表示は止めずに渡す (seamless takeover、kart_splash.c 冒頭参照) */
-+	kart_splash_try_logo();
++	 * 表示は止めずに渡す (seamless takeover、spl_splash.c 冒頭参照) */
++	spl_splash_try_logo();
 +
- 	kart_emit_bl33_shim(KART_FALCON_SHIM_ADDR, (ulong)fdt,
- 			    KART_FALCON_KERNEL_ADDR);
+ 	emit_bl33_shim(FALCON_SHIM_ADDR, (ulong)fdt,
+ 			    FALCON_KERNEL_ADDR);
  

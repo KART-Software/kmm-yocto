@@ -4,7 +4,7 @@
  *
  * mainline imx_rproc は ELF の .resource_table セクションを読んで
  * vdev (virtio-rpmsg) と vring の配置を知る。ここの da は
- * imx8mm-xpi-kart.dts の reserved-memory (vdev0vring0/1) と一致必須。
+ * imx8mm-xpi.dts の reserved-memory (vdev0vring0/1) と一致必須。
  * 構造体レイアウトは linux include/linux/remoteproc.h の fw_rsc_* と同一
  * (NXP デモ rsc_table.c と同値)。
  */

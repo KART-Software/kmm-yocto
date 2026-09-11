@@ -52,7 +52,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	memset(&info, 0, sizeof(info));
-	strcpy(info.name, "kart-rtt");
+	strcpy(info.name, "rpmsg-rtt");
 	info.src = 0xFFFFFFFF; /* RPMSG_ADDR_ANY: カーネルに空きを採番させる
 				* (固定値は再実行時に前の ept と衝突する — 実測) */
 	info.dst = M4_EPT_ADDR;

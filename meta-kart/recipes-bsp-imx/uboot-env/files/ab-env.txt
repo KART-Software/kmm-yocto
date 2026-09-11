@@ -1,0 +1,27 @@
+# A/B 環境変数 (u-boot-initial-env に追記される。重複キーは後勝ち)
+#
+# RPi5 の tryboot/autoboot.txt に相当する仕組みを U-Boot の
+# bootcount + upgrade_available + altbootcmd で実現する:
+#
+#   通常運転:  upgrade_available=0 → bootcount は保存されず ab_slot を起動
+#   OTA 試行:  ota が ab_slot=<新>, ab_fallback_slot=<旧>,
+#              upgrade_available=1, bootcount=0 を設定して再起動
+#   起動成功:  ab-commit が upgrade_available=0 に戻して確定
+#   起動失敗:  リセット毎に bootcount++ → bootlimit 超過で altbootcmd →
+#              旧スロットへ恒久フォールバック (RPi の tryboot 自動復帰と同義)
+#
+# ブート媒体は eMMC (U-Boot 番号 mmc2)。スロット構成は
+# BOOTA=p1 / BOOTB=p2 / roota=p5 / rootb=p6 (imx8mm-emmc-ab.wks)。
+# 各スロットの extlinux.conf が root= を持つ (BOOTA は p5 を指してビルドされ、
+# OTA が BOOTB へコピーする際に p6 へ書き換える)。
+
+bootdelay=1
+bootlimit=1
+upgrade_available=0
+bootcount=0
+ab_slot=a
+ab_fallback_slot=a
+ab_mmcdev=2
+ab_boot=if test "x${ab_slot}" = xb; then setenv ab_bootpart 2; else setenv ab_bootpart 1; fi; echo "A/B: booting slot ${ab_slot} (mmc ${ab_mmcdev}:${ab_bootpart})"; sysboot mmc ${ab_mmcdev}:${ab_bootpart} fat ${scriptaddr} /extlinux/extlinux.conf
+altbootcmd=echo "A/B: bootlimit reached, falling back to slot ${ab_fallback_slot}"; setenv ab_slot ${ab_fallback_slot}; setenv upgrade_available 0; setenv bootcount 0; saveenv; run ab_boot
+bootcmd=run ab_boot

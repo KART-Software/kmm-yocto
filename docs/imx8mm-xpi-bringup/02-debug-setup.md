@@ -111,7 +111,7 @@ echo '/srv/nfs/kart 192.168.0.0/24(rw,no_root_squash,no_subtree_check,insecure)'
 sudo systemctl restart tftpd-hpa nfs-server
 ```
 
-- TFTP ルート `/srv/tftp` に `Image` と `imx8mm-xpi-kart.dtb` を置く
+- TFTP ルート `/srv/tftp` に `Image` と `imx8mm-xpi.dtb` を置く
 - [NFS](00-glossary.md#g-nfs) `/srv/nfs/kart` に [rootfs](00-glossary.md#g-rootfs) を展開: `sudo tar --zstd -xf <rootfs>.tar.zst -C /srv/nfs/kart`
   (所有権・デバイスノード保持のため sudo の tar)
 - `no_root_squash` は rootfs として使うので必須

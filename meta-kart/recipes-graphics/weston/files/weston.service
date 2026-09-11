@@ -2,17 +2,33 @@
 Description=Weston, a Wayland compositor, as a system service
 Documentation=man:weston(1) man:weston.ini(5)
 Documentation=http://wayland.freedesktop.org/
+# GUI 特急レーン: basic.target(implicit)と dbus を待たない。
+# basic までの区間は /var/volatile マウントと coldplug のジョブ発行順という
+# PID1 のコイントスで 1.5〜2.6s まで振れ、GUI がそのばらつきを直撃していた
+# (2026-09-03 実測、二峰性 ±0.15s)。weston は dbus を使わず(logind でなく
+# seatd 経路)、必要なのは seatd と DRM デバイスの udev 処理完了だけ。
+# udev-trigger 完了より早く起動すると drm-backend が「no drm device found」で
+# 死ぬが、必要なのは /dev/dri/card0 の出現(カーネル 0.3s で生成済み)だけで
+# coldplug 全体の完了(~2.0s)を待つ必要はない。udevd 起動後に card0 の出現を
+# ExecStartPre で待って起動する(2026-09-07 採用、weston 起動 2.0→1.65s、
+# 電源→GUI 3.71→3.17s。前提: weston 13(kiosk-shell の seat レース #9 解決)と
+# seed credit 前倒し(#13、CRNG 未初期化で kmm の getrandom() が止まる外れ値の解消)。
+# docs/imx8mp-debix-bringup/30-boot-time.md)
+DefaultDependencies=no
 Requires=seatd.service
-After=seatd.service dbus.socket
-Wants=dbus.socket
-Before=graphical.target
+After=seatd.service systemd-udevd.service
+Conflicts=shutdown.target
+Before=shutdown.target graphical.target
 ConditionPathExists=/dev/tty0
 
 [Service]
 Type=notify
 EnvironmentFile=/etc/default/weston
+# card0 出現待ち(10ms 刻み、最大 5s)。udev ルール適用前でも open できる
+# (seatd 経由で開くので device ACL は不要)
+ExecStartPre=/bin/sh -c 'i=0; while [ ! -e /dev/dri/card0 ] && [ $i -lt 500 ]; do sleep 0.01; i=$((i+1)); done'
 ExecStart=/usr/bin/weston --modules=systemd-notify.so
-# Fixed runtime dir (systemd-managed, kart-owned): keeps uid out of unit
+# Fixed runtime dir (systemd-managed, owned by the kart user): keeps uid out of unit
 # files entirely (kart's uid is dynamically assigned at build time).
 Environment=XDG_RUNTIME_DIR=/run/wayland
 Environment=SEATD_SOCK=/run/seatd.sock

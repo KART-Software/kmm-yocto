@@ -1085,7 +1085,7 @@ fsck が終わっても data.mount のジョブが配れず、local-fs → basic
 **副産物**: rpi-eeprom-config --apply が /boot に残す pieeprom.upd/.sig/
 recovery.bin を、ブートローダが毎ブート timestamp 照合して skip しており
 **+~0.27s/boot** かかっていた（UART: "SELF-UPDATE ... skip" @5.77s）。
-kart-eeprom-setup が設定一致時に残骸を自動削除するよう修正。
+eeprom-setup が設定一致時に残骸を自動削除するよう修正。
 
 ### 15. 【全段実測 2026-08-04】UART + systemd による 11 ブート計測、変動幅の訂正
 

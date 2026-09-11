@@ -1,0 +1,39 @@
+[Unit]
+Description=kmm (machine manager GUI)
+# Parallel start with weston: the app polls for the wayland socket itself
+# (waitForWaylandSocket in main.cpp) so the ~0.5s Qt library load overlaps
+# compositor startup (weston-READY -> GUI: 0.50s -> 0.32s measured).
+# No After=weston / can0-up: the socket wait replaces the former, and the
+# CAN socket can be bound before the interface is up (frames flow once
+# can0-up runs). data-mount stays ordered for /data/kmm.env.
+# GUI 特急レーン: basic.target を待たない (weston.service の同名コメント参照)。
+# 必要なのは /data/kmm.env の data-mount だけ。wayland ソケットは
+# アプリ側の waitForWaylandSocket が待つ
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=shutdown.target
+After=data-mount.service
+Requires=weston.service data-mount.service
+Wants=can0-up.service
+
+[Service]
+# The app sends READY=1 on the first window expose -> "active = pixels on screen"
+# (resolved-delayed-start.timer keys off this).
+Type=notify
+User=kart
+Group=kart
+# Secrets/config live on the shared data partition (survives OTA, never baked
+# into release images). Provision once: scp .env root@<host>:/data/kmm.env
+EnvironmentFile=-/data/kmm.env
+# The wayland socket lives in weston.service's fixed RuntimeDirectory
+# (/run/wayland) — no uid anywhere.
+Environment=XDG_RUNTIME_DIR=/run/wayland
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=QT_QPA_PLATFORM=wayland
+ExecStart=/usr/bin/kmm
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

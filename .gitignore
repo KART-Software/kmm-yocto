@@ -18,7 +18,7 @@ meta-freescale/
 /kart-machine-manager/
 
 # App .env (user-specific, copy from .env.example)
-meta-kart/recipes-app/kart-machine-manager/files/.env
+meta-kart/recipes-app/kmm/files/.env
 
 # kas lock files (uncomment to track)
 # *.lock.yml

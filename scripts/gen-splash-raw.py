@@ -4,7 +4,7 @@
 logo/kart_logo.png (純白の線画 + alpha) を、パネル可視域 800x480 の中央に
 置く前提で 1bit マスク化し、SPL が #include する C ヘッダ
 
-  meta-kart/recipes-bsp-imx/u-boot/files/kart_splash_logo.h
+  meta-kart/recipes-bsp-imx/u-boot/files/spl_splash_logo.h
 
 を生成する。SPL (0002 + 0010 パッチ) は fill 直後・eLCDIF RUN 前に、この
 マスクの bit=1 の画素だけ FB に白 (0x00FFFFFF) を書く。bit=0 は触らない
@@ -30,7 +30,7 @@ ALPHA_TH = 128                # alpha>=これ を点灯 (1bit しきい値)
 
 root = Path(__file__).resolve().parent.parent
 src = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "logo/kart_logo.png"
-dst = root / "meta-kart/recipes-bsp-imx/u-boot/files/kart_splash_logo.h"
+dst = root / "meta-kart/recipes-bsp-imx/u-boot/files/spl_splash_logo.h"
 
 logo = Image.open(src).convert("RGBA")
 logo = logo.resize((LOGO_W, round(logo.height * LOGO_W / logo.width)),
@@ -52,17 +52,17 @@ lines = [
     "/* SPL スプラッシュ ロゴ 1bit マスク — scripts/gen-splash-raw.py が生成。",
     " * 手で編集しない。ロゴ差し替えはスクリプト再実行 + コミット。",
     " * row-major, MSB-first。bit=1 の画素だけ SPL が FB に白を書く。 */",
-    "#ifndef KART_SPLASH_LOGO_H",
-    "#define KART_SPLASH_LOGO_H",
+    "#ifndef SPLASH_LOGO_H",
+    "#define SPLASH_LOGO_H",
     "",
-    f"#define KART_LOGO_W {w}",
-    f"#define KART_LOGO_H {h}",
-    f"#define KART_LOGO_X {x}\t/* パネル可視域(左上原点)内の X */",
-    f"#define KART_LOGO_Y {y}\t/* 同 Y */",
+    f"#define LOGO_W {w}",
+    f"#define LOGO_H {h}",
+    f"#define LOGO_X {x}\t/* パネル可視域(左上原点)内の X */",
+    f"#define LOGO_Y {y}\t/* 同 Y */",
     "",
     f"/* {w}x{h} = {w * h} bit, 点灯 {setbits} ({round(100 * setbits / (w * h))}%), "
     f"{len(packed)} byte */",
-    "static const unsigned char kart_logo_bits[] = {",
+    "static const unsigned char logo_bits[] = {",
 ]
 row = "\t"
 for j, b in enumerate(packed):
@@ -72,7 +72,7 @@ for j, b in enumerate(packed):
         row = "\t"
 if row.strip():
     lines.append(row)
-lines += ["};", "", "#endif /* KART_SPLASH_LOGO_H */", ""]
+lines += ["};", "", "#endif /* SPLASH_LOGO_H */", ""]
 
 dst.parent.mkdir(parents=True, exist_ok=True)
 dst.write_text("\n".join(lines))

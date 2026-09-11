@@ -87,7 +87,7 @@ RAM 起動、attach を安全に試せる)で全経路を通した:
   を出力(改修が発火)、`peer 0xffffffff / started=0` で Linux 待ち
 - eMMC カーネル起動 → dmesg `attaching to imx-rproc` → `is now attached`、
   `remoteproc state = attached`
-- `kart-can channel bound`、**can0 UP**、M4 側 `peer 0x400 / started=1`(双方向確立)
+- `rpmsg-can channel bound`、**can0 UP**、M4 側 `peer 0x400 / started=1`(双方向確立)
 
 → **「M4 先住 → Linux attach → can0 稼働」は完全に成立**。imx_rproc は
 稼働中 M4 を probe 時に検出して attach する(`imx_rproc_attach` 実在)。
@@ -125,9 +125,9 @@ falcon.itb に M4 loadable を積み、**SPL で M4 を起動**しようとし�
 - **SPL**: M4 loadable を DDR ステージング `0x46000000` にロード
 - **BL31**(imx-atf パッチ、`bl31_platform_setup`): ①`0xB80FF000` ゼロ化
   ②DDR→TCML コピー(`flush_dcache_range` 込み)③`SRC_M4RCR` で M4 解除
-  → `NOTICE: kart: Cortex-M4 released from BL31`
+  → `NOTICE: bl31: Cortex-M4 released from BL31`
 - **M4**: `rsc_table published to 0xB80FF000 (attach mode)` → CAN gw 起動
-- **Linux**: `attaching → is now attached → kart-can channel bound (ept 0x400)`
+- **Linux**: `attaching → is now attached → rpmsg-can channel bound (ept 0x400)`
   → **can0 UP、kmm active**
 
 **重要な落とし穴 — DDR の rsc_table 残存**。DDR は warm reboot で消えないため、
@@ -208,7 +208,7 @@ M4 が受けた CAN フレームを Linux に届ける方法:
 - 素朴だが、ユーザ空間を挟むぶんレイテンシ/オーバーヘッドが乗る。
 
 ### 案 B(採用しかけた): カーネル rpmsg ドライバ → CAN netdev(rpcan0)
-- カーネルモジュール `kart-rpmsg-can` が rpmsg チャネル "kart-can" に bind し、
+- カーネルモジュール `rpmsg-can` が rpmsg チャネル "rpmsg-can" に bind し、
   **CAN netdev `rpcan0` を生やす**(vcan 風だがバックエンドが rpmsg)。
 - Linux から見れば普通の CAN インターフェース。`candump rpcan0` がそのまま
   使える。設計が綺麗。

@@ -11,7 +11,7 @@ login まで到達したが未完の 2 点と、その先。**どれも実機な
 >   **スリム化の巻き添えで CONFIG_PINCTRL / CONFIG_GPIOLIB がカーネルから
 >   消えていた** (グループは全部 DTB に存在した)。
 > - 修正: `watchdog.cfg` (IMX2_WDT=m) + `pinctrl-gpio.cfg` (PINCTRL/GPIOLIB 復活)
->   + `kas/imx8mm-netboot.yml` の `KART_NETBOOT` スイッチ (networkd mask 焼き込み)
+>   + `kas/imx8mm-netboot.yml` の `NETBOOT` スイッチ (networkd mask 焼き込み)
 >   + XPI DTS の EVK 残骸無効化 + mxsfb の NO_CONNECTOR パッチ。
 > - 実機検証: pet 無しで uptime 233s 生存 / PMIC・ECSPI2・cpufreq の deferred 解消 /
 >   **LT9611 revision 0xe2 を I2C で実読** / mcp251x が SPI で実チップと会話
@@ -24,7 +24,7 @@ login まで到達したが未完の 2 点と、その先。**どれも実機な
 入れない(ローカル root では networkd が必要)。
 
 **実装 (2026-08-11)**: `kart-image.bb` の `netboot_mask_networkd`
-(ROOTFS_POSTPROCESS、`KART_NETBOOT = "1"` のときだけ有効) +
+(ROOTFS_POSTPROCESS、`NETBOOT = "1"` のときだけ有効) +
 `kas/imx8mm-netboot.yml` がスイッチを立てる。networkd 3 ユニットの
 mask が rootfs に焼き込まれることを tar で確認済み。
 なお「mask 後もネットワーク断が残る」ように見えたのは B の
@@ -101,7 +101,7 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
      IMAGE_PREPROCESS 方式。**RPi5 イメージにも効く**): sysinit -0.5s
    内訳 (2026-08-12 実測、machine 正式化 + PMIC/PHY 是正後。コールドブート
    N=5、シリアル初バイト起点、総合 stdev 23ms):
-   - U-Boot バナー → KART スロット選択 1.115s / → Starting kernel +0.227s
+   - U-Boot バナー → A/B スロット選択 1.115s / → Starting kernel +0.227s
      (SPL 区間はシリアル転送のチャンク化で分離不能。初バイト→GUI 計 5.33s、
      電源→GUI 推定 ~6.5-7s)
    - カーネル 0.67s / userspace→GUI 3.31s (kmm READY monotonic 3.98s)。
@@ -146,20 +146,20 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    bmaptool、TFTP/NFS 不要)に更新し、netboot 経路はリカバリ用として温存:
    1. `./scripts/build.sh imx8mm --emmc` → `kart-image-...-emmc.wic`(3.9GB raw)
    2. wic を NFS root の `/root/` に置き、ボード上で
-      `dd if=/root/kart-emmc.wic of=/dev/mmcblk2 bs=1M`(user 領域のみ。
+      `dd if=/root/emmc.wic of=/dev/mmcblk2 bs=1M`(user 領域のみ。
       **boot0 のベンダブートローダは無傷**。先頭 8MiB は
       `local/xpi-backup/emmc-head-8mib.img` に退避済み)
    3. SDP U-Boot から `mmc partconf 2 0 7 0`(BOOT_PARTITION_ENABLE=0x7 =
       user 領域)。ベンダ復帰は `mmc partconf 2 0 1 0`
    4. S1 を `0110 1010`(eMMC)にして電源投入
    実測: ROM が `Trying to boot from MMC2` → wic に焼き込んだ A/B env で
-   `KART: booting slot a (mmc 2:1)` → **U-Boot 段 ≈2.1s / login +15.4s**
+   `A/B: booting slot a (mmc 2:1)` → **U-Boot 段 ≈2.1s / login +15.4s**
    (シリアル初バイト起点)。extlinux の `rw` は systemd が ro に再マウントし
    read-only rootfs 維持、`/data`(p7) rw マウント、systemd が
-   RuntimeWatchdogSec=15 で watchdog を open、`kart-ab-status` も動作。
+   RuntimeWatchdogSec=15 で watchdog を open、`ab-status` も動作。
 
    **OTA A→B フルサイクルも実機検証済み (2026-08-11)**: `ota-update.sh` で
-   slot B 書込 → fw_setenv 試行 → tryboot → `kart-ab-commit` (読み戻し検証) →
+   slot B 書込 → fw_setenv 試行 → tryboot → `ab-commit` (読み戻し検証) →
    再起動で B 恒久ブート、まで完走。**フォールバックも実機実証**: 破壊した
    スロットへの試行が rootwait 停止 → 60s watchdog リセット → bootcount 超過 →
    `altbootcmd` が「bootlimit reached, falling back」を表示して旧スロットへ
@@ -172,15 +172,15 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    フォールバック (A copy の IVT 破壊 → SIT 経由で B copy を同一起動内で選択、
    イベントログ 0x51 で裏取り) を確認。ただし **PSB を入力に使う「B の試し
    起動」は 8MM では不可能と判明** (SRC_GPR10 は全リセットで消える) — 当初の
-   kart-uboot-try/-commit は廃止し、「**B 面に一つ前の版を残す**」方式に再設計:
-   - ツール: `kart-uboot-update` (A→B 退避 → 新版→A) / `kart-uboot-rollback`
-     (前版へ戻す) / `kart-uboot-selfheal` (boot 時 systemd oneshot、
-     フォールバックを検出したら自動 rollback) / `kart-uboot-status`
+   uboot-try/-commit は廃止し、「**B 面に一つ前の版を残す**」方式に再設計:
+   - ツール: `uboot-update` (A→B 退避 → 新版→A) / `uboot-rollback`
+     (前版へ戻す) / `uboot-selfheal` (boot 時 systemd oneshot、
+     フォールバックを検出したら自動 rollback) / `uboot-status`
      (起動元は ROM イベントログ判定)
    - 安全機構: 全書き込み header-last (IVT を最後に。途中電源断は必ず
      「IVT 不正」に落ちもう片方で起動) / A 不正時は退避スキップ (壊れた A を
      複写して唯一の健全コピーを潰す事故を防止) / フォールバック起動中の
-     update 拒否 / flock (`/run/kart-uboot.lock`) で相互排他
+     update 拒否 / flock (`/run/uboot.lock`) で相互排他
    - 検証: DP100 で各局面に実電源断 (退避中/A書込直後/本体書込後IVT前/
      rollback中) を当てて全て再実行一発で収束。統合検証は最終イメージを
      OTA → A破壊 → コールドブート → selfheal がサービスとして自動修復

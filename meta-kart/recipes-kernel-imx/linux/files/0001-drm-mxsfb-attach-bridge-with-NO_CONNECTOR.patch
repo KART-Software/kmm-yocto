@@ -1,4 +1,4 @@
-From: kart <kart@localhost>
+From: build <build@localhost>
 Subject: [PATCH] drm/mxsfb: attach bridge chain with DRM_BRIDGE_ATTACH_NO_CONNECTOR
 
 XPI-iMX8MM は lcdif(mxsfb) -> Samsung DSIM -> LT9611 -> hdmi-connector

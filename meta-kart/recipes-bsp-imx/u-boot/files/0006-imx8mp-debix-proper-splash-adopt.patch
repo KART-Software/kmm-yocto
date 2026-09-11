@@ -1,0 +1,47 @@
+From: build <build@localhost>
+Subject: [PATCH] imx8mp_evk: proper 経由の起動でも SPL スプラッシュの表示ドメインをカーネルに養子縁組させる
+
+デッドマンで falcon が外れた後の起動 (SPL -> U-Boot proper -> extlinux) は
+SPL が表示を止めて渡すが、HDMIMIX/HDMI_PHY ドメインと blk-ctrl の
+クロック/リセットは SPL が立ち上げたまま。素の imx8mp-blk-ctrl 経路は
+この稼働中ドメインを再シーケンスしてバスごと固まる (console 切替直後に
+CPU が PC=0 で停止、5/5 再現。HDMI blk-ctrl ノードを無効化すると起動する)。
+falcon 経路と同じく /chosen に splash-active を立ててカーネル側の
+養子縁組パッチ (0010-0013) を発火させると 3/3 起動し表示も出る。
+
+判定は GPC PU_PWRHSK bit13 (SPL の HDMIMIX ADB400 handshake 要求)。
+SPL が表示を起こさなかった場合は立たないので従来どおり。
+
+Upstream-Status: Inappropriate [boot-splash integration]
+--- a/board/freescale/imx8mp_evk/imx8mp_evk.c
++++ b/board/freescale/imx8mp_evk/imx8mp_evk.c
+@@ -131,6 +131,29 @@
+ 		return ret;
+ 	}
+ 
++#if IS_ENABLED(CONFIG_SPL_SPLASH)
++	/* SPL スプラッシュ後のフォールバック起動 (デッドマンで falcon が
++	 * 外れ proper 経由で起動する経路)。SPL は表示 (LCDIF/PHY) を止めて渡すが
++	 * HDMIMIX/HDMI_PHY の電源ドメインと blk-ctrl のクロック/リセットは
++	 * 立ち上げたまま。素の imx8mp-blk-ctrl はこの「稼働中ドメイン」を
++	 * 再シーケンスするとバスごと固まる (実測: console 切替直後に CPU が
++	 * PC=0 で停止、5/5 再現)。falcon 経路と同じくカーネルに養子縁組
++	 * (splash-active) させると 3/3 起動し表示も出る。
++	 * 判定は GPC PU_PWRHSK (0x303a0190) bit13 = SPL が立てた HDMIMIX の
++	 * ADB400 handshake 要求。ロゴ無し等で SPL が表示を起こさなかった
++	 * 場合は立たず、従来どおり通常 probe になる。 */
++	if (readl(0x303a0190) & BIT(13)) {
++		int off = fdt_path_offset(blob, "/chosen");
++
++		if (off < 0)
++			off = fdt_add_subnode(blob, 0, "chosen");
++		if (off >= 0 && !fdt_setprop_empty(blob, off, "splash-active"))
++			printf("splash: HDMI domain live, kernel adopts it\n");
++		else
++			printf("splash: WARN could not set splash-active\n");
++	}
++#endif
++
+ #ifdef CONFIG_IMX8M_DRAM_INLINE_ECC
+ #ifdef CONFIG_TARGET_IMX8MP_DDR4_EVK
+ 	int rc;

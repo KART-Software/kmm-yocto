@@ -12,7 +12,7 @@ M4 ファーム(m4-fw.bin)を falcon.itb への埋め込みから外し、**boot
 ## 1. 目的とユースケース
 
 M4 ファームの入れ替えに現状は kmm-yocto が必須(m4-fw.bin を recipe に
-vendored → `bitbake kart-falcon-itb` → falcon.itb 差し替え)。M4 開発者の
+vendored → `bitbake falcon-itb` → falcon.itb 差し替え)。M4 開発者の
 ユースケースは 3 つ:
 
 | ユースケース | 現状 | 本設計後 |
@@ -82,7 +82,7 @@ BL31 のゲートが M4 起動をスキップする(= M4 なしで普通に起�
 |---|---|
 | SPL(u-boot パッチ)| falcon ロード後: ステージングゼロ化 → `file_fat_read` → ヘッダ検証(§6)→ 合格時のみペイロードを 0x46000000 へ。~40 行 |
 | BL31(imx-atf)| **無変更**(実証済みのゲート+コピー+SRC のまま)|
-| kart-falcon-itb | m4 loadable ノードと vendored bin を削除(§5 の同梱に置換)|
+| falcon-itb | m4 loadable ノードと vendored bin を削除(§5 の同梱に置換)|
 | kart-image / 同梱 | `IMAGE_BOOT_FILES += "m4-fw.img"`。既定版(リリース版)をイメージに焼く |
 | data-logger-zephyr | `scripts/install.sh` 新設(ビルド → ヘッダ付与 → scp → /boot 配置 → reboot)|
 
@@ -109,7 +109,7 @@ BL31 のゲートが M4 起動をスキップする(= M4 なしで普通に起�
 ### 採用案: 自前ヘッダ付きコンテナ `m4-fw.img`
 
 ```
-offset 0x00: magic   "K4FW" (4B)     ← ファイル種別 + ステージング残存の無効化にも効く
+offset 0x00: magic   "M4FW" (4B)     ← ファイル種別 + ステージング残存の無効化にも効く
 offset 0x04: size    ペイロード長 (LE32)
 offset 0x08: crc32   ペイロードの CRC32 (LE32)
 offset 0x0C: version 任意の版数 (LE32、表示用)
@@ -152,9 +152,9 @@ FAT lookup ~1–2ms + 37KB 読み ~0.5ms + CRC32 < 1ms = **+2〜3ms**。
 ## 9. 実装と実機検証結果(2026-08-21)
 
 実装物:
-- SPL: `0011-imx8mm-kart-spl-m4-file-read.patch`(ゼロ化 → file_fat_read →
+- SPL: `0011-imx8mm-spl-m4-file-read.patch`(ゼロ化 → file_fat_read →
   magic/size/CRC32 検証 → ステージング配置。arch/arm/mach-imx/spl.c 末尾)
-- `kart-falcon-itb`: m4 loadable 除去、m4-fw.img 生成(ヘッダ付与)+ deploy
+- `falcon-itb`: m4 loadable 除去、m4-fw.img 生成(ヘッダ付与)+ deploy
 - `kas/imx8mm-m4.yml`: SPL/BL31 パッチ + `IMAGE_BOOT_FILES += m4-fw.img`
 - data-logger-zephyr: `scripts/install.sh`(ヘッダ付与 → scp → /boot、--reboot)
 
@@ -162,9 +162,9 @@ FAT lookup ~1–2ms + 37KB 読み ~0.5ms + CRC32 < 1ms = **+2〜3ms**。
 
 | テスト | 結果 |
 |---|---|
-| 正常ファイル | `kart: m4-fw.img staged (37936 bytes)` → BL31 released → attached → can0 UP → kmm active。staged のコスト +10ms(Falcon 引き渡し→staged 実測)|
+| 正常ファイル | `spl: m4-fw.img staged (37936 bytes)` → BL31 released → attached → can0 UP → kmm active。staged のコスト +10ms(Falcon 引き渡し→staged 実測)|
 | ファイル無し(+DDR 残存)| staged/released 行なし = 無言スキップ、`m4=offline`。Linux 正常起動 |
-| CRC 破壊(1 バイト反転)| **`kart: m4-fw.img invalid (len=37952) — M4 skipped`**、`m4=offline`。壊れたファームは走らない |
+| CRC 破壊(1 バイト反転)| **`spl: m4-fw.img invalid (len=37952) — M4 skipped`**、`m4=offline`。壊れたファームは走らない |
 | install.sh 復旧 | ヘッダ付与 → scp → reboot で全 chain 復帰(Yocto ゼロ)|
 
 検証中の教訓: 板上で dd `conv=notrunc` による破壊を試みて busybox に拒否され

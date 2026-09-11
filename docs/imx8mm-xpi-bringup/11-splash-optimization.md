@@ -75,18 +75,18 @@ Recovery)は**周波数だけを合わせ、位相はロック瞬間に 1 回捕
 | 0008 samsung-dsim | 初回 enable | SWRST 付き再初期化と MDRESOL 書き直しをスキップ |
 | 0009 mxsfb | 初回 modeset | eLCDIF リセットを回避し、初回モードセットをフリップ扱いに(`cur_buf` を触らず SPL の FB を維持)|
 
-**発動条件**: falcon DTB の `/chosen` に `kart,splash-active` があり、**かつ実機レジスタが要求モードと
+**発動条件**: falcon DTB の `/chosen` に `splash-active` があり、**かつ実機レジスタが要求モードと
 一致**する時だけスキップ。不一致なら従来のフル再初期化へ**安全にフォールバック**(= 暗転はするが確実に映る)。
 
-`kart,splash-active` は `kart-falcon-itb.bb` が falcon DTB へ `fdtput` で焼き込む
+`splash-active` は `falcon-itb.bb` が falcon DTB へ `fdtput` で焼き込む
 (SPL 実行時セットは未実装のため。splash 無しビルド・他マシンは無変更)。
 
 dmesg で発火を確認:
 ```
-kart splash: adopting running domain            (0004/0005)
-kart splash: chip alive, skipping reset          (0006)
-kart splash: seamless LCDIF takeover             (0009)
-kart splash: seamless takeover (1920x792)        (0007)
+splash: adopting running domain            (0004/0005)
+splash: chip alive, skipping reset          (0006)
+splash: seamless LCDIF takeover             (0009)
+splash: seamless takeover (1920x792)        (0007)
 ```
 
 ---
@@ -125,12 +125,12 @@ crop・帯版はこの原理で OTA(falcon.itb)だけで配れる。
 ## ④ 手続き描画(最終形)
 
 画像を「運ぶ」のをやめ、**ロゴを 1bit マスクとして SPL コード(flash.bin)に埋め込み**、
-`kart_splash_prepare()` の fill 直後・**RUN 前**に `bit=1` の画素だけ FB へ白を書く。
+`spl_splash_prepare()` の fill 直後・**RUN 前**に `bit=1` の画素だけ FB へ白を書く。
 
 - `scripts/gen-splash-raw.py` が `logo/kart_logo.png`(純白の線画 + alpha)を alpha 閾値で 1bit 化し、
-  `kart_splash_logo.h`(幅/高さ/パネル内座標 + packed ビット列、**6.5KB**)を生成。
-- u-boot 側パッチ `0010` の `kart_splash_blit_logo()` が RUN 前に blit(競合ゼロ、6.5KB のみ)。
-- `kart-falcon-itb.bb` は falcon.itb の splash loadable を**廃止**(画像を運ばない)。
+  `spl_splash_logo.h`(幅/高さ/パネル内座標 + packed ビット列、**6.5KB**)を生成。
+- u-boot 側パッチ `0010` の `spl_splash_blit_logo()` が RUN 前に blit(競合ゼロ、6.5KB のみ)。
+- `falcon-itb.bb` は falcon.itb の splash loadable を**廃止**(画像を運ばない)。
 - ヘッダは `u-boot-fslc_%.bbappend` の `do_configure:prepend` で SPL ソースへ配置。
 
 結果: falcon.itb 21.5MB(元 27MB)、SPL の splash 固有コストは **blit ~10ms**("ready" 285→295ms)のみ。
@@ -157,11 +157,11 @@ crop・帯版はこの原理で OTA(falcon.itb)だけで配れる。
 
 - **falcon 版 flash.bin は [UUU](00-glossary.md#g-uuu-universal-update-utility) で RAM 起動できない**
   (falcon SPL は SDPV ハンドシェイクを受けない)。UUU 経路は常に stock 退避版
-  (`local/recovery/flash.bin-stock`、`scripts/kart-boot.uuu`)。
+  (`local/recovery/flash.bin-stock`、`scripts/boot.uuu`)。
 - **eMMC への flash.bin 書き込み(A コピーは 33KiB オフセット):**
   - **Linux 起動中**: `dd if=flash.bin of=/dev/mmcblk2 bs=1k seek=33`(busybox は `conv=` 非対応。plain dd + `sync`)。
     SPL は起動時しか読まれないので実行中書き込みは安全。**最も簡単。**
-  - **SDP(S1=Serial)時**: stock U-Boot を `uuu scripts/kart-boot.uuu` で上げ、`ums 0 mmc 2` で eMMC を
+  - **SDP(S1=Serial)時**: stock U-Boot を `uuu scripts/boot.uuu` で上げ、`ums 0 mmc 2` で eMMC を
     PC に露出 → dd。
   - 失敗しても既知 flash.bin を書き戻せば復旧可(ブリックしない)。手順詳細は `imx8mm-xpi-bench` skill 参照。
 
@@ -194,7 +194,7 @@ SPL(banner 相対、シリアル実測):
 
 ---
 
-## ⑧ weston カーテンの 0.5s — kart-splash-wl で解決 (2026-08-24)
+## ⑧ weston カーテンの 0.5s — splash-wl で解決 (2026-08-24)
 
 seamless takeover は「SPL ロゴ → カーネル DRM」の暗転を消す。だが **weston(kiosk-shell)が起動
 して自分の背景色 `#10141c` で画面を塗り、kmm が初回フレームを描くまでの ~0.5s** は、ロゴが消えて
@@ -208,8 +208,8 @@ seamless takeover は「SPL ロゴ → カーネル DRM」の暗転を消す。�
   なるため撤回。
 - **kmm の初回フレームをロゴに(app 側)** — Qt 初期化の後にしか描けないので 0.5s の
   後半しか縮まない。
-- **採用: 専用スプラッシュクライアント `kart-splash-wl`**(`recipes-graphics/kart-splash-wl/`)。
-  SPL と同一の絵(BG `#10141c` + 白ロゴ、`kart_splash_logo.h` を u-boot と FILESEXTRAPATHS で
+- **採用: 専用スプラッシュクライアント `splash-wl`**(`recipes-graphics/splash-wl/`)。
+  SPL と同一の絵(BG `#10141c` + 白ロゴ、`spl_splash_logo.h` を u-boot と FILESEXTRAPATHS で
   単一ソース共用、同一座標)を描くだけの極小 wl_shm クライアント(C 約 200 行、Qt 不使用)。
   weston 直後に起動し、**kiosk-shell は最後にマップされた surface を前面に置く**ため、
   kmm 表示で自然に背面へ隠れる。

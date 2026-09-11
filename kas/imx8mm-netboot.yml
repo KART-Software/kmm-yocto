@@ -17,7 +17,7 @@ local_conf_header:
     IMAGE_FSTYPES:append = " tar.zst"
     SRC_URI:append:pn-linux-fslc = " file://nfs-boot.cfg"
     SRC_URI:append:pn-linux-fslc-imx = " file://nfs-boot.cfg"
-    SRC_URI:append:pn-u-boot-fslc = " file://kart-uboot-net.cfg"
+    SRC_URI:append:pn-u-boot-fslc = " file://uboot-net.cfg"
     # NFS root と systemd-networkd の分離 (kart-image.bb の
     # netboot_mask_networkd を有効化)。eth0 はカーネル ip= 設定のまま使う。
-    KART_NETBOOT = "1"
+    NETBOOT = "1"

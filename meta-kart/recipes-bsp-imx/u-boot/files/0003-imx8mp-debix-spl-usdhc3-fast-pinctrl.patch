@@ -5,7 +5,7 @@
  	assigned-clock-rates = <400000000>;
  };
 +
-+/* kart falcon: SPL の eMMC HS400 化に必要。高速ステートの pinctrl が SPL DT に
++/* falcon: SPL の eMMC HS400 化に必要。高速ステートの pinctrl が SPL DT に
 + * 残らないと 200MHz をデフォルトパッド設定で走ることになる */
 +&pinctrl_usdhc3_100mhz {
 +	bootph-pre-ram;

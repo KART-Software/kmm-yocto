@@ -1,4 +1,4 @@
-From: kart <kart@localhost>
+From: build <build@localhost>
 Subject: [PATCH] drm/bridge: lontium-lt9611: DSI レーン数を DT の data-lanes から設定可能に
 
 XPI の 800x480 パネル (pclk 32MHz) は 4 レーンだと 192Mbps/lane で

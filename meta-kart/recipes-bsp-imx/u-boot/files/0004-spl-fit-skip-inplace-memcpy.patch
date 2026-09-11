@@ -7,7 +7,7 @@
 -	} else {
 +	} else if (load_ptr != src) {
 +		/*
-+		 * kart falcon: external data がバッファ境界にアライン済みだと
++		 * falcon: external data がバッファ境界にアライン済みだと
 +		 * overhead=0 で src == load_ptr になり、この memcpy は 35MB の
 +		 * 自己コピーだけが残る (dcache 無効の SPL で ~0.7s の空費を実測)。
 +		 * 同一アドレスならスキップする。

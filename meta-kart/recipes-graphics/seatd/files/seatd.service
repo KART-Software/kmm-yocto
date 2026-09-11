@@ -1,8 +1,14 @@
 [Unit]
 Description=Seat management daemon
 Documentation=man:seatd(1)
+# GUI 特急レーン: sysinit を待たない (weston.service の同名コメント参照)。
+# 素の upstream unit は After=sysinit.target で、sysinit 完了 (1.9〜2.6s、
+# /var/volatile マウントのジョブ発行順で二峰に振れる) が GUI チェーン全体の
+# 門になっていた。seatd の実需要は journald ソケットだけ。
 DefaultDependencies=no
-After=sysinit.target
+After=systemd-journald.socket
+Conflicts=shutdown.target
+Before=shutdown.target
 
 [Service]
 Type=simple

@@ -127,7 +127,7 @@ fix(quality=2、衛星 11 機)まで実証済み。
 ## 電源
 
 - DC5V/3A、USB-C(J8)。**GPIO 給電(5V ピン直結)でも起動**することを確認
-  (kart の RPi5 と同じ流儀)。C-to-C ケーブル + PD 充電器の相性で 5V が
+  (RPi5 版と同じ流儀)。C-to-C ケーブル + PD 充電器の相性で 5V が
   出ないことがあるので、GPIO 給電か A-to-C が確実。
 - [PMIC](00-glossary.md#g-pmic) は **BD71847**(EVK と同一)→ U-Boot の PMIC 初期化がそのまま通る。
 

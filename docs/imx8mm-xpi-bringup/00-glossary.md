@@ -99,7 +99,7 @@
 - <a id="g-lcdif"></a><a id="g-mxsfb"></a>**LCDIF / mxsfb** — i.MX の表示コントローラと、その Linux ドライバ名。
   LT9611 ブリッジに繋がって初めて画が出る(`Cannot connect bridge` = ブリッジ未接続)。
 - <a id="g-etnaviv"></a>**etnaviv** — Vivante GPU(i.MX 内蔵)の mainline Linux ドライバ。weston の描画に使う。
-- <a id="g-can"></a>**CAN(Controller Area Network)** — 車載等のバス。kart の CAN は SPI 接続の
+- <a id="g-can"></a>**CAN(Controller Area Network)** — 車載等のバス。この製品の CAN は SPI 接続の
   **MCP2515** コントローラ(i.MX8M Mini に CAN 内蔵は無い)。**FlexCAN** は
   i.MX8M **Plus** の内蔵 CAN(Mini には無い)。
 - <a id="g-ecspi"></a>**ECSPI** — i.MX の SPI コントローラ(Enhanced Configurable SPI)。CAN は ECSPI2。
@@ -152,7 +152,7 @@
 - <a id="g-pts"></a>**pts(pseudo-terminal slave)** — 疑似端末。`/dev/pts/15` にログをミラーして
   ユーザー端末にライブ表示した。
 
-## kart 固有 / A/B
+## 自作部分 / A/B
 
 - <a id="g-a"></a><a id="g-b"></a>**A/B(スロット)** — OS を 2 面持ち、片面を更新して失敗したら戻す仕組み。
   RPi5 は **tryboot**(ファームウェア機能)、i.MX は **U-Boot bootcount** で実装。
@@ -160,5 +160,5 @@
 - <a id="g-bootcount"></a><a id="g-upgrade-available"></a><a id="g-altbootcmd"></a>**bootcount / upgrade_available / altbootcmd** — U-Boot の A/B 用環境変数。
   起動失敗が続くと altbootcmd で旧スロットへフォールバックする。
 - <a id="g-ota"></a>**OTA(Over-The-Air)** — ネットワーク越しの OS 更新。`scripts/ota-update.sh`。
-- <a id="g-kmm"></a>**kmm(kart-machine-manager)** — kart の GUI アプリ本体(C++/Qt6)。
+- <a id="g-kmm"></a>**kmm** — GUI アプリ本体(リポジトリ kart-machine-manager)(C++/Qt6)。
 - <a id="g-weston"></a>**weston** — Wayland のコンポジタ(画面表示の土台)。kiosk モードで kmm を全画面表示。

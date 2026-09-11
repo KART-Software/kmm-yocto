@@ -1,0 +1,12 @@
+# DEBIX 電源制御用 ALIENTEK DP100 (ATK-MDP100, 2e3c:af01) の hidraw ノードを
+# 一般ユーザから開けるようにし、安定名 /dev/dp100 を張る。
+# 既定の hidraw は root 専用 (0600) で scripts/dp100.py が毎回 sudo を要るのを避けるため。
+# リレー (99-usbrelay.rules) と対で、ブートモード切替＋電源サイクルを無人化する。
+#
+# インストール:
+#   sudo cp 99-dp100.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+#   ls -l /dev/dp100
+#
+# 操作は scripts/dp100.py (status / on / off / cycle など)。
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="2e3c", ATTRS{idProduct}=="af01", SYMLINK+="dp100", GROUP="plugdev", MODE="0660"

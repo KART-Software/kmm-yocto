@@ -4,7 +4,7 @@
 
 ## パーティションレイアウト
 
-`meta-kart/wic/kart-rpi5-{nvme,sdcard}-ab.wks`:
+`meta-kart/wic/rpi5-{nvme,sdcard}-ab.wks`:
 
 | # | ラベル | FS | サイズ | 役割 |
 |---|--------|----|--------|------|
@@ -38,16 +38,16 @@ p1 の autoboot.txt を読む
 
 | 場所 | 決めること | 書き換え頻度 |
 |------|-----------|-------------|
-| EEPROM (`BOOT_ORDER`/`boot_partition`) | メディアと入口 | ほぼ一度（`kart-eeprom-setup`） |
+| EEPROM (`BOOT_ORDER`/`boot_partition`) | メディアと入口 | ほぼ一度（`eeprom-setup`） |
 | p1 `autoboot.txt` | **A/B どちらか** + tryboot 分岐先 | OTA の commit ごと |
 | SoC レジスタ (PM_RSTS) | 次の1回だけ [tryboot] を使うか | `reboot '0 tryboot'` ごと |
 | 各 BOOT 面の `cmdline.txt` | その boot 面が対にする rootfs 面 | スロット書込みごと（updater が root= を修正） |
 
-A/B 選択を EEPROM に置かない理由: EEPROM 書き換えは自己更新サイクルが必要で電源断に弱い。`autoboot.txt` はただの FAT ファイルなので commit = rename 一発、電源がバツンと切れるカート環境に向く。tryboot フラグが**揮発レジスタ**なのも肝で、「失敗したら何もしなくても旧面に戻る」が物理的に保証される。
+A/B 選択を EEPROM に置かない理由: EEPROM 書き換えは自己更新サイクルが必要で電源断に弱い。`autoboot.txt` はただの FAT ファイルなので commit = rename 一発、電源がバツンと切れる運用環境に向く。tryboot フラグが**揮発レジスタ**なのも肝で、「失敗したら何もしなくても旧面に戻る」が物理的に保証される。
 
 ## 状態のプリミティブな確認方法
 
-ツール（`kart-ab-status`）は以下を読んでいるだけ:
+ツール（`ab-status`）は以下を読んでいるだけ:
 
 ```bash
 cat /proc/cmdline                # root=...p5 → A面で稼働中 / p6 → B面
@@ -55,7 +55,7 @@ mount -o ro /dev/nvme0n1p1 /mnt && cat /mnt/autoboot.txt   # 恒久設定
 od -An -tu1 /proc/device-tree/chosen/bootloader/tryboot    # この起動が tryboot だったか (1/0)
 ```
 
-`kart-ab-commit` がやるのは「`autoboot.txt` の [all]/[tryboot] の boot_partition を、今動いている面が [all] になるよう書き換える（temp ファイル → rename）」だけ。
+`ab-commit` がやるのは「`autoboot.txt` の [all]/[tryboot] の boot_partition を、今動いている面が [all] になるよう書き換える（temp ファイル → rename）」だけ。
 
 ## OTA の書き込み方式（scripts/ota-update.sh）
 
@@ -70,7 +70,7 @@ od -An -tu1 /proc/device-tree/chosen/bootloader/tryboot    # この起動が try
 
 ## /boot のマウント
 
-fstab では「アクティブ面の boot」を表現できないため、`kart-boot-mount.service`（oneshot）が `/proc/cmdline` の root= を見て `LABEL=BOOTA` / `LABEL=BOOTB` を `/boot` にマウントする。`tailscale-autoconnect`（authkey 読取り）より前に実行。
+fstab では「アクティブ面の boot」を表現できないため、`boot-mount.service`（oneshot）が `/proc/cmdline` の root= を見て `LABEL=BOOTA` / `LABEL=BOOTB` を `/boot` にマウントする。`tailscale-autoconnect`（authkey 読取り）より前に実行。
 
 ## フェイルセーフ
 

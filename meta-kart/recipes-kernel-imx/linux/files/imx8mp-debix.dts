@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * imx8mp-debix.dts — Polyhex DEBIX Infinity (EMB-IMX8MP-06) 用 kart 製品 DT
+ * imx8mp-debix.dts — Polyhex DEBIX Infinity (EMB-IMX8MP-06) 用製品 DT
  *
  * 根拠は工場イメージ (Ubuntu 20.04 + 5.10 NXP BSP) の実行中 FDT との突き合わせ:
  *  - 実行中 FDT = /boot/imx8mp-evk.dtb (= imx8mp-debix-core-board.dtb と同一物)
@@ -15,16 +15,42 @@
  *    (pca6416) を DEBIX で触らないよう supply/assert-gpios を削除する。
  *  - micfil (PDM): EVK で flexcan2 と SAI5 パッドを取り合う相手。DEBIX では PDM
  *    マイク未配線なので disabled (EVK の「can2 pin conflict with pdm」コメント参照)。
- *  - pcie/mipi_dsi/dsp: DEBIX/kart では未使用 (PCIe は 19pin FPC のみ、表示は HDMI、
+ *  - pcie/mipi_dsi/dsp: DEBIX では未使用 (PCIe は 19pin FPC のみ、表示は HDMI、
  *    DSP は使わない)。工場 DT も disabled — 未接続プローブのエラーと起動遅延を避ける。
  *  - uart4: EVK 既定の disabled のまま = M7 コンソール予約 (01-m7.md)。
- *  - WiFi (88W8987 / usdhc1): kart 不使用 → EVK 既定の disabled のまま。
+ *  - WiFi (88W8987 / usdhc1): 不使用 → EVK 既定の disabled のまま。
  */
 
 #include "imx8mp-evk.dts"
 
 / {
 	model = "Polyhex DEBIX Infinity";
+
+	/*
+	 * DEBIX Infinity D4E32 の DRAM は 4GB = 3GB @0x40000000 + 1GB @0x100000000
+	 * (U-Boot の PHYS_SDRAM/PHYS_SDRAM_2 と同じ)。EVK dts は 6GB (3GB + 3GB) を
+	 * 宣言しており、U-Boot proper 経由なら fdt_fixup_memory_banks が直すが、
+	 * falcon 経路は DTB をそのまま使うため、上位 1GB (0x140000000〜) が存在しない
+	 * RAM としてカーネルに見えていた (memtester 2GB でバス停止 → WDT リセット、
+	 * 2026-09-08)。ここで正しい 2 バンクに固定する。
+	 */
+	memory@40000000 {
+		reg = <0x0 0x40000000 0 0xc0000000>,
+		      <0x1 0x00000000 0 0x40000000>;
+	};
+
+	reserved-memory {
+		/*
+		 * SPL スプラッシュのフレームバッファ (0005 パッチの SPLASH_FB_ADDR、
+		 * 800x480x4 = 1.5MB)。カーネルは表示を養子縁組して weston の初回 flip まで
+		 * この FB を走査し続けるので、no-map で触らせない (以前は falcon の
+		 * bootargs mem=2042M で隠していたが、それは 4GB 構成を壊す)。
+		 */
+		splash_fb: splash-fb@bfe00000 {
+			reg = <0x0 0xbfe00000 0 0x200000>;
+			no-map;
+		};
+	};
 };
 
 &flexcan1 {
@@ -82,5 +108,142 @@
 };
 
 &ldb_phy {
+	status = "disabled";
+};
+
+/* ===== EVK 遺産の死にノード掃除 (2026-09-03、起動時間: udev/probe 削減) =====
+ * DEBIX で消費者がいない EVK 有効化ノードを落とす。効果は
+ * ① probe 時間 (eqos 0.2s+PHY 等) ② coldplug の uevent 数 ③ dmesg ノイズ
+ * (ov5640/pca953x/csis の probe エラー消滅)。根拠: 実配線 (02-dts-delta.md)
+ * と実機 dmesg。カーネル config 側は既に SND/V4L2 等を削っており、
+ * これはその DT 側の対 (ノードだけ残っていた)。 */
+
+/* 第 2 イーサネット (eqos/eth1): 未配線 (実機で down/リンクなし) */
+&eqos {
+	status = "disabled";
+};
+
+/* オーディオ一式 (無音キオスク。コーデックも未実装) */
+&aud2htx {
+	status = "disabled";
+};
+
+&easrc {
+	status = "disabled";
+};
+
+&sai2 {
+	status = "disabled";
+};
+
+&sai3 {
+	status = "disabled";
+};
+
+&sdma2 {
+	status = "disabled";
+};
+
+&xcvr {
+	status = "disabled";
+};
+
+&{/sound-bt-sco} {
+	status = "disabled";
+};
+
+&{/sound-hdmi} {
+	status = "disabled";
+};
+
+&{/sound-wm8960} {
+	status = "disabled";
+};
+
+&{/sound-micfil} {
+	status = "disabled";
+};
+
+&{/sound-xcvr} {
+	status = "disabled";
+};
+
+&{/bt_sco_codec} {
+	status = "disabled";
+};
+
+/* カメラ一式 (未搭載。ov5640 は毎ブート probe エラーを吐いていた) */
+&mipi_csi_0 {
+	status = "disabled";
+};
+
+&mipi_csi_1 {
+	status = "disabled";
+};
+
+&cameradev {
+	status = "disabled";
+};
+
+&isi_0 {
+	status = "disabled";
+};
+
+&isi_1 {
+	status = "disabled";
+};
+
+&ov5640_0 {
+	status = "disabled";
+};
+
+/* FlexSPI: NOR 非搭載 (MTD もカーネルから削除済み) */
+&flexspi {
+	status = "disabled";
+};
+
+/* 表示に使わない CRTC (表示は lcdif3=HDMI のみ。lcdif1=DSI/lcdif2=LVDS は
+ * 接続先を disabled 済みで、crtc だけ probe されて uevent を増やしていた) */
+&lcdif1 {
+	status = "disabled";
+};
+
+&lcdif2 {
+	status = "disabled";
+};
+
+/* I/O エキスパンダ (EVK の CSI/LVDS 用 pca6416)。DEBIX に非実装で
+ * 毎ブート probe -11 を吐いていた */
+&pca6416 {
+	status = "disabled";
+};
+
+/* LVDS バックライト (EVK 遺産)。DEBIX のパネルは信号連動の自前バックライトで
+ * この PWM は未配線。systemd-backlight@ が毎ブート failed になる発生源 */
+&lvds_backlight {
+	status = "disabled";
+};
+
+/* Quad Lite でヒューズアウトされている VPU/NPU の GPC 電源ドメイン。
+ * pgc_vpumix (power-domain@8) は「imx-pgc-domain.8: failed to command PGC」
+ * を毎ブート 3 連発し (open-issues 旧 #8 の正体)、子の g1/g2/vc8000e
+ * (@11/12/13) は永久 deferred でぶら下がっていた */
+&pgc_vpumix {
+	status = "disabled";
+};
+
+&pgc_vpu_g1 {
+	status = "disabled";
+};
+
+&pgc_vpu_g2 {
+	status = "disabled";
+};
+
+&pgc_vpu_vc8000e {
+	status = "disabled";
+};
+
+&pgc_mlmix {
 	status = "disabled";
 };

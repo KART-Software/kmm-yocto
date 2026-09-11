@@ -132,7 +132,7 @@ Qt6 + weston + tailscale を動かすなら **2GB 以上を選定すべき**。
 現行:
 - p1 AUTOBOOT に `autoboot.txt`（`tryboot_a_b=1` / `boot_partition=2` / `[tryboot] boot_partition=3`）
 - `reboot '0 tryboot'` で一度だけ B 面起動
-- `kart-ab-commit` が両セクションを入れ替えて確定
+- `ab-commit` が両セクションを入れ替えて確定
 - 失敗時はファームウェアが自動フォールバック
 
 i.MX + U-Boot での等価物:
@@ -144,7 +144,7 @@ i.MX + U-Boot での等価物:
 | 確定（commit） | 起動成功後に userspace から `fw_setenv bootcount 0` |
 | スロット選択の永続化 | U-Boot 環境変数（eMMC の専用領域 or FAT 上のファイル） |
 
-`kart-ab-commit` / `kart-ab-status` / `scripts/ota-update.sh` は
+`ab-commit` / `ab-status` / `scripts/ota-update.sh` は
 **`fw_setenv`/`fw_printenv`（libubootenv）ベースに書き直し**。
 eMMC の boot partition（`mmcblk0boot0` / `boot1`）を A/B のブートローダ面として使える点は
 Pi5 より素直。ハードウェアウォッチドッグによる保険は現行の
@@ -161,7 +161,7 @@ Pi5 より素直。ハードウェアウォッチドッグによる保険は現�
 | `meta-raspberrypi` | `meta-freescale` + `meta-freescale-3rdparty` or NXP `meta-imx` |
 | `MACHINE = "raspberrypi5"` | ボード固有 machine（Geniatech BSP 依存） |
 | `recipes-kernel/linux/linux-raspberrypi_%.bbappend` | `linux-imx` 系 bbappend に置換 |
-| `rpi-eeprom` / `kart-eeprom-setup` | 不要（U-Boot 環境変数へ） |
+| `rpi-eeprom` / `eeprom-setup` | 不要（U-Boot 環境変数へ） |
 | `RPI_EXTRA_CONFIG` / `ENABLE_*` 変数群 | 自前 DTS + U-Boot config |
 | `BBFILES_DYNAMIC` の `raspberrypi:` 条件 | 条件の張り替え |
 
@@ -209,12 +209,12 @@ DTB リネームトリックを吸収)。deploy dir / hostname は `imx8mm-xpi` 
   can.cfg bbappend（`BBFILES_DYNAMIC` で meta-freescale 存在時のみロード）
 - `kart-image.bb` — `:mx8mm-generic-bsp` オーバーライドで can-utils / can-setup /
   kernel-modules を追加。tryboot 専用機構（autoboot.vfat 生成、
-  kart-boot-mount）は `:raspberrypi5` にガードして他マシンから除外。
+  boot-mount）は `:raspberrypi5` にガードして他マシンから除外。
   **落とし穴**: meta-freescale は machine-overrides-extender で MACHINEOVERRIDES
   を BSP 種別付き（`mx8mm-generic-bsp` / `mx8mm-mainline-bsp` 等）に変換するため、
   素の `:mx8mm` は OVERRIDES に存在せず append が黙って捨てられる（変数履歴には
   載るのに値に反映されない）。実際にこれを踏んで wic 生成が失敗した
-- `imx8mm-evk-kart.dts` — MCP2515 + eMMC ノード入りの EVK バリアント DTB。
+- `imx8mm-evk-bench.dts` — MCP2515 + eMMC ノード入りの EVK バリアント DTB。
   **eMMC (usdhc3) は mainline の EVK DT に存在しない**（microSD のみ）ため、
   NXP ベンダツリー (lf-6.6.y) の usdhc3 ノードを移植した。/dev/mmcblk2 で見える。
   RPi5 ではファームウェアオーバーレイ（`ENABLE_CAN=1` → mcp2515-can0）が
@@ -233,22 +233,22 @@ can-utils / kernel-module-mcp251x / tailscale を確認。U-Boot は extlinux �
 U-Boot の bootcount + upgrade_available + altbootcmd で実装した。
 `./scripts/build.sh imx8mm --emmc` で eMMC A/B レイアウトをビルドする。
 
-- `kart-imx8mm-emmc-ab.wks` — imx-boot(33KiB) / seed 済み env(4MiB) /
-  BOOTA=p1 / BOOTB=p2 / KARTRSV=p3(詰め物) / roota=**p5** / rootb=**p6** /
+- `imx8mm-emmc-ab.wks` — imx-boot(33KiB) / seed 済み env(4MiB) /
+  BOOTA=p1 / BOOTB=p2 / RSV=p3(詰め物) / roota=**p5** / rootb=**p6** /
   data=**p7**。root と data の番号を RPi5 レイアウトと揃えたため、
-  kart-boot-mount と kart-ab-* の cmdline 判定 (p5/p6) を両機種で共用できる
+  boot-mount と ab-* の cmdline 判定 (p5/p6) を両機種で共用できる
 - `recipes-bsp-imx/u-boot/` — bootcount 有効化 + env を eMMC(mmc2) へ +
   ENV_SIZE 0x2000 の cfg fragment
-- `recipes-bsp-imx/kart-uboot-env/` — ビルドした U-Boot の initial env に
-  A/B 変数 (kart_slot / kart_boot / altbootcmd / bootcmd 上書き) をマージし
+- `recipes-bsp-imx/uboot-env/` — ビルドした U-Boot の initial env に
+  A/B 変数 (ab_slot / ab_boot / altbootcmd / bootcmd 上書き) をマージし
   mkenvimage でバイナリ化。wic が env オフセットへ rawcopy するので、
   **初回起動から A/B bootcmd で立ち上がる**（手動の env 操作が不要）
-- セマンティクス: OTA が kart_slot=新 / kart_fallback_slot=旧 /
+- セマンティクス: OTA が ab_slot=新 / ab_fallback_slot=旧 /
   upgrade_available=1 / bootcount=0 を設定 → 新スロットで起動 →
-  成功したら `kart-ab-commit` (fw_setenv バッチ + 読み戻し検証) →
+  成功したら `ab-commit` (fw_setenv バッチ + 読み戻し検証) →
   失敗すれば bootlimit 超過で altbootcmd が旧スロットへ恒久フォールバック。
   upgrade_available=0 の通常運転では bootcount を保存しないため eMMC 摩耗なし
-- `kart-ab-tools` — i.MX 版 kart-ab-commit / kart-ab-status を
+- `ab-tools` — i.MX 版 ab-commit / ab-status を
   `files/imx-generic-bsp/` に追加（FILESPATH のオーバーライド探索で
   自動選択。8MM/8MP 共通で、imx-boot のセクタ定数と env の場所は
   レシピの machine 別変数から do_install で埋める）。出力キーは RPi5 版と互換
@@ -275,21 +275,21 @@ U-Boot を自前管理して高速化していく以上、ブートローダ更�
   を立てる。**SRC_GPR10 はあらゆるリセット (PSCI/WDOG/POR) で消える**ため、
   ソフトから PSB を立てて B を試し起動することはできない。起動元の確実な
   判定は ROM イベントログ (0x9e0 → event 0x50/0x51)
-- 運用方式: **B 面に一つ前の版を残す**。`kart-uboot-update <flash.bin>` が
+- 運用方式: **B 面に一つ前の版を残す**。`uboot-update <flash.bin>` が
   ①現行 A を B へ退避 → ②新版を A へ、の順で書く (A=現行 / B=前版が定常。
   UBOOT_COPIES=DIFFER が正常状態)。ツール群 (busybox 構文):
-  - **kart-uboot-update <flash.bin>**: 上記。入力の IVT ヘッダ (tag 0xd1 /
+  - **uboot-update <flash.bin>**: 上記。入力の IVT ヘッダ (tag 0xd1 /
     version 0x41) とサイズを事前検査。**A が不正なら退避をスキップ**
     (壊れた A を B へ複写して唯一の健全コピーを潰す事故を防ぐ)。
     **フォールバック起動 (B copy) 中は実行を拒否** — B 起動は事故の痕跡
     なので、先に A を修復して正規状態に戻すのが先
-  - **kart-uboot-rollback**: B (前版) を A へ書き戻す
-  - **kart-uboot-selfheal** (systemd oneshot, multi-user.target): 起動時に
+  - **uboot-rollback**: B (前版) を A へ書き戻す
+  - **uboot-selfheal** (systemd oneshot, multi-user.target): 起動時に
     フォールバックを検出したら自動で rollback。B 起動は無症状 (GUI も CAN も
     普通に動く) なので、人間の気づきに頼らず冗長性を回復する
-  - **kart-uboot-status**: 起動コピーを ROM イベントログ (0x9e0 → event
+  - **uboot-status**: 起動コピーを ROM イベントログ (0x9e0 → event
     0x50/0x51) で判定 + A/B の md5
-  - 排他制御: update/rollback/selfheal は `/run/kart-uboot.lock` を **flock**
+  - 排他制御: update/rollback/selfheal は `/run/uboot.lock` を **flock**
     で相互排他 (mkdir だと SIGKILL でロック残留 = プロセス途中死のときに
     壊れる。flock はカーネルが fd 生存に紐付けて自動解放)
 - 全書き込みは **header-last**: 書き込み先の IVT セクタを先にゼロ化 → 本体
@@ -318,11 +318,11 @@ U-Boot を自前管理して高速化していく以上、ブートローダ更�
 - カーネルスリム化: Image 46.6MB → 20.9MB (-55.1%)。slim-imx-arch.cfg
   (他ベンダー SoC 41 個削除) + slim-imx.cfg (製品ポリシー移植 + KVM/XEN/
   NFS/SND/MEGARAID 等)。wic 143MB → 124MB
-- U-Boot 機能削減 (kart-uboot-slim.cfg): EFI_LOADER + NET 削除で flash.bin
+- U-Boot 機能削減 (uboot-slim.cfg): EFI_LOADER + NET 削除で flash.bin
   1205KB → 1112KB (-7.7%)。sysboot は NET 非依存、UUU リカバリは USB 経由
-  なので影響なし。initial env から EFI/DHCP マクロが消え kart-env にも自動反映
+  なので影響なし。initial env から EFI/DHCP マクロが消え uboot-env にも自動反映
 - ota-update.sh の i.MX 対応: イメージ (wic p1 サイズ) とデバイス
-  (kart-ab-status の UBOOT_* キー) の両方でプラットフォームを自動判別し、
+  (ab-status の UBOOT_* キー) の両方でプラットフォームを自動判別し、
   食い違えば中断。分岐は boot 抜き出し (p2/p1)、root= の修正先
   (cmdline.txt / extlinux.conf)、試行起動 (tryboot / fw_setenv+reboot) の 3 点。
   fdisk のブートフラグによる列ズレも補正 (既存の潜在バグ)

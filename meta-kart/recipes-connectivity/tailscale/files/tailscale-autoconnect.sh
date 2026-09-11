@@ -11,7 +11,7 @@ set -u
 KEY_FILE=/boot/tailscale.authkey
 SOCK=/run/tailscale/tailscaled.sock
 
-# キー削除。imx では /boot が ro マウント (kart-boot-mount が -o ro) なので、
+# キー削除。imx では /boot が ro マウント (boot-mount が -o ro) なので、
 # ro のときだけ rw に開けて削除し、sync して ro へ戻す。rw 運用の機種 (RPi5)
 # ではそのまま消す。削除は冪等 (電源断で残っても次ブートで再試行するだけ)。
 remove_key() {

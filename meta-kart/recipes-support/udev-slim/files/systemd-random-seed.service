@@ -1,0 +1,45 @@
+# systemd-random-seed の丸ごと差し替え (/etc 側に置いて出荷版 /usr/lib を上書き)。
+#
+# 目的: 前回保存した乱数 seed を「信用」(SYSTEMD_RANDOM_SEED_CREDIT=1) して CRNG を
+# /data マウント直後 (~1.45s) に初期化し、weston / kmm の getrandom() ブロックを消す。
+#
+# 出荷版との差分は RequiresMountsFor=/var/lib/systemd/random-seed を落とした点。
+# この依存は /var/lib の volatile overlay (var-volatile.mount → local-fs-pre) を
+# 待たせるが、その mount ジョブは udev coldplug のイベント洪水で PID1 の run queue
+# (sd-event 最低優先) が飢餓すると 2.25s まで dispatch されず、seed credit が
+# kmm の getrandom() (~1.85s, fontconfig 初期化) より後ろに回る boot が出る
+# (card0 直後起動で 4/10、READY +0.4s の二峰性。docs/imx8mp-debix-bringup/30-boot-time.md)。
+# seed の実体は /data/random-seed で、/var/lib/systemd/random-seed → /data/random-seed の
+# symlink は rootfs 上にあり overlay 前でも見えるため、必要なのは /data だけ。
+# drop-in では依存を消せない (空代入は no-op) ので unit 全体を置く。
+#
+# seed はサービスが毎起動 (load 直後に書き戻し) + シャットダウンで書き換えるため、
+# 再利用は電源断時のみ。キオスク用途では許容する。
+[Unit]
+Description=Load/Save OS Random Seed (credit from /data, ahead of the udev storm)
+Documentation=man:systemd-random-seed.service(8) man:random(4)
+ConditionVirtualization=!container
+ConditionPathExists=!/etc/initrd-release
+DefaultDependencies=no
+Requires=data-mount.service
+After=systemd-remount-fs.service data-mount.service
+Before=weston.service kmm.service first-boot-complete.target shutdown.target
+Wants=first-boot-complete.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=SYSTEMD_RANDOM_SEED_CREDIT=1
+ExecStart=/usr/lib/systemd/systemd-random-seed load
+# load は「二重 credit 防止」のため seed ファイルの creditable xattr を先に外して
+# fsync し、新 seed を書いて xattr を付け直すが、付け直しは fsync しない。
+# ext4 の journal commit(既定 5s)前に電源が切れると xattr 消失だけが残り、
+# 次回は credit されず CRNG のジッタ初期化待ち(~1.1s)で GUI が 4.2s に落ちる
+# (GUI 表示直後の電源断で再現、2026-09-07)。sync で即座に永続化する。
+ExecStartPost=/bin/sync
+ExecStop=/usr/lib/systemd/systemd-random-seed save
+TimeoutSec=10min
+
+[Install]
+WantedBy=sysinit.target

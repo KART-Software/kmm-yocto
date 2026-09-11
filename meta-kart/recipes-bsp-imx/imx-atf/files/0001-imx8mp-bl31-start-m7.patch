@@ -1,0 +1,118 @@
+From: build <build@localhost>
+Subject: [PATCH] imx8mp: BL31 — falcon の Cortex-M7 を ITCM に積んで起動
+
+falcon.itb 経路 (SPL→BL31→カーネル直行) で、SPL (0007) が DDR 0x46000000 に
+ステージングした M7 ファームを BL31 が ITCM (0x7E0000) へコピーし、CPUWAIT を
+落として起動する。8MM の 0001-imx8mm-bl31-start-m4 の 8MP 移植。
+
+8MP 固有: M7 の TCM は M7 ルートクロック (CCM 0x30388080) を 0x11000000
+(bit28 enable + mux=1 sys_pll2_200m) で回していないと死んだ AXI スレーブになり、
+A53 が書くとバスでハングする。BL31 がコピー前に自前で立てる (remoteproc 経路では
+U-Boot proper/Linux が立てていた)。RDC/TZASC/MRC/ページ属性は無罪 (実機 probe で確定)。
+stock が本関数の手前で M7 reset を解除するため、その前に CPUWAIT で M7 を
+待機させておく。
+
+Upstream-Status: Inappropriate [product-specific falcon integration]
+
+See docs/imx8mp-debix-bringup/01-m7.md.
+---
+--- a/plat/imx/imx8m/imx8mp/imx8mp_bl31_setup.c
++++ b/plat/imx/imx8m/imx8mp/imx8mp_bl31_setup.c
+@@ -13,6 +13,7 @@
+ #include <context.h>
+ #include <drivers/arm/tzc380.h>
+ #include <drivers/console.h>
++#include <drivers/delay_timer.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <lib/el3_runtime/context_mgmt.h>
+ #include <lib/mmio.h>
+@@ -312,6 +313,72 @@
+ 	enable_mmu_el3(0);
+ }
+ 
++/*
++ * falcon: SPL (0007-imx8mp-debix-spl-m7-file-read) が DDR 0x46000000 にステージング
++ * した Cortex-M7 ファーム (m7-fw.img の payload = zephyr.bin、先頭がベクタ) を ITCM へ
++ * 置いて起動する。8MM の 0001-imx8mm-bl31-start-m4 の 8MP 移植。
++ *
++ * 8MP の肝: M7 の TCM (0x7E0000) は M7 ルートクロック (CCM 0x30388080) が
++ * 「enable (bit28) かつ稼働ソース (mux=1 sys_pll2_200m)」= 0x11000000 で回って
++ * いないと死んだ AXI スレーブになり、A53 が書くとバスでハングする (実機の
++ * BL31 probe で確定: 0x11000000 なら 128KB コピーまで通り、0x00000000 なら即ハング。
++ * RDC/TZASC/MRC/ページ属性は全て無罪)。remoteproc 経路では U-Boot proper/Linux が
++ * このクロックを立てていたが、falcon は proper を飛ばすため BL31 が自前で立てる。
++ * sys_pll2 は SPL clock_init が出力を enable 済み (falcon でも有効)。
++ *
++ * 順序: stock の bl31_platform_setup は本関数の手前で M7 の reset を解除する
++ * (SRC M4_ENABLE + NON_SCLR_RST クリア)。空 ITCM からの暴走を防ぐため、reset 解除
++ * より前 (imx_gpc_init 直後) で CPUWAIT を立てて M7 を待機させておき、コピー完了後
++ * に CPUWAIT を落として起動する。
++ */
++#define M7_STAGING	0x46000000UL		/* SPL パッチ M7_STAGING と一致必須 */
++#define M7_ITCM		IMX_TCM_BASE		/* 0x7E0000 (A53/EL3 view) = M7 の 0x0 */
++#define M7_ITCM_SZ	0x00020000UL		/* ITCM 128KB */
++#define M7_RSC_TABLE	0x550FF000UL		/* Linux DT rsc-table@550ff000 (M7 が publish) */
++#define M7_CLK_ROOT	(IMX_CCM_BASE + 0x8080)	/* CCM TARGET_ROOT M7 */
++#define M7_CLK_ON	U(0x11000000)		/* bit28 enable + mux[26:24]=1 (sys_pll2_200m) */
++
++static void start_m7(void)
++{
++	uint32_t sp = mmio_read_32(M7_STAGING);
++	uint32_t pc = mmio_read_32(M7_STAGING + 4);
++	unsigned int i;
++
++	/* ステージング済みか = ベクタ妥当性 (SP は DTCM 域, PC は ITCM 域 + thumb) */
++	if (!(sp >= 0x20000000U && sp <= 0x20020000U &&
++	      pc < 0x00020000U && (pc & 1U)))
++		return;
++
++	/*
++	 * M7 root clock を有効化。これが無いと TCM 書き込みでハングする (実測)。
++	 * enable/mux 変更直後に TCM へ書くとクロック未安定でハングするため、
++	 * read-back で posted write を確定させ、udelay で安定を待つ (実測: 診断
++	 * NOTICE の UART 出力が暗黙のディレイになっていた版は動き、それを外した
++	 * 版はハング)。100us は起動時間に対して無視できる。
++	 */
++	mmio_write_32(M7_CLK_ROOT, M7_CLK_ON);
++	(void)mmio_read_32(M7_CLK_ROOT);
++	udelay(100);
++
++	/* ITCM へコピー (M7 は reset 解除済み・CPUWAIT で待機中) */
++	for (i = 0; i < M7_ITCM_SZ; i += 4)
++		mmio_write_32(M7_ITCM + i, mmio_read_32(M7_STAGING + i));
++	flush_dcache_range(M7_ITCM, M7_ITCM_SZ);
++
++	/*
++	 * rsc_table 領域をクリア。attach 起動では Linux は「読む」側で、M7 が fresh な
++	 * テーブルを publish する必要がある。前回起動の残存 (version=1) が残ると M7 が
++	 * publish を skip して古い vring で attach 不成立になる (8MM で実測)。
++	 */
++	for (i = 0; i < 0x100; i += 4)
++		mmio_write_32(M7_RSC_TABLE + i, 0);
++	flush_dcache_range(M7_RSC_TABLE, 0x100);
++
++	/* CPUWAIT 解除 = M7 起動 (ITCM 先頭のベクタから) */
++	mmio_clrbits_32(IMX_IOMUX_GPR_BASE + IOMUXC_GPR22, GPR_CM7_CPUWAIT);
++	NOTICE("bl31: Cortex-M7 released from BL31 (SP=%08x PC=%08x)\n", sp, pc);
++}
++
+ void bl31_platform_setup(void)
+ {
+ #if defined(LPA_ENABLE)
+@@ -331,10 +398,16 @@
+ 
+ 	imx_gpc_init();
+ 
++	/* falcon: M7 を reset 解除より前に待機させ、空 ITCM からの暴走を防ぐ */
++	mmio_setbits_32(IMX_IOMUX_GPR_BASE + IOMUXC_GPR22, GPR_CM7_CPUWAIT);
++
+ 	/* Enable and reset M7 */
+ 	mmio_setbits_32(IMX_SRC_BASE + 0xc,  SRC_SCR_M4_ENABLE_MASK);
+ 	mmio_clrbits_32(IMX_SRC_BASE + 0xc, SRC_SCR_M4C_NON_SCLR_RST_MASK);
+ 
++	/* falcon: reset を出した M7 に ITCM を積んで起動 (ステージング時のみ) */
++	start_m7();
++
+ #if defined(LPA_ENABLE)
+ 	/* CPUCNT bits [15:0] used as flags for LPA, clearing it at boot */
+ 	value = mmio_read_32(CPUCNT);

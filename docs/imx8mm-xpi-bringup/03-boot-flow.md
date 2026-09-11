@@ -19,7 +19,7 @@
   通常の slim ビルドはこれらを削っている)
 - 成果物(`build/tmp/deploy/images/imx8mm-lpddr4-evk/`):
   - `imx-boot`(= `flash.bin-...-sd`、[SPL](00-glossary.md#g-spl)+U-Boot、1.11MB)
-  - `Image`(21.9MB)、`imx8mm-xpi-kart.dtb`(42KB)
+  - `Image`(21.9MB)、`imx8mm-xpi.dtb`(42KB)
   - `kart-image-...rootfs.tar.zst`(122MB、NFS へ展開)
 - [TFTP](00-glossary.md#g-tftp)/NFS 準備済み([02-debug-setup.md](02-debug-setup.md))
 - S1 を **Serial Download**(`1010 1010`)に設定
@@ -42,7 +42,7 @@ uuu -lsusb               # 3:5 MX8MM SDP: 0x1FC9 0x0134
 待ったまま止まる**(SPL が `Trying to boot from USB SDP` で待機)。
 ベンダ `uuu.auto` と同じく **SPL 後段([SDPV](00-glossary.md#g-sdpv))まで送るスクリプト**が要る。
 
-スクリプトはリポジトリに入っている(`scripts/kart-boot.uuu`):
+スクリプトはリポジトリに入っている(`scripts/boot.uuu`):
 
 ```
 uuu_version 1.5.243
@@ -60,7 +60,7 @@ SDPV: jump
 実行(リポジトリ直下から):
 
 ```bash
-uuu -v scripts/kart-boot.uuu
+uuu -v scripts/boot.uuu
 # SDP: boot ... Okay
 # SDPV: write ... Okay
 # SDPV: jump ... Okay
@@ -91,7 +91,7 @@ setenv netmask 255.255.255.0
 setenv loadaddr 0x40480000
 setenv fdt_addr 0x43000000
 tftp ${loadaddr} Image
-tftp ${fdt_addr} imx8mm-xpi-kart.dtb
+tftp ${fdt_addr} imx8mm-xpi.dtb
 setenv bootargs 'console=ttymxc1,115200 root=/dev/nfs \
   nfsroot=192.168.0.136:/srv/nfs/kart,vers=3,tcp \
   ip=192.168.0.16:192.168.0.136:192.168.0.1:255.255.255.0:xpi:eth0:off \
@@ -128,5 +128,5 @@ imx8mm-lpddr4-evk login:
 
 ## デバイス側プラットフォーム判別(ota-update.sh 対応済み)
 
-`kart-ab-status` の出力に `UBOOT_*` キーがあれば i.MX。`ota-update.sh` は
+`ab-status` の出力に `UBOOT_*` キーがあれば i.MX。`ota-update.sh` は
 イメージの wic p1 サイズと合わせて自動判別する(RPi5 と共用)。

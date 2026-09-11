@@ -1,4 +1,4 @@
-From: KART <dev@kart>
+From: build <build@localhost>
 Date: Sun, 17 Aug 2026 00:00:00 +0900
 Subject: [PATCH] imx8mm: RDC grant M4 access to ECSPI2/GPIO3/GPIO5
 
