@@ -97,3 +97,15 @@
    RuntimeWatchdogSec=15 のハード WDT リセットか、eMMC 書き込み中の sshd/ネットワーク
    の問題かは未特定。再現時はシリアルを並行記録して SPL バナーの有無(= リセットか否か)
    を先に確定すること
+
+13. **U-Boot env が単一コピー**(0x700000、16KB、冗長化なし): 1 起動あたり 2 回の env 書き
+   (SPL デッドマン `boot_os=no` +0.5s、falcon-rearm `boot_os=yes` +3.6s、各数 ms)の最中に
+   電源断すると CRC 不良になり得る。その場合 U-Boot は組込みデフォルト env(A/B スクリプト無し)
+   → distro boot → bootable フラグの BOOTA/extlinux で **slot A を proper 起動**(動くが A/B 状態を
+   失い slot A 固定に退化、要手動復旧)。電源断スイープ 29+26 回では未踏。対策候補は
+   `CONFIG_SYS_REDUNDAND_ENVIRONMENT`(env 2 面化、wks の env 領域も 2 面分に)
+14. **デッドマン窓(電源 +0.5〜3.6s)の電源断で次回が proper 5.06s**(04-falcon.md スイープ):
+   falcon-rearm が `After=dev-mmcblk2.device`(coldplug 待ち、kernel 2.55s)。/dev/mmcblk2 は
+   devtmpfs にあるので `After=systemd-random-seed.service`(kernel ~1.5s)へ前倒しすれば窓が
+   3.6→2.5s に縮む。seed と同じ eMMC を叩くので GUI レーン(kmm 起動 1.5s)への影響を計測して判断
+
