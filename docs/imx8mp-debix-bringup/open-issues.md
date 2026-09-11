@@ -44,10 +44,11 @@
    吸収済みだが、CAN 表示開始は can0-up の UP(~3.8s)以降になる
 7. **起動時間**: weston 13 + seed credit 前倒し + card0 直後起動(30-boot-time.md #12〜#14)で
    **電源→GUI = 3.17s(σ0.07、N=10、外れ値なし)**。内訳は同 md「現在の内訳」。
-   M7 統合後は 3.35〜3.48s(+0.10s、30-boot-time.md の 09-11 行)。
+   M7 統合後 3.31s(σ0.09、N=5。対照 3.26s とノイズ内、30-boot-time.md の 09-11 行。attach 時の
+   MU kick 100ms タイムアウトは M7 側 ACK で解消済み)。
    残りの候補:
-   - **M7 attach の `imx_rproc_kick` 100ms タイムアウト**(M7 が MU を drain しないため。PID1 が
-     0.09s 遅れる。M7 側で MU RX を処理すれば消える — data-logger-zephyr 側の作業)
+   - data-mount→seed(load + sync)区間のばらつき ±0.1s が二峰(3.2 / 3.4s)の正体。M7 無関係で
+     対照にも出る。sync 対象と /data マウント所要(p7 デバイス出現 1.41〜1.49s)の切り分けが未着手
    - カーネル→PID1 1.13s(最大の単一区間、未着手)
    - kmm の wayland socket→READY 0.34〜0.47s(Qt/fontconfig 初期化そのもの)
    - udev の systemd タグ対象(tty 22 / block 21 / net 4)削減で PID1 のイベント処理を軽くする
