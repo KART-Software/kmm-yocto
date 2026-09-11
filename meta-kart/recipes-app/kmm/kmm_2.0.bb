@@ -10,7 +10,7 @@ SRC_URI = " \
     git://github.com/KART-Software/kart-machine-manager.git;protocol=https;branch=develop \
     file://kmm.service \
 "
-SRCREV = "e32206810fffd8da864a4bf1df02c6f72d70fe89"
+SRCREV = "bbd8ed2aa9c5753a877a53cc0929f3c18e9af938"
 
 S = "${WORKDIR}/git/app-cpp"
 

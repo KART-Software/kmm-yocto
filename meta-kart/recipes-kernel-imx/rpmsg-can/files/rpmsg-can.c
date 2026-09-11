@@ -4,17 +4,17 @@
  *
  * M4 側ファーム (data-logger-zephyr の apps/can-gw、テスト用は
  * m4/can-sim) が rpmsg チャネル "rpmsg-can" を NS 告知すると本ドライバが
- * bind し、rpcan0 を CAN デバイスとして登録する。以後 SocketCAN と
+ * bind し、rpmsgcan0 を CAN デバイスとして登録する。以後 SocketCAN と
  * `ip link`/netlink がそのまま使える。
  *
  * candev 化 (旧: 生 netdev):
  *  - alloc_candev/register_candev で ARPHRD_CAN + can_priv を持つ本物の
- *    CAN デバイスになる (`ip -d link show rpcan0` が can 型を表示)。
+ *    CAN デバイスになる (`ip -d link show rpmsgcan0` が can 型を表示)。
  *  - 実タイミング (tq/brp) は M4 の CAN コントローラ (MCP2518FD) が持つので、
  *    Linux 側は bitrate_const で許可ビットレートを列挙するだけ。netlink で
  *    設定された bitrate / ctrlmode は open 時に M4 へ制御メッセージで転送する。
  *  - デフォルト 500k を probe で入れておくので、明示 bitrate 無しの
- *    `ip link set rpcan0 up` でも上がる。
+ *    `ip link set rpmsgcan0 up` でも上がる。
  *
  * ワイヤ形式 (M4 の can-gw / can-sim と共通):
  *  - データフレーム = 16B: { __le32 id; u8 dlc; u8 pad[3]; u8 data[8] }
@@ -121,7 +121,7 @@ static int rpmsg_can_stop(struct net_device *ndev)
 	return 0;
 }
 
-/* bus-off 後の再起動 (ip link set rpcan0 type can restart / 自動 restart-ms) */
+/* bus-off 後の再起動 (ip link set rpmsgcan0 type can restart / 自動 restart-ms) */
 static int rpmsg_can_set_mode(struct net_device *ndev, enum can_mode mode)
 {
 	struct rpmsg_can_priv *priv = netdev_priv(ndev);
@@ -241,6 +241,10 @@ static int rpmsg_can_probe(struct rpmsg_device *rpdev)
 	ndev = alloc_candev(sizeof(*priv), 1);
 	if (!ndev)
 		return -ENOMEM;
+
+	/* Linux 自身の CAN コントローラ (can%d) と名前空間を分け、どちらが先に
+	 * probe されても rpmsgcan0 で固定参照できるようにする */
+	strscpy(ndev->name, "rpmsgcan%d", sizeof(ndev->name));
 
 	priv = netdev_priv(ndev);
 	priv->rpdev = rpdev;

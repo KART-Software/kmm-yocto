@@ -11,7 +11,8 @@
 #          置けない — pitfalls #27)
 #   BL31 : ベクタゲート → rsc_table ゼロ化 → DDR→TCML コピー → SRC 解除
 #          (imx-atf パッチ 0001-...-bl31-start-m4)
-#   Linux: 稼働中 M4 に attach、can0 は既存の can0-up.service が bringup
+#   Linux: 稼働中 M4 に attach、rpmsg-can の rpmsgcan0 を can0-up.service が bringup
+#          (kmm は /data/kmm.env の CAN_INTERFACE=rpmsgcan0 で読む)
 #
 # 独立ファイルにする狙いは「Zephyr だけ更新したい人が Yocto に関わらない」—
 # M4 更新は m4-fw.img の scp + reboot で完結する (data-logger-zephyr の
@@ -29,6 +30,8 @@ header:
 local_conf_header:
   m4: |
     FALCON_M4:pn-falcon-itb = "1"
+    # M4 経由の CAN は netdev rpmsgcan0。can0-up.service で上げる IF を差し替える
+    CAN_IFACE:pn-can-setup = "rpmsgcan0"
     # SPL に m4-fw.img のファイル読み + 検証 + DDR ステージングを追加
     SRC_URI:append:pn-u-boot-fslc = " file://0011-imx8mm-spl-m4-file-read.patch"
     # BL31 に M4 起動 (rsc ゼロ化 → DDR→TCML コピー → SRC 解除) を追加
