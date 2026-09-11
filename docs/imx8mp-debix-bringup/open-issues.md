@@ -37,12 +37,17 @@
    #12〜#14 で再計測済み
 5. **uuu 標準フロー(emmc_all)の再検証**: fastboot 段は未検証。SPL/imx-boot の更新は
    Linux からの dd、または 04-falcon.md のリカバリ経路(tftp)で運用中
-6. **M7**: remoteproc ノード未整備(01-m7.md)。can-gw の 8MP ポートは
-   data-logger-zephyr の dev/imx8mp-m7 ブランチにビルド確認済み(実機未検証)。
-   CAN を M7 に持たせるかの設計判断待ち
+6. **M7**: falcon 統合まで実機動作(01-m7.md「falcon 統合」。BL31 起動 → Linux attach →
+   rpmsgcan0 で外部 CAN 受信 → kmm 表示)。`kas/imx8mp-m7.yml` + data-logger-zephyr dev/imx8mp-m7。
+   残りは CAN を M7 に持たせるかの設計判断と、BL31 diag NOTICE の扱い(現状 1 行)。
+   rpmsgcan0 は M7 の rpmsg 告知後(~2.9s)に生えるため kmm より遅い — kmm 側は遅延 bind で
+   吸収済みだが、CAN 表示開始は can0-up の UP(~3.8s)以降になる
 7. **起動時間**: weston 13 + seed credit 前倒し + card0 直後起動(30-boot-time.md #12〜#14)で
    **電源→GUI = 3.17s(σ0.07、N=10、外れ値なし)**。内訳は同 md「現在の内訳」。
+   M7 統合後は 3.35〜3.48s(+0.10s、30-boot-time.md の 09-11 行)。
    残りの候補:
+   - **M7 attach の `imx_rproc_kick` 100ms タイムアウト**(M7 が MU を drain しないため。PID1 が
+     0.09s 遅れる。M7 側で MU RX を処理すれば消える — data-logger-zephyr 側の作業)
    - カーネル→PID1 1.13s(最大の単一区間、未着手)
    - kmm の wayland socket→READY 0.34〜0.47s(Qt/fontconfig 初期化そのもの)
    - udev の systemd タグ対象(tty 22 / block 21 / net 4)削減で PID1 のイベント処理を軽くする

@@ -19,7 +19,7 @@ SRC_URI = " \
 
 S = "${WORKDIR}"
 
-COMPATIBLE_MACHINE = "(mx8mm-generic-bsp)"
+COMPATIBLE_MACHINE = "(mx8mm-generic-bsp|imx8mp-debix)"
 
 # udev の modalias autoload (coldplug の中、~2.7s) を待たず systemd-modules-load で
 # 起動直後 (~1.0s) にロードする。rpmsg チャネル自体は remoteproc attach 直後 (0.6s) に

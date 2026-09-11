@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * imx8mp-debix-m7.dts — DEBIX Infinity + Cortex-M7 (remoteproc / rpmsg) 変種。
+ *
+ * 製品 DT (imx8mp-debix.dts) に M7 の配線を足す。kas/imx8mp-m7.yml がこの DTB を
+ * falcon.itb と extlinux に選ぶ。素の imx8mp-debix.dtb には影響しない。
+ *
+ * - imx8mp-cm7 ノード: fsl,imx8mn-cm7 互換 (imx_rproc は 8MN/8MP 共用、起動は
+ *   ATF SIP 経由の SMC メソッド)。ノードがあるだけでは何も走らない (auto-boot 無し、
+ *   /sys/class/remoteproc/remoteproc0 への明示 start 待ち)
+ * - 共有メモリは NXP BSP (imx8mp-evk-rpmsg.dts) の実績配置 0x55000000 帯。
+ *   M7 側 (data-logger-zephyr apps/can-gw の 8MP overlay) と取り決め:
+ *   vring0/1 = 0x55000000/0x55008000、rsc_table = 0x550FF000、vdevbuffer = 0x55400000
+ * - MU: mboxes チャネル 1 (8MM と同じ取り決め、M7 側 IPM ID=1)
+ * - flexcan1 (J2 Pin31/33) は M7 の can-gw が FlexCAN として直接駆動するので
+ *   Linux 側は disabled。Linux には rpmsg-can が can0 を見せる (flexcan2 は udev
+ *   ルールで can1 に固定、rpmsg-can/files/70-can-names.rules)
+ *
+ * 調査: docs/imx8mp-debix-bringup/01-m7.md
+ */
+#include "imx8mp-debix.dts"
+
+/ {
+	reserved-memory {
+		vdev0vring0: vdev0vring0@55000000 {
+			reg = <0 0x55000000 0 0x8000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@55008000 {
+			reg = <0 0x55008000 0 0x8000>;
+			no-map;
+		};
+
+		rsc_table: rsc-table@550ff000 {
+			reg = <0 0x550ff000 0 0x1000>;
+			no-map;
+		};
+
+		vdevbuffer: vdevbuffer@55400000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0x55400000 0 0x100000>;
+			no-map;
+		};
+	};
+
+	imx8mp-cm7 {
+		compatible = "fsl,imx8mn-cm7";
+		rsc-da = <0x55000000>;
+		/*
+		 * EVK dts は IMX8MP_CLK_M7_DIV を指すが、この NXP カーネル (6.6) の clk
+		 * ドライバは M7 を composite "m7_core" (IMX8MP_CLK_M7_CORE) でしか登録して
+		 * いない。M7_DIV は optional clk として NULL に解決され imx_rproc は何も
+		 * 有効化せず、M7 ルート (CCM 0x30388080 bit28) が止まったまま TCM に
+		 * ファームを書きに行ってバス停止 → WDT → PMIC リセットになる (EVK は
+		 * U-Boot proper が起動時に有効化するので無症状、falcon 経路では誰も
+		 * 立てない。2026-09-08 実測)。M7_CORE を指せば probe 時に有効化される。
+		 */
+		clocks = <&clk IMX8MP_CLK_M7_CORE>,
+			 <&audio_blk_ctrl IMX8MP_CLK_AUDIOMIX_AUDPLL_ROOT>;
+		clock-names = "core", "audio";
+		mbox-names = "tx", "rx", "rxdb";
+		mboxes = <&mu 0 1
+			  &mu 1 1
+			  &mu 3 1>;
+		memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>, <&rsc_table>;
+		status = "okay";
+		fsl,startup-delay-ms = <500>;
+	};
+};
+
+/* M7 の can-gw が FlexCAN1 を直接駆動する (pinmux/パッド設定は M7 側 overlay と同一) */
+&flexcan1 {
+	status = "disabled";
+};

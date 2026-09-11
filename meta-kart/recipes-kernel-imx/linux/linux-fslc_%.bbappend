@@ -65,10 +65,11 @@ do_configure:prepend:mx8mm-generic-bsp() {
 # 8MM と同じ二重管理の対称性維持)
 SRC_URI:append:imx8mp-debix = " \
     file://imx8mp-debix.dts \
+    file://imx8mp-debix-m7.dts \
     file://edid-firmware.cfg \
     file://can-builtin.cfg \
 "
 
 do_configure:prepend:imx8mp-debix() {
-    cp ${WORKDIR}/imx8mp-debix.dts ${S}/arch/arm64/boot/dts/freescale/
+    cp ${WORKDIR}/imx8mp-debix.dts ${WORKDIR}/imx8mp-debix-m7.dts ${S}/arch/arm64/boot/dts/freescale/
 }

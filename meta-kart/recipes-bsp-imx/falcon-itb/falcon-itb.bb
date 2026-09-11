@@ -41,6 +41,12 @@ SPLASH_FB_HIDE_ARG:imx8mp-debix = ""
 # falcon.itb には埋め込まない (M4 更新を Yocto 非依存にするため —
 # 設計 docs/imx8mm-xpi-bringup/12-m4-standalone-bin-design.md、実証 10 ④)。
 FALCON_M4 ?= ""
+# 8MP (DEBIX) の Cortex-M7 版: m7-fw.bin (data-logger-zephyr apps/can-gw の
+# imx8mp_evk/mimx8ml8/m7 ビルド、ITCM リンク) を m7-fw.img (magic M7FW) に包む。
+# SPL パッチ 0007-imx8mp-debix-spl-m7-file-read / BL31 パッチ 0001-imx8mp-bl31-start-m7
+# とペア。kas/imx8mp-m7.yml が "1" にする。
+FALCON_M7 ?= ""
+SRC_URI:append:imx8mp-debix = " file://m7-fw.bin"
 
 inherit deploy nopackages
 
@@ -66,7 +72,12 @@ FALCON_FDT_ADDR = "0x43100000"
 FALCON_UBOOT_ADDR = "0x40200000"
 
 # extlinux と同じカーネル引数系 (machine conf の UBOOT_EXTLINUX_KERNEL_ARGS を共有)
-FALCON_BOOTARGS_COMMON = "console=ttymxc1,115200 ${UBOOT_EXTLINUX_KERNEL_ARGS}"
+# clk_ignore_unused: falcon(=U-Boot proper を飛ばす)では M7 が自前で立てた
+# ペリフェラルクロック(CAN1 root 等)に Linux 側コンシューマが無いため、
+# Linux の clk_disable_unused が「未使用」として掃除してしまう(実測: falcon で
+# M7 の FlexCAN が動かず can0 RX=0。can1 クロック root が 0 に戻される)。
+# M-core が占有するクロックを保護するため無条件で付ける(splash 有無に非依存)。
+FALCON_BOOTARGS_COMMON = "console=ttymxc1,115200 clk_ignore_unused ${UBOOT_EXTLINUX_KERNEL_ARGS}"
 
 # falcon は U-Boot proper の ft_system_setup (ヒューズ由来の DT fixup) を通らない。
 # proper が実機で無効化しているノード (i.MX8MP Quad Lite = VPU/NPU 非搭載) を
@@ -152,6 +163,14 @@ import struct, zlib
 payload = open('${WORKDIR}/m4-fw.bin', 'rb').read()
 hdr = b'M4FW' + struct.pack('<III', len(payload), zlib.crc32(payload) & 0xffffffff, ${@d.getVar('SOURCE_DATE_EPOCH') or '0'})
 open('${B}/m4-fw.img', 'wb').write(hdr + payload)
+"
+    fi
+    if [ -n "${FALCON_M7}" ]; then
+        python3 -c "
+import struct, zlib
+payload = open('${WORKDIR}/m7-fw.bin', 'rb').read()
+hdr = b'M7FW' + struct.pack('<III', len(payload), zlib.crc32(payload) & 0xffffffff, ${@d.getVar('SOURCE_DATE_EPOCH') or '0'})
+open('${B}/m7-fw.img', 'wb').write(hdr + payload)
 "
     fi
 
@@ -315,6 +334,9 @@ do_deploy() {
     fi
     if [ -n "${FALCON_M4}" ]; then
         install -m 0644 ${B}/m4-fw.img ${DEPLOYDIR}/m4-fw.img
+    fi
+    if [ -n "${FALCON_M7}" ]; then
+        install -m 0644 ${B}/m7-fw.img ${DEPLOYDIR}/m7-fw.img
     fi
 }
 addtask deploy after do_compile before do_build
