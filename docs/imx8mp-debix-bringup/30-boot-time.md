@@ -47,7 +47,7 @@
 | デッドマン env_save | 0.03s | 0.03s | |
 | falcon.itb ロード + ロゴ blit | 0.15s | 0.15s | itb 読みが主。ロゴはファイルから |
 | SPL ジャンプ → カーネル時刻原点 | 0.22s | 0.22s | BL31 + カーネル head(電源 +0.80 → +1.02s) |
-| カーネル → PID1 | 1.13s | 1.13s | 累計 2.15s。最大の単一区間 |
+| カーネル → PID1 | 1.13s | 1.13s | 累計 2.15s。最大の単一区間。**現行 0.77s**(falcon の /memory を実 DRAM バンクに直した 8d1bcac、09-08。open-issues #7) |
 | PID1 → /data マウント + seed credit | 0.37s | 0.42s | 累計 ~2.55s。crng init done 1.45〜1.56s(kernel 原点) |
 | udevd 起動 + coldplug 完了 | 1.45 → 1.96 | 1.45 → 2.13 | kernel 原点。旧 unit の weston はこれを待っていた |
 | weston 起動 → READY(systemd-notify) | 1.99 → 2.11 | 1.65 → 1.81 | kernel 原点。card0 直後版は coldplug を待たず card0 出現で起動 |
@@ -55,7 +55,7 @@
 | **合計(電源 → GUI)** | **3.59s** | **3.19s** | 平均は 3.71s(σ0.08、N=5)/ 3.17s(σ0.07、N=10) |
 
 読み方: SPL 区間 0.80s、カーネル 1.35s(ジャンプ→PID1)、userspace 1.44s / 1.04s。
-残る大物はカーネル→PID1 の 1.13s(旧 unit が coldplug を待っていた 0.34s は #14 で回収済み)。kmm の socket→READY 0.35〜0.47s は Qt 初期化そのもの。
+残る大物はカーネル→PID1(この boot では 1.13s、/memory 修正 8d1bcac 後の現行は 0.77s。旧 unit が coldplug を待っていた 0.34s は #14 で回収済み)。kmm の socket→READY 0.35〜0.47s は Qt 初期化そのもの。
 
 ## 残り候補
 

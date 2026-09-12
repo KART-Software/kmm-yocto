@@ -30,3 +30,10 @@ local_conf_header:
     SRC_URI:append:pn-u-boot-imx = " file://0007-imx8mp-debix-spl-m7-file-read.patch"
     SRC_URI:append:pn-imx-atf = " file://0001-imx8mp-bl31-start-m7.patch"
     IMAGE_BOOT_FILES:append = " m7-fw.img"
+    # M7 が自前で立てたクロック (CAN1 root 等) は Linux 側にコンシューマが無く、
+    # clk_disable_unused が「未使用」として落とす → M7 の FlexCAN が止まる。falcon と
+    # proper/extlinux (OTA 試行ブート・フォールバック) の両経路に同じ引数が要るので
+    # machine の UBOOT_EXTLINUX_KERNEL_ARGS に付ける (falcon.itb の bootargs も同変数を
+    # 共有)。実測: extlinux 経路だけ無い状態で OTA tryboot 直後の M7 が set_bitrate で
+    # ハング (CAN1 root=0)。open-issues / 01-m7.md 参照
+    UBOOT_EXTLINUX_KERNEL_ARGS:append = " clk_ignore_unused"

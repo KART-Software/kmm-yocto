@@ -37,11 +37,10 @@
    #12〜#14 で再計測済み
 5. **uuu 標準フロー(emmc_all)の再検証**: fastboot 段は未検証。SPL/imx-boot の更新は
    Linux からの dd、または 04-falcon.md のリカバリ経路(tftp)で運用中
-6. **M7**: falcon 統合まで実機動作(01-m7.md「falcon 統合」。BL31 起動 → Linux attach →
-   rpmsgcan0 で外部 CAN 受信 → kmm 表示)。`kas/imx8mp-m7.yml` + data-logger-zephyr dev/imx8mp-m7。
-   残りは CAN を M7 に持たせるかの設計判断と、BL31 diag NOTICE の扱い(現状 1 行)。
-   rpmsgcan0 は M7 の rpmsg 告知後(~2.9s)に生えるため kmm より遅い — kmm 側は遅延 bind で
-   吸収済みだが、CAN 表示開始は can0-up の UP(~3.8s)以降になる
+6. (解決 2026-09-13 → [01-m7.md](01-m7.md)「M7 の役割(確定)」): M7 が FlexCAN1 を所有する
+   can-gw 構成を製品構成として確定(08-31 の「廃止も含めて判断」は事前リサーチ時の
+   メモで、実装は一貫してこの構成)。BL31 diag NOTICE 1 行は残す、flexcan2(`can0`)は
+   予備として残す。falcon 統合まで実機動作、rpmsgcan0 UP は 1.6〜1.7s(kmm 起動前)
 7. **起動時間**: weston 13 + seed credit 前倒し + card0 直後起動(30-boot-time.md #12〜#14)で
    **電源→GUI = 3.17s(σ0.07、N=10、外れ値なし)**。内訳は同 md「現在の内訳」。
    M7 統合 + coldplug を seed 後に回す #16 で **3.16s(σ0.05、N=10、3.07〜3.21)**。二峰は
@@ -97,3 +96,15 @@
    RuntimeWatchdogSec=15 のハード WDT リセットか、eMMC 書き込み中の sshd/ネットワーク
    の問題かは未特定。再現時はシリアルを並行記録して SPL バナーの有無(= リセットか否か)
    を先に確定すること
+
+13. **U-Boot env が単一コピー**(0x700000、16KB、冗長化なし): 1 起動あたり 2 回の env 書き
+   (SPL デッドマン `boot_os=no` +0.5s、falcon-rearm `boot_os=yes` +3.6s、各数 ms)の最中に
+   電源断すると CRC 不良になり得る。その場合 U-Boot は組込みデフォルト env(A/B スクリプト無し)
+   → distro boot → bootable フラグの BOOTA/extlinux で **slot A を proper 起動**(動くが A/B 状態を
+   失い slot A 固定に退化、要手動復旧)。電源断スイープ 29+26 回では未踏。対策候補は
+   `CONFIG_SYS_REDUNDAND_ENVIRONMENT`(env 2 面化、wks の env 領域も 2 面分に)
+14. **デッドマン窓(電源 +0.5〜3.6s)の電源断で次回が proper 5.06s**(04-falcon.md スイープ):
+   falcon-rearm が `After=dev-mmcblk2.device`(coldplug 待ち、kernel 2.55s)。/dev/mmcblk2 は
+   devtmpfs にあるので `After=systemd-random-seed.service`(kernel ~1.5s)へ前倒しすれば窓が
+   3.6→2.5s に縮む。seed と同じ eMMC を叩くので GUI レーン(kmm 起動 1.5s)への影響を計測して判断
+

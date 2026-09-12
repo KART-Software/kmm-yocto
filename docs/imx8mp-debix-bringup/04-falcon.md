@@ -206,6 +206,16 @@ ON→OFF を 1 プロセス内で行う経路で 7 点(0.05 / 0.15 / 0.25 / 0.35
 0.60s は "Saving Environment" の最中)、**7/7 回復**(いずれも次回 falcon 経路、env 破損なし)。
 合計 26 点で不回復ゼロ。ツール: scratchpad `powercut-sweep.py`(DP100 + シリアル + journal)。
 
+**電源断スイープ(2026-09-12、M7 統合 + coldplug 後回し後)**: t = 0.3〜5.0s の 29 点
+(SPL デッドマン書き前後 0.4〜0.8、seed 書き 2.4〜2.6、rearm 前後 3.7〜4.1 を密に)。
+**29/29 回復**: env 無傷(CRC 警告 0、`boot_os=yes` に再アーム)、M7 `started=1`、kmm 再起動 0、
+/data は毎回 journal recovery で復旧しエラー 0、failed unit 0。デッドマン窓(電源 +0.5〜3.6s、
+rearm は kernel 2.55〜2.63s = 電源 +3.6s)で切ると次回は proper 経路で **5.06s(σ0.04、N=3)**
+= falcon 3.16s より +1.9s(全部 U-Boot proper 分。kernel 以降の時系列は同一)。
+**proper 経路には clk_ignore_unused が必須**(無いと M7 の CAN が死ぬ。01-m7.md「3.」) —
+この窓の電源断でも踏むので OTA 限定の話ではなかった。ツール: `pwrcut2.py`(ssh 判定、
+チェックスクリプトは /data に置いて **sync してから** — sync 無しの書き込みは初回の電源断で消えた)。
+
 **教訓(再掲)**: フォールバック経路はその構成物(SPL / proper / カーネル / DT)を
 触るたびに `fw_setenv boot_os no` + 電源断入で回帰テストする。falcon が健全なほど
 proper 経路は走らず、壊れていても気付かない。

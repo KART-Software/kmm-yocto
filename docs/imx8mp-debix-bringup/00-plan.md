@@ -32,8 +32,9 @@ XPI-iMX8MM の docs (`../imx8mm-xpi-bringup/`) が形式のリファレンス。
 3. **machine 正式化**: `imx8mp-debix.conf`(imx8mm-xpi.conf の流儀)+ DEBIX DTS
 4. 製品機能の移植: eMMC A/B + OTA / read-only rootfs / Tailscale / weston+kmm /
    Falcon+スプラッシュ / serial autologin — 8MM で確立済みのものを順次
-5. CAN 再設計: FlexCAN ネイティブ化(M4/M7 ゲートウェイ廃止の判断込み)。
-   ADS8688 等のセンサ収集を M7 に残すかも合わせて設計
+5. CAN 再設計: **M7 が FlexCAN1 を所有する can-gw 構成で確定**(8MM の M4 と同じ
+   ファーム・同じ Linux 側。01-m7.md「M7 の役割(確定)」)。ADS8688 等のセンサ収集の
+   置き場はキャリア基板設計と合わせて別途
 
 ## 実測ログ
 
