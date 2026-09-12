@@ -40,8 +40,9 @@
 6. **M7**: falcon 統合まで実機動作(01-m7.md「falcon 統合」。BL31 起動 → Linux attach →
    rpmsgcan0 で外部 CAN 受信 → kmm 表示)。`kas/imx8mp-m7.yml` + data-logger-zephyr dev/imx8mp-m7。
    残りは CAN を M7 に持たせるかの設計判断と、BL31 diag NOTICE の扱い(現状 1 行)。
-   rpmsgcan0 は M7 の rpmsg 告知後(~2.9s)に生えるため kmm より遅い — kmm 側は遅延 bind で
-   吸収済みだが、CAN 表示開始は can0-up の UP(~3.8s)以降になる
+   rpmsgcan0 は rpmsg-can を modules-load.d で早期ロードするので UP 1.6〜1.7s(kmm 起動前、
+   30-boot-time.md の M7 行)= GUI と同時に CAN 値が入る。kmm 側の遅延 bind は IF が後から
+   生える場合の保険として残している
 7. **起動時間**: weston 13 + seed credit 前倒し + card0 直後起動(30-boot-time.md #12〜#14)で
    **電源→GUI = 3.17s(σ0.07、N=10、外れ値なし)**。内訳は同 md「現在の内訳」。
    M7 統合 + coldplug を seed 後に回す #16 で **3.16s(σ0.05、N=10、3.07〜3.21)**。二峰は
