@@ -10,8 +10,22 @@ Description=Re-arm falcon boot (boot_os=yes)
 # 早期 (basic.target 付近) に走らせて「補充前に電源断」の窓を縮める。
 # falcon 経路の健全性はカーネルが userspace に到達した時点で証明済みなので
 # GUI (kmm READY) を待つ必要はない。
-After=dev-mmcblk2.device
-Wants=dev-mmcblk2.device
+#
+# 順序 (open-issues #14): 旧 After=dev-mmcblk2.device は .device unit ready =
+# coldplug (systemd-udev-trigger) 完了 (~kernel 2.3s) を待ち、補充が電源 +3.6s に
+# 遅れていた。単に After=systemd-random-seed に替えても DefaultDependencies=yes の
+# 暗黙 After=sysinit.target/basic.target が coldplug を待つため無効 (実測 rearm は
+# 依然 2.6s)。DefaultDependencies=no で sysinit 順序から外し、seed の eMMC 書き
+# (#13/#16 で /data マウント直後、~1.5s) の直後に撃つ。これで補充が ~kernel 1.5s に
+# 前倒しされデッドマン窓 (電源 +0.5〜) が 3.6s→~2.6s に縮む。env は 2 面化 (#13) 済み
+# なので補充書き込み中の電源断でも他面 (boot_os=no) が残り次回 proper で安全。
+# GUI クリティカルパス (kmm ロード ~1.5s) と eMMC を同時間帯に叩くので、
+# 起動時間の非回帰は 30-boot-time.md で実測確認すること。
+DefaultDependencies=no
+After=systemd-random-seed.service
+Wants=systemd-random-seed.service
+Conflicts=shutdown.target
+Before=shutdown.target
 
 [Service]
 Type=oneshot

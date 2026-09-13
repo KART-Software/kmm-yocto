@@ -38,6 +38,11 @@ AB_UBOOT_B_SECTOR:imx8mp-debix = "8192"
 AB_UBOOT_AREA_SECTORS:imx8mp-debix = "6144"
 AB_UBOOT_ENV_OFFSET:imx8mp-debix = "0x700000"
 AB_UBOOT_ENV_SIZE:imx8mp-debix = "0x4000"
+# env 2 面化 (CONFIG_SYS_REDUNDAND_ENVIRONMENT) の 2 面目。空なら 1 面運用 (8MM)。
+# fw_env.config が 2 行になると libubootenv は flags (世代カウンタ) で新しい面を選び、
+# 保存は反対の面へ書く (U-Boot と同じ規約)。
+AB_UBOOT_ENV_OFFSET_REDUND ?= ""
+AB_UBOOT_ENV_OFFSET_REDUND:imx8mp-debix = "0x704000"
 
 # フォールバック起動 (B copy) を検出したら boot 時に自動で A を修復する
 inherit systemd
@@ -64,6 +69,9 @@ do_install:append:imx-generic-bsp() {
     install -m 0644 ${WORKDIR}/uboot-selfheal.service ${D}${systemd_system_unitdir}/uboot-selfheal.service
     install -d ${D}${sysconfdir}
     printf '%s\t%s\t%s\n' /dev/mmcblk2 ${AB_UBOOT_ENV_OFFSET} ${AB_UBOOT_ENV_SIZE} > ${D}${sysconfdir}/fw_env.config
+    if [ -n "${AB_UBOOT_ENV_OFFSET_REDUND}" ]; then
+        printf '%s\t%s\t%s\n' /dev/mmcblk2 ${AB_UBOOT_ENV_OFFSET_REDUND} ${AB_UBOOT_ENV_SIZE} >> ${D}${sysconfdir}/fw_env.config
+    fi
 }
 
 FILES:${PN} = "${sbindir}/ab-status ${sbindir}/ab-commit"

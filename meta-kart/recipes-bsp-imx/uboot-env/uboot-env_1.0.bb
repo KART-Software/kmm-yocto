@@ -19,6 +19,12 @@ PACKAGE_ARCH = "${MACHINE_ARCH}"
 # 8MP: NXP defconfig 既定の 0x4000)
 ENV_IMAGE_SIZE = "0x2000"
 ENV_IMAGE_SIZE:imx8mp-debix = "0x4000"
+# env 2 面化 (U-Boot の CONFIG_SYS_REDUNDAND_ENVIRONMENT と一致させること)。
+# 1 のとき mkenvimage -r (CRC の後ろに flags 1B) で作り、同じ面を 2 つ連結して
+# 2 面分 (ENV_IMAGE_SIZE × 2) の uboot-env.bin にする。wks は 1 面目のオフセット
+# に rawcopy するだけで 2 面目 (直後) も埋まる。両面 flags 同値 → U-Boot は 1 面目を採用。
+ENV_REDUNDANT = "0"
+ENV_REDUNDANT:imx8mp-debix = "1"
 
 # initial env は u-boot-fslc:do_deploy が置く。ファイル名は
 # ${UBOOT_CONFIG} (この machine では sd 固定) が付く。
@@ -66,7 +72,12 @@ do_compile() {
           }
           END { for (i = 1; i <= n; i++) print order[i] "=" val[order[i]] }
         ' > ${B}/uboot-env.txt
-    mkenvimage -s ${ENV_IMAGE_SIZE} -o ${B}/uboot-env.bin ${B}/uboot-env.txt
+    if [ "${ENV_REDUNDANT}" = "1" ]; then
+        mkenvimage -r -s ${ENV_IMAGE_SIZE} -o ${B}/uboot-env-copy.bin ${B}/uboot-env.txt
+        cat ${B}/uboot-env-copy.bin ${B}/uboot-env-copy.bin > ${B}/uboot-env.bin
+    else
+        mkenvimage -s ${ENV_IMAGE_SIZE} -o ${B}/uboot-env.bin ${B}/uboot-env.txt
+    fi
 }
 
 do_deploy() {
