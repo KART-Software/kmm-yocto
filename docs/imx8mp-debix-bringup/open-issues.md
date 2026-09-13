@@ -112,8 +112,13 @@
    boot_data.size 0x42860→0x42c60、OCRAM 余裕内)。**実機検証**: 移行後 4 起動で flags が
    copy1 03→05→07→09 / copy2 02→04→06→08 と交互・単調増加(= 各 save が反対面に書かれる)、
    ab_slot/boot_os 無傷、falcon/kmm/M7 正常。移行手順は local/tools-handoff/env-redund-migrate/。
-14. **デッドマン窓(電源 +0.5〜3.6s)の電源断で次回が proper 5.06s**(04-falcon.md スイープ):
-   falcon-rearm が `After=dev-mmcblk2.device`(coldplug 待ち、kernel 2.55s)。/dev/mmcblk2 は
-   devtmpfs にあるので `After=systemd-random-seed.service`(kernel ~1.5s)へ前倒しすれば窓が
-   3.6→2.5s に縮む。seed と同じ eMMC を叩くので GUI レーン(kmm 起動 1.5s)への影響を計測して判断
+14. (解決 2026-09-14、実機検証済み): **デッドマン窓の短縮**。falcon-rearm が
+   `After=dev-mmcblk2.device` で coldplug 完了(kernel ~2.3s)まで待たされ、補充が電源 +3.76s、
+   窓(電源 +0.5〜)が ~3.3s あった。単に `After=systemd-random-seed` に替えても
+   `DefaultDependencies=yes` の暗黙 `After=sysinit.target/basic.target`(coldplug 待ち)が律速で
+   無効(実測 rearm 依然 2.62s)。**`DefaultDependencies=no` + `After=systemd-random-seed.service`**
+   で sysinit 順序から外し、seed の直後に撃つ(falcon-rearm.service)。実測: rearm 完了が
+   kernel 2.71s→**1.5s**(電源 +2.55s)、窓 ~3.3s→**~2.05s**。起動時間は **3.14s σ0.05 N=10**
+   で非回帰(rearm の eMMC 書きが kmm ロード 1.5s と同時間帯でも影響なし)、ordering cycle 0・
+   failed 0。env 2 面化(#13)済みなので補充書き込み中の電源断でも安全。両スロット OTA 済み。
 
