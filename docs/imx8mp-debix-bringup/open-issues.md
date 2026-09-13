@@ -14,6 +14,12 @@
 - **2026-09-08: falcon の /memory 修正入りイメージで両スロットを OTA 正規化**
   (カーネル ge32abde26f10 + 一致モジュール、imx-boot A copy = 修正版 SPL、B copy は前版)。
   暫定状態なし。/data/memtest(memtester と結果ログ)は消してよい
+- **2026-09-14: env 2 面化を実機正規化完了**(#13)。移行(手書きの新 imx-boot + 2 面 env)後、
+  proper 経路の安全化(両 BOOT の u-boot.itb を冗長版に差し替え)→ 冗長 env 版フルイメージを
+  **両スロット OTA**(A/B とも tryboot→commit 成功)。両スロットとも rootfs 新版・recipe の 2 行
+  fw_env.config・冗長 u-boot.itb・冗長 falcon.itb、imx-boot A=冗長 SPL / B=前版(ロールバック)、
+  env 2 面。**手載せ無し**。/data の移行残置物(env-migrate.*, imx-boot-new, u-boot-redund.itb,
+  fix-bootb-uboot.sh, env-region-backup.bin, u-boot.itb.bootb.orig)は消してよい
 
 ## 未解決
 
@@ -97,21 +103,15 @@
    の問題かは未特定。再現時はシリアルを並行記録して SPL バナーの有無(= リセットか否か)
    を先に確定すること
 
-13. **U-Boot env の 2 面化(実装済み、実機移行待ち)**: env は 0x700000 の単一コピーで、
-   1 起動あたり 2 回の env 書き(SPL デッドマン `boot_os=no` +0.5s、falcon-rearm `boot_os=yes`
-   +3.6s、各数 ms)の最中に電源断すると CRC 不良になり得た。その場合 U-Boot は組込みデフォルト
-   env(A/B スクリプト無し)→ distro boot → BOOTA/extlinux で **slot A を proper 起動**(動くが
-   A/B 状態を失い slot A 固定に退化、要手動復旧)。電源断スイープ 29+26 回では未踏。
-   **対策 = `CONFIG_SYS_REDUNDAND_ENVIRONMENT`(2 面化)を実装**(debix-ab.cfg に
-   `CONFIG_ENV_OFFSET_REDUND=0x704000`、ab-tools の fw_env.config を 2 行、uboot-env を
-   `mkenvimage -r` の 2 面連結、wks コメント)。保存は常に未使用面へ書くので書き込み中の電源断でも
-   直前 1 回の変更(boot_os の yes/no)を失うだけで A/B 状態は無傷。SPL の loader サイズ増は
-   +0x400(1KB、boot_data.size 0x42860→0x42c60、OCRAM 余裕内)。
-   **実機移行(未実施)**: OTA は rootfs/boot しか書かないため imx-boot(2 面化 SPL)と env 領域の
-   1→2 面変換を別途行う必要がある。新 imx-boot を `uboot-update` で A copy へ(旧は B copy に自動退避
-   = ROM フォールバックの保険)、現 env を `mkenvimage -r` 2 面イメージにして 0x700000 へ dd、旧 rootfs の
-   fw_env.config も一時的に 2 行化 → 通常 OTA で新イメージを両スロットへ。手順は移行スクリプト
-   (local/tools-handoff)参照
+13. (解決 2026-09-13、実機検証済み): **U-Boot env の 2 面化**。単一コピーだと 1 起動 2 回の
+   env 書き(SPL デッドマン `boot_os=no` +0.5s、falcon-rearm `boot_os=yes` +3.6s、各数 ms)中の
+   電源断で CRC 不良 → デフォルト env → slot A 固定に退化し得た。`CONFIG_SYS_REDUNDAND_ENVIRONMENT`
+   で 2 面化(commit 45d92bc: debix-ab.cfg `CONFIG_ENV_OFFSET_REDUND=0x704000`、ab-tools の
+   fw_env.config 2 行、uboot-env を `mkenvimage -r` の 2 面連結)。保存は常に未使用面へ書くので、
+   書き込み中に落ちても直前 1 変更を失うだけで A/B 状態は無傷。SPL loader 増は +0x400(1KB、
+   boot_data.size 0x42860→0x42c60、OCRAM 余裕内)。**実機検証**: 移行後 4 起動で flags が
+   copy1 03→05→07→09 / copy2 02→04→06→08 と交互・単調増加(= 各 save が反対面に書かれる)、
+   ab_slot/boot_os 無傷、falcon/kmm/M7 正常。移行手順は local/tools-handoff/env-redund-migrate/。
 14. **デッドマン窓(電源 +0.5〜3.6s)の電源断で次回が proper 5.06s**(04-falcon.md スイープ):
    falcon-rearm が `After=dev-mmcblk2.device`(coldplug 待ち、kernel 2.55s)。/dev/mmcblk2 は
    devtmpfs にあるので `After=systemd-random-seed.service`(kernel ~1.5s)へ前倒しすれば窓が
