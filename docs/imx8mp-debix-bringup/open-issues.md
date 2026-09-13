@@ -97,12 +97,21 @@
    の問題かは未特定。再現時はシリアルを並行記録して SPL バナーの有無(= リセットか否か)
    を先に確定すること
 
-13. **U-Boot env が単一コピー**(0x700000、16KB、冗長化なし): 1 起動あたり 2 回の env 書き
-   (SPL デッドマン `boot_os=no` +0.5s、falcon-rearm `boot_os=yes` +3.6s、各数 ms)の最中に
-   電源断すると CRC 不良になり得る。その場合 U-Boot は組込みデフォルト env(A/B スクリプト無し)
-   → distro boot → bootable フラグの BOOTA/extlinux で **slot A を proper 起動**(動くが A/B 状態を
-   失い slot A 固定に退化、要手動復旧)。電源断スイープ 29+26 回では未踏。対策候補は
-   `CONFIG_SYS_REDUNDAND_ENVIRONMENT`(env 2 面化、wks の env 領域も 2 面分に)
+13. **U-Boot env の 2 面化(実装済み、実機移行待ち)**: env は 0x700000 の単一コピーで、
+   1 起動あたり 2 回の env 書き(SPL デッドマン `boot_os=no` +0.5s、falcon-rearm `boot_os=yes`
+   +3.6s、各数 ms)の最中に電源断すると CRC 不良になり得た。その場合 U-Boot は組込みデフォルト
+   env(A/B スクリプト無し)→ distro boot → BOOTA/extlinux で **slot A を proper 起動**(動くが
+   A/B 状態を失い slot A 固定に退化、要手動復旧)。電源断スイープ 29+26 回では未踏。
+   **対策 = `CONFIG_SYS_REDUNDAND_ENVIRONMENT`(2 面化)を実装**(debix-ab.cfg に
+   `CONFIG_ENV_OFFSET_REDUND=0x704000`、ab-tools の fw_env.config を 2 行、uboot-env を
+   `mkenvimage -r` の 2 面連結、wks コメント)。保存は常に未使用面へ書くので書き込み中の電源断でも
+   直前 1 回の変更(boot_os の yes/no)を失うだけで A/B 状態は無傷。SPL の loader サイズ増は
+   +0x400(1KB、boot_data.size 0x42860→0x42c60、OCRAM 余裕内)。
+   **実機移行(未実施)**: OTA は rootfs/boot しか書かないため imx-boot(2 面化 SPL)と env 領域の
+   1→2 面変換を別途行う必要がある。新 imx-boot を `uboot-update` で A copy へ(旧は B copy に自動退避
+   = ROM フォールバックの保険)、現 env を `mkenvimage -r` 2 面イメージにして 0x700000 へ dd、旧 rootfs の
+   fw_env.config も一時的に 2 行化 → 通常 OTA で新イメージを両スロットへ。手順は移行スクリプト
+   (local/tools-handoff)参照
 14. **デッドマン窓(電源 +0.5〜3.6s)の電源断で次回が proper 5.06s**(04-falcon.md スイープ):
    falcon-rearm が `After=dev-mmcblk2.device`(coldplug 待ち、kernel 2.55s)。/dev/mmcblk2 は
    devtmpfs にあるので `After=systemd-random-seed.service`(kernel ~1.5s)へ前倒しすれば窓が

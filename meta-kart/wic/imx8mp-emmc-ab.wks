@@ -5,7 +5,8 @@
 #                         (bank2 word1 bits 22:19) が示す固定オフセットへフォールバックする。
 #                         未ヒューズ (=0) で 4MiB。A の IVT が不正なとき ROM が自動で B を起動
 #                         (U-Boot arch/arm/mach-imx/imx8m/soc.c arch_spl_mmc_get_uboot_raw_sector)
-#  (7MiB)   uboot-env.bin  U-Boot 環境 (NXP defconfig の CONFIG_ENV_OFFSET=0x700000、16KiB)
+#  (7MiB)   uboot-env.bin  U-Boot 環境 16KiB × 2 面 (0x700000 / 0x704000、CONFIG_SYS_REDUNDAND_ENVIRONMENT。
+#                         uboot-env.bin は 2 面分 32KiB、rawcopy 1 回で両面が埋まる)
 #  p1 BOOTA   vfat 256M   Image + DTB + extlinux (slot A)
 #  p2 BOOTB   vfat 256M   slot B (初回 OTA まで空)
 #  p3 RSV vfat   4M   予約 (p5/p6/p7 の番号を RPi5 / 8MM と揃えるための詰め物)
