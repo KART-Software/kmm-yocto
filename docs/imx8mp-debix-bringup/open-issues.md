@@ -51,8 +51,18 @@
    **電源→GUI = 3.17s(σ0.07、N=10、外れ値なし)**。内訳は同 md「現在の内訳」。
    M7 統合 + coldplug を seed 後に回す #16 で **3.16s(σ0.05、N=10、3.07〜3.21)**。二峰は
    coldplug と data-mount/seed の eMMC 取り合いが真因で #16 で根絶(30-boot-time.md)。
+   **2026-09-14: kernel→PID1 を 0.77→0.56s に短縮**(30-boot-time.md #18)。initcall_debug
+   プロファイルで FEC(Ethernet)probe が MAC 201ms + PHY 89ms = ~290ms を PID1 前で同期消費と
+   判明 → `CONFIG_FEC=m`(boottune-imx8mp.cfg)で coldplug ロードに回し GUI 3.14→2.95s、
+   ecspi2/usdhc2 無効化で 2.93s。**電源→GUI 2.93s(σ0.04、N=10)が現行**。
    残りの候補:
-   - カーネル→PID1(現行 0.77s。/memory 修正 8d1bcac で 1.13→0.77 に縮んだ。未着手)
+   - **表示 lcdifv3 ~88ms**(GUI 必須の probe)。async 化すれば PID1 を先へ出せる可能性があるが、
+     dark-boot リスクで **lcd-validation(カメラ+AprilTag)必須** — カメラ未接続のため未実施。
+     起動時間計測(kmm "First window expose")は compositor が動けば dark でも記録されるので
+     表示健全性の代理にできない
+   - jitterentropy(jent_mod_init 27〜33ms)は CONFIG_CRYPTO_DRBG が force-select で単独無効化不可
+   - audio_blk_ctrl(~12ms)無効化は起動ハング(AudioMIX 電源/クロック provider)→ 有効のまま
+   - カーネル→PID1 の残り(現行 0.56s)。deferred_probe に eMMC/表示/PMIC 等の必須 probe が残る
    - kmm の wayland socket→READY 0.34〜0.47s(Qt/fontconfig 初期化そのもの)
    - udev の systemd タグ対象(tty 22 / block 21 / net 4)削減で PID1 のイベント処理を軽くする
      (#13 の機序の副産物。効果は未計測)

@@ -128,6 +128,24 @@
 	status = "disabled";
 };
 
+/* audio_blk_ctrl (30e20000): 無効化すると起動ハング (2026-09-14 実測、slot A tryboot が
+ * カーネル初期で停止 → A/B フォールバックで回復)。AudioMIX は電源ドメイン/クロック
+ * provider で、消費者を全て disabled にしても本体を落とすと genpd/clk 側で詰まる。
+ * probe ~12ms は惜しいが有効のまま残す。 */
+
+/* ecspi2 (30830000): DEBIX では未配線 (DTS に子ノード無し。8MM の MCP2515 相当は
+ * 8MP では M7 の FlexCAN。SPI-NOR も無し = MTD off)。probe を消す (~14ms) */
+&ecspi2 {
+	status = "disabled";
+};
+
+/* usdhc2 (30b50000): SD カードスロット。製品は eMMC (usdhc3) 起動で、稼働 Linux が
+ * SD をマウントする用途は無い (SD のベンダ OS 起動は ROM が DIP で行うので本ノード
+ * 無効化とは無関係)。probe を消す (open-issues #7、initcall_debug 実測 ~32ms) */
+&usdhc2 {
+	status = "disabled";
+};
+
 &easrc {
 	status = "disabled";
 };
