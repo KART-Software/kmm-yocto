@@ -108,20 +108,34 @@ sudo usermod -aG docker,dialout,plugdev $USER  # re-login required
 ### build.sh (development images)
 
 ```bash
-./scripts/build.sh imx8mp --emmc      # DEBIX Infinity (i.MX8MP) eMMC A/B ← latest
-./scripts/build.sh imx8mp             # DEBIX single slot (for a carried-in SD)
-./scripts/build.sh imx8mm --emmc      # XPI-iMX8MM eMMC A/B
-./scripts/build.sh imx8mm --netboot   # XPI TFTP/NFS netboot (DTS/driver trials)
-./scripts/build.sh imx8mm             # XPI plain EVK SD carry-in (single slot)
+./scripts/build.sh imx8mp --emmc            # DEBIX (i.MX8MP) dev image, eMMC A/B ← latest
+./scripts/build.sh imx8mp --emmc --falcon   # DEBIX product boot: Falcon Mode + SPL splash (no M7)
+./scripts/build.sh imx8mp                    # DEBIX single slot (for a carried-in SD)
+./scripts/build.sh imx8mm --emmc            # XPI-iMX8MM eMMC A/B
+./scripts/build.sh imx8mm --emmc --falcon   # XPI product boot: Falcon + splash (no M4)
+./scripts/build.sh imx8mm --netboot         # XPI TFTP/NFS netboot (DTS/driver trials)
+./scripts/build.sh imx8mm                    # XPI plain EVK SD carry-in (single slot)
 ```
 
 `imx8mm`/`imx8mp` are development images (with debug-tweaks). `--emmc` selects
-the eMMC A/B WKS (without it you get the machine-default single slot).
+the eMMC A/B WKS (without it you get the machine-default single slot). `--falcon`
+adds Falcon Mode + the SPL splash (the product boot path), so a fresh clone can
+build a bootable product image in **one command**. The Cortex-M CAN gateway
+(M7/M4) is a separate overlay — see below.
 
-### Falcon + splash + M-core (direct kas invocation)
+> **Layer versions are pinned for reproducibility.** `kas/imx8mp-dev.lock.yml`
+> and `kas/imx8mm-dev.lock.yml` lock poky / meta-openembedded / meta-qt6 /
+> meta-freescale to exact commits; kas auto-applies the lock that sits next to
+> the matching config, so a fresh clone builds the same tree that was tested.
+> To re-pin after an intentional bump: `kas-container dump --lock --update
+> <composition> > /tmp/x && mv /tmp/x kas/<config>.lock.yml` (write elsewhere
+> first — the output name must not collide with the lock kas auto-loads).
 
-`build.sh` only goes as far as a plain dev image. Falcon / splash / M-core CAN
-are composed by invoking kas directly (`:` merges YAMLs left to right —
+### Cortex-M overlay + full manual composition (direct kas invocation)
+
+`build.sh --falcon` covers Falcon + splash. The Cortex-M CAN gateway
+(`rpmsgcan0`) is kept as a **separate overlay**; compose the full stack by
+invoking kas directly (`:` merges YAMLs left to right —
 **overlay order = application order**). **Export the cache variables first**:
 
 ```bash

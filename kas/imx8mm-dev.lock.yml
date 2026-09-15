@@ -1,0 +1,12 @@
+header:
+  version: 14
+overrides:
+  repos:
+    poky:
+      commit: 1ba3cd7c884dc6c3d78c6bedc15e081f5000c8c9
+    meta-openembedded:
+      commit: bec755063a8b5da65df626f5749496aadaa4f4bb
+    meta-qt6:
+      commit: 2a9a0070f652134e15df332918a012862bf34047
+    meta-freescale:
+      commit: 4143744bc82508f00395a0ffe30e624b2341176a

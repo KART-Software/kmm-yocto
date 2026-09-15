@@ -101,20 +101,33 @@ sudo usermod -aG docker,dialout,plugdev $USER  # 要 再ログイン
 ### build.sh(開発イメージ)
 
 ```bash
-./scripts/build.sh imx8mp --emmc      # DEBIX Infinity (i.MX8MP) eMMC A/B ← 最新
-./scripts/build.sh imx8mp             # DEBIX シングルスロット (SD 持ち込み用)
-./scripts/build.sh imx8mm --emmc      # XPI-iMX8MM eMMC A/B
-./scripts/build.sh imx8mm --netboot   # XPI TFTP/NFS netboot (DTS/ドライバ試行)
-./scripts/build.sh imx8mm             # XPI 素の EVK SD 持ち込み (シングルスロット)
+./scripts/build.sh imx8mp --emmc            # DEBIX (i.MX8MP) 開発イメージ, eMMC A/B ← 最新
+./scripts/build.sh imx8mp --emmc --falcon   # DEBIX 製品ブート: Falcon + SPL スプラッシュ (M7 なし)
+./scripts/build.sh imx8mp                    # DEBIX シングルスロット (SD 持ち込み用)
+./scripts/build.sh imx8mm --emmc            # XPI-iMX8MM eMMC A/B
+./scripts/build.sh imx8mm --emmc --falcon   # XPI 製品ブート: Falcon + スプラッシュ (M4 なし)
+./scripts/build.sh imx8mm --netboot         # XPI TFTP/NFS netboot (DTS/ドライバ試行)
+./scripts/build.sh imx8mm                    # XPI 素の EVK SD 持ち込み (シングルスロット)
 ```
 
 `imx8mm`/`imx8mp` は開発イメージ(debug-tweaks 入り)。`--emmc` で eMMC A/B の WKS に
-なる(付けないと machine 既定のシングルスロット)。
+なる(付けないと machine 既定のシングルスロット)。`--falcon` で Falcon Mode + SPL
+スプラッシュ(製品ブート経路)が乗り、**fresh clone から1コマンド**で起動可能な製品
+イメージが作れる。Cortex-M CAN ゲートウェイ(M7/M4)は別オーバーレイ(下記)。
 
-### Falcon + スプラッシュ + M コア(kas 直実行)
+> **レイヤは再現性のためにピン固定。** `kas/imx8mp-dev.lock.yml` /
+> `kas/imx8mm-dev.lock.yml` が poky / meta-openembedded / meta-qt6 /
+> meta-freescale を exact commit に固定する。kas は対応 config の隣にある lock を
+> 自動適用するので、fresh clone でも検証済みと同じツリーがビルドされる。
+> 意図的に更新するときの再ピン: `kas-container dump --lock --update <composition>
+> > /tmp/x && mv /tmp/x kas/<config>.lock.yml`(出力名が kas の自動読込 lock と
+> 衝突しないよう一旦別名で書く)。
 
-`build.sh` は素の開発イメージ止まり。Falcon/スプラッシュ/M コア CAN 入りは kas を
-直接合成する(`:` は YAML を左から右へマージ、**オーバーレイの順序 = 適用順序**)。
+### Cortex-M オーバーレイ + フル手動合成(kas 直実行)
+
+`build.sh --falcon` で Falcon + スプラッシュはカバー済み。Cortex-M CAN ゲートウェイ
+(`rpmsgcan0`)は**別オーバーレイ**として残す。フルスタックは kas を直接合成する
+(`:` は YAML を左から右へマージ、**オーバーレイの順序 = 適用順序**)。
 **先にキャッシュ変数を export**:
 
 ```bash
