@@ -265,3 +265,55 @@
 &pgc_mlmix {
 	status = "disabled";
 };
+
+/*
+ * USB1 (DWN_USB1 = OTG 可の Type-A、UUU で使う口) を host 固定にする。
+ * EVK は Type-C コントローラ (PTN5110) の usb-role-switch で host/device を決めるが、
+ * DEBIX の Type-C は電源専用で CONFIG_USB_TCPC も無効のため役割が決まらず、ポートが
+ * 死んだままになる (2026-09-21 実測: LTE ドングルが列挙されず LED も点かない)。
+ * UUU (BootROM/SPL の SDP) は Linux の DT に依存しないので eMMC 復旧には影響しない。
+ * port/endpoint ノードは ptn5110 側からの参照が残るため削除せず、role switch だけ外す。
+ */
+&usb_dwc3_0 {
+	dr_mode = "host";
+	/delete-property/ usb-role-switch;
+	/delete-property/ role-switch-default-mode;
+};
+
+&ptn5110 {
+	status = "disabled";
+};
+
+/*
+ * Type-A ポートの給電。ベンダー DTS/カーネルは dwc3 の独自ハック (hub-pwd-gpio = GPIO4_IO26 /
+ * hub-reset-gpio = GPIO4_IO25) で起動時に両方 High にしていた。うちは gpio-hog で同じ状態を
+ * 起動時に作る。Low/浮きのままだと Type-A に 5V が出ず、挿したデバイスは LED も点かない
+ * (2026-09-21 実測: High にして ~20s で LTE ドングルが列挙)。SAI2 は disabled でパッドは空き。
+ */
+&iomuxc {
+	pinctrl_usb_pwr: usbpwrgrp {
+		fsl,pins = <
+			MX8MP_IOMUXC_SAI2_TXC__GPIO4_IO25	0x19
+			MX8MP_IOMUXC_SAI2_TXD0__GPIO4_IO26	0x19
+		>;
+	};
+};
+
+&gpio4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usb_pwr>;
+
+	usb-pwd-hog {
+		gpio-hog;
+		gpios = <26 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "usb-hub-pwd";
+	};
+
+	usb-rst-hog {
+		gpio-hog;
+		gpios = <25 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "usb-hub-rst";
+	};
+};
