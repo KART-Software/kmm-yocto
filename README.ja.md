@@ -24,6 +24,7 @@ NXP i.MX8M 系 SBC 向けの組み込み Linux イメージを Yocto (scarthgap)
 | 電源→GUI | ≈4.9s | **≈2.93s**(σ0.04) |
 | ブートモード切替 | 物理 DIP **S1**(eMMC / Serial) | DIP を **USB リレー**で遠隔切替(`debix-boot-switch` スキル) |
 | bring-up 記録 | [docs/imx8mm-xpi-bringup/](docs/imx8mm-xpi-bringup/) | [docs/imx8mp-debix-bringup/](docs/imx8mp-debix-bringup/) |
+| ハード構成図 | [hardware.png](docs/imx8mm-xpi-bringup/hardware.png) | [hardware.png](docs/imx8mp-debix-bringup/hardware.png) |
 
 > **前身は Raspberry Pi 5。** RPi5 のビルド系(`kas/rpi5*.yml`・EEPROM/NVMe 手順)は
 > 残しているが製品ターゲットからは外れている。完全な当時の状態はタグ

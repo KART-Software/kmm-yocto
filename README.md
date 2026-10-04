@@ -25,6 +25,7 @@ design (Falcon, M-core CAN, A/B OTA, redundant env, splash, Tailscale):
 | Power→GUI | ≈4.9s | **≈2.93s** (σ0.04) |
 | Boot-mode switch | physical DIP **S1** (eMMC / Serial) | DIP driven remotely over a **USB relay** (`debix-boot-switch` skill) |
 | bring-up log | [docs/imx8mm-xpi-bringup/](docs/imx8mm-xpi-bringup/) | [docs/imx8mp-debix-bringup/](docs/imx8mp-debix-bringup/) |
+| hardware diagram | [hardware.png](docs/imx8mm-xpi-bringup/hardware.png) | [hardware.png](docs/imx8mp-debix-bringup/hardware.png) |
 
 > **The predecessor was the Raspberry Pi 5.** The RPi5 build system
 > (`kas/rpi5*.yml`, EEPROM/NVMe procedures) is kept but is no longer a

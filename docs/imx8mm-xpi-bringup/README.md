@@ -24,11 +24,21 @@ mcp251x が SPI 通信到達(HAT 未装着で err=110 は期待通り)/
 disconnected)/ **devices_deferred 空**。残るはモニタ・CAN HAT を挿しての
 物理検証([05](05-next-steps.md) C 項)。
 
+## ハード構成図
+
+![XPI-iMX8MM ハード構成](hardware.png)
+
+SoC 内部(A53 / M4 / メモリ / NoC / HSIOMIX・DISPMIX・GPU・VPU / AIPS1〜4 配下のペリフェラル、GPC 電源ドメイン番号)と
+外部(LPDDR4・eMMC のメモリマップ、J62/J63/J64、MCP2515・ADS8688・GPS、LT9611→HDMI、USB、PMIC)の対応。
+箱 = DT ノードまたは RM のサブシステム、色 = Linux 使用 / M4 所有 / disabled。根拠は製品 DTS(mainline 6.12 dtsi で
+コンパイル)と本ディレクトリの 01/08/09/10/11、XPI 仕様書 V1.1。編集は [hardware.drawio](hardware.drawio)(draw.io)。
+
 このディレクトリの構成:
 
 | ファイル | 内容 |
 |---|---|
 | [README.md](README.md) | 本ファイル(全体像・到達点) |
+| [hardware.drawio](hardware.drawio) / [hardware.png](hardware.png) | ハード構成図(SoC 内部ブロックと外部機器、メモリマップ。draw.io 原本と書き出し PNG) |
 | [00-glossary.md](00-glossary.md) | 用語集(略語・専門用語をこの文脈で解説。初見はまずここ) |
 | [01-hardware.md](01-hardware.md) | XPI のハードウェア実測([BSP](00-glossary.md#g-bsp)/[DTB](00-glossary.md#g-dtb) 解析、ピン配置、ブートモード) |
 | [02-debug-setup.md](02-debug-setup.md) | デバッグ環境の作り方(UART ブリッジ、権限、[pts](00-glossary.md#g-pts) ミラー、UUU) |
