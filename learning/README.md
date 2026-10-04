@@ -56,6 +56,10 @@
    BOOT_BUS_CONDITIONS、user 領域方式との対比、
    **「どこから起動するかはサイズ削減より速度を支配する」**(SPL -1.7KB=±0ms の実測から)
 
+10. [GIC と NVIC — 割込みの配達係](10-gic-and-interrupts.md)
+   — GIC-500(GICv3)の役割と SPI/PPI/SGI、M コアは NVIC で同じ線を受ける、
+   BL31/Linux の役割分担、hibernation で GIC を書き戻した例、**RDC(アクセス許可)との対比**
+
 ## 関連する既存ドキュメント(実務側)
 
 - `docs/imx8mm-xpi-bringup/` — bring-up の実務記録(pitfalls 集は #26 が本件)
