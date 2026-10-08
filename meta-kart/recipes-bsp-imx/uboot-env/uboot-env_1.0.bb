@@ -3,8 +3,8 @@ DESCRIPTION = "Merges the built U-Boot's default environment (u-boot-initial-env
 with the A/B variables and produces uboot-env.bin via mkenvimage. The wks \
 rawcopies it into the env storage offset, so the very first boot already runs \
 the A/B bootcmd without any manual env surgery."
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+LICENSE = "PolyForm-Noncommercial-1.0.0"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418"
 
 DEPENDS = "u-boot-tools-native"
 

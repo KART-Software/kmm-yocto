@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * startup.c — ベクタテーブル (割込あり版) + リセットハンドラ。
  * MU_M4_IRQn=97 に rpmsg-lite の MU_M4_IRQHandler を配線する。

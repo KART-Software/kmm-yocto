@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * fsl_mu.h — rpmsg-lite が呼ぶ SDK MU API の最小シム。
  * ビット配置は SDK/linux と同一: SR/CR とも TE3-0=bits23-20, RF3-0=bits27-24。

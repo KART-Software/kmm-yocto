@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * rsc_table.c — remoteproc リソーステーブル (SDK 非依存の自前定義)。
  *

@@ -6,8 +6,10 @@ kart-image.bb の slim_udev_rules が行う。\
 GUI 短縮は誤差程度 (-46ms) でばらつきが 10 倍になり、モジュールドライバとの \
 デッドロック事故 (docs/imx8mm-xpi-bringup/04-pitfalls.md #21) も踏んだため撤収。\
 ルール削減 + seed credit + CAN ビルトイン化だけを残した。"
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+# systemd-random-seed.service は systemd 本家のユニット (LGPL-2.1-or-later) を改変したもの。
+LICENSE = "PolyForm-Noncommercial-1.0.0 & LGPL-2.1-or-later"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418 \
+                    file://${COMMON_LICENSE_DIR}/LGPL-2.1-or-later;md5=2a4f4fd2128ea2f65047ee63fbca9f68"
 
 SRC_URI = " \
     file://systemd-random-seed.service \

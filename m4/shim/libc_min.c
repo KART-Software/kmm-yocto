@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * libc_min.c — -nostdlib ビルド用の最小 libc。
  * rpmsg-lite (bare-metal env) が要求するものだけ:

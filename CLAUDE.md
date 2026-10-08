@@ -27,7 +27,7 @@ Use the `scripts/build.sh` wrapper — it maps a target to the right kas YAML co
 
 - `prod`/`dev` **require** `--sdcard` or `--nvme` (no default boot layout).
 - The GUI app is **always built into the image**: the recipe fetches the app repo at a pinned `SRCREV` and cross-compiles `app-cpp/` (the old `--with-app` / `kas/app-embed.yml` mechanism is gone).
-- Secrets are NOT baked into images: kmm.service reads `/data/kmm.env` (persistent partition, survives OTA). Provision once per device (`scp .env root@<host>:/data/kmm.env`). App-embedded images are therefore safe to publish as releases.
+- Secrets are NOT baked into images: kmm.service reads `/data/kmm.env` (persistent partition, survives OTA). Provision once per device (`scp .env root@<host>:/data/kmm.env`). Do not publish images as releases: they contain files that are not licensed for redistribution (see the License section of README.md).
 
 Direct kas invocation (the `:` operator merges YAMLs left-to-right):
 
@@ -37,7 +37,7 @@ kas-container build kas/local-dev.yml:kas/boot-sdcard.yml
 kas-container build kas/qemu-dev.yml
 ```
 
-**Export `DL_DIR`/`SSTATE_DIR` when invoking `kas-container` directly** (`build.sh` and `release.sh` do it for you):
+**Export `DL_DIR`/`SSTATE_DIR` when invoking `kas-container` directly** (`build.sh` does it for you):
 
 ```bash
 export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
@@ -91,7 +91,6 @@ sudo ./scripts/flash.sh -sdcard /dev/sdX   # bmaptool-preferred write (-sdcard/-
 sudo ./scripts/flash.sh -nvme /dev/nvme0n1
 ./scripts/remote-flash.sh -sdcard user@host /dev/sdX  # writer attached to another machine
 
-./scripts/release.sh -nvme v1.0.0    # build + upload images AND the Qt SDK installer to GitHub Release (needs GITHUB_TOKEN; --no-sdk to skip)
 # C++ app updates go via SRCREV bump + OTA, or scp a cross-built binary to
 # /usr/bin/kmm for quick iteration
 ```

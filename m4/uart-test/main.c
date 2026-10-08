@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * uart-test — UART4 物理切り分け (rsc_table 付き = 今のカーネルで起動可能)。
  * hello.c の UART4 直叩き (クロック/pinmux/8N1 115200 全部自前) を

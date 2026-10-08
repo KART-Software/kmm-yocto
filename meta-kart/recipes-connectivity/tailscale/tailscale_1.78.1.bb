@@ -1,8 +1,11 @@
 SUMMARY = "Tailscale VPN client"
 DESCRIPTION = "Tailscale mesh VPN built on WireGuard - prebuilt ARM64 binary"
 HOMEPAGE = "https://tailscale.com"
-LICENSE = "BSD-3-Clause"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/BSD-3-Clause;md5=550794465ba0ec5312d6919e203a55f9"
+# tailscale 本体と tailscaled.service (本家ユニット由来) は BSD-3-Clause、
+# tailscale-autoconnect のスクリプトとユニットは自作 (PolyForm Noncommercial)。
+LICENSE = "BSD-3-Clause & PolyForm-Noncommercial-1.0.0"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/BSD-3-Clause;md5=550794465ba0ec5312d6919e203a55f9 \
+                    file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418"
 
 TAILSCALE_ARCH = "arm64"
 SRC_URI = "https://pkgs.tailscale.com/stable/tailscale_${PV}_${TAILSCALE_ARCH}.tgz;downloadfilename=tailscale_${PV}_${TAILSCALE_ARCH}.tgz"

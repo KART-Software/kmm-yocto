@@ -3,8 +3,8 @@ DESCRIPTION = "Minimal wl_shm client that shows a raw XRGB8888 file fullscreen. 
 Used by the LCD validation system (tools/lcd-validation/) to display AprilTag \
 test patterns on the target. Not installed into images — the binary is deployed \
 to tmp/deploy/images/ and scp'd to the board when needed."
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+LICENSE = "PolyForm-Noncommercial-1.0.0"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418"
 
 SRC_URI = "file://wl-image-view.c"
 

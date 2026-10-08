@@ -3,8 +3,8 @@ DESCRIPTION = "Installs pre-generated host keys so sshdgenkeys does not spend \
 ~2s generating them on first boot, and masks sshdgenkeys.service entirely. \
 Note: all images share the same host keys; for per-device unique keys drop \
 this package and accept the first-boot cost."
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+LICENSE = "PolyForm-Noncommercial-1.0.0"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418"
 
 SRC_URI = " \
     file://ssh_host_rsa_key \

@@ -2,8 +2,10 @@ SUMMARY = "kmm machine manager GUI application (C++/Qt6)"
 DESCRIPTION = "Qt6 Widgets kiosk GUI for machine management with CAN bus \
 support. C++ port of the former PyQt6 app: starts the GUI directly at process \
 start (the daemon + notifier split existed only to hide PyQt6 import time)."
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+# アプリ本体 (kart-machine-manager の app-cpp) は Ryomei Osaki の著作物。ただし app-cpp/icons/ の
+# 画像 3 つは過去の貢献者 HuanLuo19 が描いたもので、このライセンスの対象外。
+LICENSE = "PolyForm-Noncommercial-1.0.0"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418"
 
 # App updates: bump SRCREV (single pin; the old app-embed.yml dual pin is gone).
 SRC_URI = " \

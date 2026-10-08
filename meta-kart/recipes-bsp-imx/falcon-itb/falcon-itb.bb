@@ -2,8 +2,12 @@ SUMMARY = "Falcon boot FITs (ATF + kernel + DTB) and U-Boot proper fallback FIT"
 DESCRIPTION = "SPL が直接ロードする falcon.itb をスロット毎 (root=p5/p6 焼き分け) に \
 生成し、OTA 試行時に SPL が読む u-boot.itb (proper フォールバック) も組む。\
 設計は docs/imx8mm-xpi-bringup/08-falcon.md。kas/imx8mm-falcon.yml から使う。"
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+# m4-fw.bin / m7-fw.bin は data-logger-zephyr のビルド成果物で、Zephyr (Apache-2.0) と
+# NXP HAL (BSD-3-Clause) のコードを含む。spl_splash_logo.h のチームロゴは対象外 (README 参照)。
+LICENSE = "PolyForm-Noncommercial-1.0.0 & Apache-2.0 & BSD-3-Clause"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418 \
+                    file://${COMMON_LICENSE_DIR}/Apache-2.0;md5=89aea4e17d99a7cacdbeed46a0096b10 \
+                    file://${COMMON_LICENSE_DIR}/BSD-3-Clause;md5=550794465ba0ec5312d6919e203a55f9"
 
 DEPENDS = "u-boot-tools-native dtc-native"
 

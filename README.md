@@ -186,8 +186,8 @@ rebuild.
 
 > **`.env` (secret config) is not baked into images.** `kmm.service` reads
 > `/data/kmm.env` (a persistent partition that survives OTA). Place it once per
-> device: `scp .env root@<host>:/data/kmm.env`. Images are therefore safe to
-> publish as Releases. On M-core builds, include `CAN_INTERFACE=rpmsgcan0`.
+> device: `scp .env root@<host>:/data/kmm.env`. On M-core builds, include
+> `CAN_INTERFACE=rpmsgcan0`.
 
 ---
 
@@ -377,7 +377,7 @@ rebuild → OTA.
 binary.
 
 ```bash
-source <SDK>/environment-setup-*        # the SDK is bundled in Releases by release.sh (bitbake meta-toolchain-qt6)
+source <SDK>/environment-setup-*        # build the SDK with kas/sdk.yml (bitbake meta-toolchain-qt6)
 cmake -B build-app ../kart-machine-manager/app-cpp && cmake --build build-app -j
 ssh root@<host> 'mount -o remount,rw /'
 scp build-app/kmm root@<host>:/usr/bin/kmm
@@ -416,7 +416,7 @@ kmm-yocto/
 ├── m4/                           # M4 bare-metal skeletons and diagnostic ELFs (clk-test, etc.)
 ├── learning/                     # teaching material for M-core / low-level boot
 ├── docs/                         # bring-up logs (below)
-└── scripts/                      # build/flash/ota/release helpers
+└── scripts/                      # build/flash/ota helpers
 ```
 
 ---
@@ -465,7 +465,61 @@ is under [docs/archive/](docs/archive/).
 
 ## License
 
-Custom code inside the meta-kart layer: MIT. Each upstream layer follows its own
-license. Qt6 (qtbase/qtwayland): LGPL v3 / GPL — verify before distributing a
-product. The DDR-training FW in `imx-boot` (firmware-imx) is distributed under
-the **NXP EULA** (agreed via `ACCEPT_FSL_EULA=1`).
+This repository is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE),
+with an [additional permission](ADDITIONAL-PERMISSION.md) for Student Formula teams
+and education.
+
+Copyright 2026 Ryomei Osaki
+
+You may, for example:
+
+- use it for personal hobby projects, academic research, or teaching and learning
+- use and modify it in a Student Formula team, and share your changes with other
+  Student Formula teams, regardless of sponsorship or prize money
+
+You may not, for example:
+
+- use it for commercial purposes, such as building it into a product or service
+- make changes for commercial purposes, or use changed versions for commercial purposes
+- let sponsors or other companies use it for their own business
+
+This summary is for convenience only. The terms in [LICENSE](LICENSE) and
+[ADDITIONAL-PERMISSION.md](ADDITIONAL-PERMISSION.md) govern.
+
+### Files under other licenses
+
+The following files are not covered by the license above and keep their original
+licenses:
+
+- U-Boot patches (`*.patch`) and `debix-lpddr4_timing.c` in
+  `meta-kart/recipes-bsp-imx/u-boot/files/`: GPL-2.0-or-later.
+  `debix-lpddr4_timing.c` is Copyright NXP.
+- Linux kernel patches and device trees in `meta-kart/recipes-kernel-imx/linux/files/`:
+  GPL-2.0, or the license stated in each file.
+- The rpmsg-can kernel module in `meta-kart/recipes-kernel-imx/rpmsg-can/`: GPL-2.0-only.
+- Arm Trusted Firmware patches in `meta-kart/recipes-bsp-imx/imx-atf/files/`: BSD-3-Clause.
+- Weston patches, `weston.service` and `weston-early.service` in
+  `meta-kart/recipes-graphics/weston/files/`: MIT, as derived from Weston and poky's
+  weston-init.
+- `meta-kart/recipes-graphics/seatd/files/seatd.service`: MIT, as derived from the
+  seatd unit.
+- `meta-kart/recipes-connectivity/tailscale/files/tailscaled.service`: BSD-3-Clause,
+  as derived from the Tailscale unit.
+- `meta-kart/recipes-support/udev-slim/files/systemd-random-seed.service`:
+  LGPL-2.1-or-later, as derived from the systemd unit.
+- `m4/*/rpmsg_config.h`: BSD-3-Clause, Copyright Mentor Graphics, Xilinx, Freescale
+  and NXP.
+- `m4-fw.bin` and `m7-fw.bin` in `meta-kart/recipes-bsp-imx/falcon-itb/files/`:
+  firmware built from data-logger-zephyr, which includes components of Zephyr
+  (Apache-2.0) and the NXP HAL (BSD-3-Clause).
+- The team logo in `logo/` and `meta-kart/recipes-bsp-imx/u-boot/files/spl_splash_logo.h`
+  belongs to KART and is not covered by this license. Any use requires the team's
+  permission.
+
+The upstream layers that kas checks out next to this repository (poky,
+meta-openembedded, meta-qt6 and the BSP layers) follow their own licenses.
+
+Built images contain third-party software under its own licenses. This includes GPL
+and LGPL components such as Qt6 (qtbase and qtwayland), and the DDR training firmware
+in `imx-boot` (firmware-imx), which is distributed under the **NXP EULA** (agreed via
+`ACCEPT_FSL_EULA=1`). The build writes the full list to `build/tmp/deploy/licenses/`.

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * clk-test — M4 から ECSPI2 クロックを立てて触れるかのブレッドクラム実験。
  *

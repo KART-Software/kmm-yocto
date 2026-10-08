@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * rpmsg-rtt.c — /dev/ttyRPMSG0 の echo で A53↔M4 往復時間を測る。
  * 使い方: rpmsg-rtt [回数 (既定 1000)]

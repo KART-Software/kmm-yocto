@@ -1,5 +1,10 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
+# weston.service と weston-early.service は weston-init 由来 (MIT) のままだが、weston.ini /
+# weston-debix.ini / mesa-cache*.conf は自作なので PolyForm Noncommercial を併記する。
+LICENSE:append = " & PolyForm-Noncommercial-1.0.0"
+LIC_FILES_CHKSUM:append = " file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418"
+
 SRC_URI:append = " file://weston.ini \
                    file://weston.service \
                   "

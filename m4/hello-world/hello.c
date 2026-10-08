@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * hello.c — XPI-iMX8MM Cortex-M4 ベアメタル hello world (SDK 非依存)
  *

@@ -177,8 +177,8 @@ kas-container build \
 
 > **`.env`(秘密設定)はイメージに焼き込まれない。** `kmm.service` は
 > `/data/kmm.env`(永続パーティション、OTA を跨ぐ)を読む。デバイスごとに 1 回
-> 配置する:`scp .env root@<host>:/data/kmm.env`。よってイメージは Release に
-> 公開してよい。M コア構成では `CAN_INTERFACE=rpmsgcan0` を含める。
+> 配置する:`scp .env root@<host>:/data/kmm.env`。M コア構成では
+> `CAN_INTERFACE=rpmsgcan0` を含める。
 
 ---
 
@@ -339,7 +339,7 @@ auth key は [Tailscale 管理画面](https://login.tailscale.com/admin/settings
 **開発イテレーション**(再ビルド不要):Qt6 SDK でクロスビルドしてバイナリだけ差し替える。
 
 ```bash
-source <SDK>/environment-setup-*        # SDK は release.sh が Release に同梱 (bitbake meta-toolchain-qt6)
+source <SDK>/environment-setup-*        # SDK は kas/sdk.yml でビルド (bitbake meta-toolchain-qt6)
 cmake -B build-app ../kart-machine-manager/app-cpp && cmake --build build-app -j
 ssh root@<host> 'mount -o remount,rw /'
 scp build-app/kmm root@<host>:/usr/bin/kmm
@@ -378,7 +378,7 @@ kmm-yocto/
 ├── m4/                           # M4 ベアメタル雛形・診断 ELF (clk-test 等)
 ├── learning/                     # M コア/ブート低レベル知識の教材
 ├── docs/                         # bring-up 記録 (下記)
-└── scripts/                      # build/flash/ota/release ヘルパー
+└── scripts/                      # build/flash/ota ヘルパー
 ```
 
 ---
@@ -426,7 +426,54 @@ kmm-yocto/
 
 ## ライセンス
 
-meta-kart レイヤ内の独自コード: MIT。各 upstream レイヤは元のライセンスに従う。
-Qt6 (qtbase/qtwayland): LGPL v3 / GPL — 製品配布時に確認が必要。
-`imx-boot` の DDR トレーニング FW(firmware-imx)は **NXP EULA** 配布物
-(`ACCEPT_FSL_EULA=1` で同意)。
+このリポジトリは [PolyForm Noncommercial License 1.0.0](LICENSE) に、学生フォーミュラ
+チームと教育向けの[追加許可](ADDITIONAL-PERMISSION.md)を加えた条件で公開しています。
+
+Copyright 2026 Ryomei Osaki
+
+使ってよい例:
+
+- 個人の趣味、大学などでの研究、授業や勉強会などの教育
+- 学生フォーミュラチームでの利用と改変、ほかの学生フォーミュラチームとの改変版の共有。
+  スポンサーや賞金の有無は問いません
+
+使えない例:
+
+- 製品やサービスへの組み込みなど、商用目的で使うこと
+- 商用目的で改変すること、改変したものを商用目的で使うこと
+- スポンサー企業などが、自社の事業のために使うこと
+
+この要約は説明のためのものです。条件は [LICENSE](LICENSE) と
+[ADDITIONAL-PERMISSION.md](ADDITIONAL-PERMISSION.md) の本文が優先します。
+
+### ほかのライセンスのファイル
+
+次のファイルは上のライセンスの対象外で、元のライセンスのままです。
+
+- `meta-kart/recipes-bsp-imx/u-boot/files/` の U-Boot のパッチ(`*.patch`)と
+  `debix-lpddr4_timing.c`: GPL-2.0-or-later。`debix-lpddr4_timing.c` は Copyright NXP
+- `meta-kart/recipes-kernel-imx/linux/files/` の Linux カーネルのパッチと DTS:
+  GPL-2.0、または各ファイルに記載のライセンス
+- `meta-kart/recipes-kernel-imx/rpmsg-can/` のカーネルモジュール: GPL-2.0-only
+- `meta-kart/recipes-bsp-imx/imx-atf/files/` の Arm Trusted Firmware のパッチ: BSD-3-Clause
+- `meta-kart/recipes-graphics/weston/files/` の Weston のパッチ、`weston.service`、
+  `weston-early.service`: Weston と poky の weston-init 由来のため MIT
+- `meta-kart/recipes-graphics/seatd/files/seatd.service`: seatd のユニット由来のため MIT
+- `meta-kart/recipes-connectivity/tailscale/files/tailscaled.service`:
+  Tailscale のユニット由来のため BSD-3-Clause
+- `meta-kart/recipes-support/udev-slim/files/systemd-random-seed.service`:
+  systemd のユニット由来のため LGPL-2.1-or-later
+- `m4/*/rpmsg_config.h`: BSD-3-Clause。Copyright Mentor Graphics、Xilinx、Freescale、NXP
+- `meta-kart/recipes-bsp-imx/falcon-itb/files/` の `m4-fw.bin` と `m7-fw.bin`:
+  data-logger-zephyr からビルドしたファームウェアで、Zephyr(Apache-2.0)と
+  NXP HAL(BSD-3-Clause)のコードを含みます
+- `logo/` と `meta-kart/recipes-bsp-imx/u-boot/files/spl_splash_logo.h` のチームロゴ:
+  KART の所有物で、このライセンスの対象外です。利用にはチームの許可が必要です
+
+kas がこのリポジトリの隣に取得する upstream レイヤ(poky、meta-openembedded、meta-qt6、
+BSP レイヤ)は、それぞれのライセンスに従います。
+
+ビルドしたイメージには、それぞれのライセンスに従う第三者のソフトウェアが含まれます。
+Qt6(qtbase と qtwayland)などの GPL・LGPL のコンポーネントや、**NXP EULA** で配布される
+`imx-boot` の DDR トレーニング FW(firmware-imx、`ACCEPT_FSL_EULA=1` で同意)です。
+一覧はビルド時に `build/tmp/deploy/licenses/` に出力されます。

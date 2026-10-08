@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * rpmsg-char-rtt.c — rpmsg_char で M4 echo と往復し RTT を測る。
  * tty 層 (行制御・多重 open の闇) を完全に迂回する、CAN 受信でも使う予定の

@@ -2,8 +2,8 @@ SUMMARY = "Early /data mount service (persistent partition)"
 DESCRIPTION = "Mounts the A/B-shared /data partition early at boot, deriving \
 the device from the kernel cmdline instead of waiting for udev label scan. \
 No-op on non-A/B layouts (QEMU etc.)."
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+LICENSE = "PolyForm-Noncommercial-1.0.0"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418"
 
 SRC_URI = " \
     file://data-mount.service \

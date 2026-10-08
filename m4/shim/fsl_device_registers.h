@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  *
  * fsl_device_registers.h — rpmsg-lite の imx8mm ポートが要求する SDK
  * ヘッダの最小シム。本物の MCUXpresso SDK は使わない (10-cortex-m4.md)。

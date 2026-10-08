@@ -1,7 +1,7 @@
 SUMMARY = "Product image for Raspberry Pi 5 / QEMU"
 DESCRIPTION = "Custom Linux image with Wayland/Weston kiosk, C++/Qt6 GUI, \
 CAN bus, GPIO, Tailscale, and NVMe boot support."
-LICENSE = "MIT"
+LICENSE = "PolyForm-Noncommercial-1.0.0"
 
 inherit core-image
 

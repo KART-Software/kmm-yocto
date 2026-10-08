@@ -3,8 +3,8 @@ DESCRIPTION = "Minimal wl_shm client that draws the same logo as the SPL splash 
 (shared spl_splash_logo.h) so the SPL splash -> weston -> kmm transition has \
 no logo-less gap. kiosk-shell stacks the newest mapped surface on top, so kmm \
 naturally covers this client."
-LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
+LICENSE = "PolyForm-Noncommercial-1.0.0"
+LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/PolyForm-Noncommercial-1.0.0;md5=fa4f6eb8206bcfb6954542687e669418"
 
 # spl_splash_logo.h は u-boot (SPL スプラッシュ) と単一ソースを共用する
 FILESEXTRAPATHS:prepend := "${THISDIR}/../../recipes-bsp-imx/u-boot/files:"
