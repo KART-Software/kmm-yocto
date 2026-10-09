@@ -220,9 +220,13 @@ netdev **`rpmsgcan0`**(通常の SocketCAN)を生やす。
 - M ファームは別リポジトリ
   [data-logger-zephyr](https://github.com/KART-Software/data-logger-zephyr)
   (`apps/can-gw`、SoC ガードで 8MM/8MP を分岐)
-- **falcon 統合**:`m7-fw.img`(8MP)/`m4-fw.img`(8MM)を boot パーティションに置き、
-  SPL が検証 → DDR ステージング、BL31 が M コアのルートクロック起動 + ITCM 配置 +
-  起動。Linux は稼働中の M コアに `remoteproc` で attach
+- **falcon 統合**:SPL が M コアのファームを検証 → DDR ステージング、BL31 が M コアの
+  ルートクロック起動 + ITCM 配置 + 起動。Linux は稼働中の M コアに `remoteproc` で attach
+- **M コアのファームは Linux とは独立した A/B**(8MP):p3 に `mcore-a.img` /
+  `mcore-b.img` を置き、env の `mcore_slot` / `mcore_try` で選ぶ。下の A/B の節の
+  `ab mcore update` で手で置く。Linux のイメージには入れないので、Linux を更新しても
+  M コアは変わらない。書いたばかりの eMMC には無く、無くても Linux は正常に動く。
+  XPI(8MM)はまだ boot パーティションの `m4-fw.img` を読む(SPL の A/B 化が未対応)
 - 開発イテレーションは `/lib/firmware` に ELF を置いて
   `/sys/class/remoteproc/remoteproc0` から start(稼働中は stop → start で差替)
 - kmm は `/data/kmm.env` の `CAN_INTERFACE=rpmsgcan0` で読む IF を選ぶ
@@ -262,40 +266,50 @@ python3 $S emmc && python3 scripts/dp100.py cycle               # 通常起動�
 > **Falcon 版 imx-boot は UUU で RAM 起動できない**(SDPV ハンドシェイクを受けない)。
 > UUU 経路は stock 退避版 imx-boot を使い `ums` で eMMC を露出して dd する。
 
-### ブートローダ(imx-boot)の更新
+### SPL(imx-boot)の更新
 
-OTA では配れない(eMMC 固定位置)。稼働機では `uboot-update <flash.bin>`
-(A=新版 / B=前版、read-back 照合、電源断で ROM が前版へ自動フォールバック)を使う。
+Linux のイメージには含まれない(eMMC 固定位置)。下の A/B の節の `ab spl update` を使う。
 
 ---
 
-## OTA アップデート(A/B・SSH 経由)
+## A/B の更新(SSH 経由)
 
-稼働中のデバイスへ SSH(Tailscale 可)経由で OS ごと更新できる。`ota-update.sh` は
-イメージのパーティション構成とデバイスの `ab-status` からプラットフォームを自動判別する:
-
-```bash
-./scripts/ota-update.sh --host <host> --yes \
-  build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2
-```
-
-流れ:非アクティブ面へ書込み(rootfs=dd、boot=ファイルコピー)→ `upgrade_available=1` で
-**1 回だけ**試起動 → ヘルス確認 → **commit で正式化**。新面が起動に失敗すれば U-Boot の
-`altbootcmd` が旧面へ自動フォールバック(commit しない限り旧面 = 安全側)。**両スロットを
-揃えるなら 2 回**実行する(1 回目=非アクティブ面、commit 後の 2 回目=もう一方)。
-
-初回参加用に Tailscale auth key を新スロットの boot FAT へ注入することもできる:
-`--authkey <keyfile>`(接続成功後にデバイス側で自動削除)。
-
-デバイス側コマンド:
+Linux、M コアのファーム、SPL は、それぞれ独立した A/B を持つ。機体側は `ab` コマンド
+一つで 3 つとも扱い、PC からは `scripts/ab.sh` で操作する(SSH、Tailscale 可。ファイルは
+先に機体へ送る):
 
 ```bash
-ab-status      # 現用スロット
-ab-commit      # 試起動した面の手動 commit
-uboot-status   # imx-boot A/B の起動元・状態
-uboot-update   # imx-boot の A/B 更新
-uboot-rollback # imx-boot を前版へ
+H=192.168.0.7
+./scripts/ab.sh --host $H status
+./scripts/ab.sh --host $H linux try build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2
+./scripts/ab.sh --host $H linux commit
+./scripts/ab.sh --host $H mcore update build/tmp/deploy/images/imx8mp-debix/m7-fw.img
+./scripts/ab.sh --host $H spl update build/tmp/deploy/images/imx8mp-debix/imx-boot
 ```
+
+| 対象 | 操作 | 動き |
+|---|---|---|
+| `linux` | `try` / `commit` / `rollback` / `status` | `try` は反対の面に書き、普段と同じ falcon 経路で **1 回だけ**起動する。確かめて `commit` する。確定せずに再起動すれば元の面に戻り、SPL も試行回数を数えて `bootlimit` を超えたら戻す。`rollback` も反対の面を同じく試行として起動する(書き込みはしない)ので、確かめてから確定する |
+| `mcore` | `update` / `rollback` / `status` | `update` は p3 の反対の面に書き、次の起動で 1 回試す。M コアが動けば(attached + rpmsg のチャネル)自動で確定し、駄目なら再起動して確定面に戻る。`rollback` も反対の面を同じく 1 回試す |
+| `spl` | `update` / `rollback` / `status` | `update` は新しい版を A、それまでの版を B に書く。ROM が B を起動するのは A が不正なときだけなので自動の判断はしない。`ab spl status` を見て、必要なら `rollback` |
+
+`update`・`try`・`rollback` は自分で再起動する。`--no-reboot` を付けると待つ。
+
+`ab linux commit` は次を満たさないと確定しない(`--force` で飛ばせる):新しい面から
+falcon 経路で起動し falcon-rearm が再アームした、起動が完了して失敗ユニットと起動順の
+循環が無い、weston と kmm が動いている、`/data` がマウントされ `kmm.env` がある、`/boot`
+がマウントされ動いているカーネルのモジュールがある、更新前に Tailscale がつながっていたなら
+今もつながっている。画面が実際に映っているかは判定できないので、表示は lcd-validation で確かめる。
+
+**Linux の両面を揃えるなら `linux try` を 2 回**実行する(2 回目はもう片方の面に書く)。
+`linux try` に `--authkey <keyfile>` を付けると、初回参加用の Tailscale auth key を新しい面の
+boot FAT に置く(接続成功後にデバイス側で自動削除)。
+
+SPL は Linux の面を env の `ab_slot` で選ぶ(env が読めないときだけ MBR の起動フラグに
+従う)ので、試起動の時点で新しい面の U-Boot proper・BL31・カーネルが動く。詳細は
+[04-falcon.md](docs/imx8mp-debix-bringup/04-falcon.md)「A/B とスロット選択」。
+XPI(8MM)にも同じ `ab` コマンドが入るが、SPL はまだ MBR の起動フラグで面を選び、
+M コアの A/B は無い。
 
 ---
 
@@ -306,7 +320,7 @@ uboot-rollback # imx-boot を前版へ
 
 初回起動時に auth key で自動参加する:
 
-1. boot パーティションに `tailscale.authkey` を置く(書き込み時 / `ota-update.sh --authkey` で注入)
+1. boot パーティションに `tailscale.authkey` を置く(書き込み時 / `scripts/ab.sh ... linux try --authkey` で注入)
 2. `tailscale-autoconnect.service` がキーの存在(`ConditionPathExists`)を条件に起動
 3. `tailscale up --authkey=… --ssh --accept-dns=false` を実行。`--ssh` で Tailscale SSH 有効
 4. 成功するとキーを削除(イメージに残さない)、認証状態は `/data/tailscale` に永続化

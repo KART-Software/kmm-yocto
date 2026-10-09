@@ -9,7 +9,10 @@
 #                         uboot-env.bin は 2 面分 32KiB、rawcopy 1 回で両面が埋まる)
 #  p1 BOOTA   vfat 256M   Image + DTB + extlinux (slot A)
 #  p2 BOOTB   vfat 256M   slot B (初回 OTA まで空)
-#  p3 RSV vfat   4M   予約 (p5/p6/p7 の番号を RPi5 / 8MM と揃えるための詰め物)
+#  p3 MCORE vfat 4M   M コア (Cortex-M7) のファームの A/B (mcore-a.img / mcore-b.img)。
+#                     Linux の A/B とは独立 (ab mcore update が書き、SPL が env で選ぶ)。
+#                     書いたばかりの eMMC では空 (M コア無しでも正常に動く)。
+#                     旧ラベル RSV の機体もそのまま使える (SPL と ab は番号 p3 で扱う)
 #  p4 (extended)
 #  p5 roota   ext4        rootfs slot A  <- extlinux の root=
 #  p6 rootb   ext4        rootfs slot B
@@ -23,7 +26,7 @@ part u-boot-b --source rawcopy --sourceparams="file=imx-boot" --ondisk mmcblk2 -
 part env --source rawcopy --sourceparams="file=uboot-env.bin" --ondisk mmcblk2 --no-table --align 7168
 part /boot --source bootimg-partition --ondisk mmcblk2 --fstype=vfat --label BOOTA --align 8192 --fixed-size 256M --use-uuid --active
 part --ondisk mmcblk2 --fstype=vfat --label BOOTB --align 4096 --fixed-size 256M --use-uuid
-part --ondisk mmcblk2 --fstype=vfat --label RSV --align 4096 --fixed-size 4M
+part --ondisk mmcblk2 --fstype=vfat --label MCORE --align 4096 --fixed-size 4M
 part / --source rootfs --ondisk mmcblk2 --fstype=ext4 --label roota --align 4096 --fixed-size 1536M --use-uuid
 part --ondisk mmcblk2 --fstype=ext4 --label rootb --align 4096 --fixed-size 1536M --use-uuid
 part --ondisk mmcblk2 --fstype=ext4 --label data --align 4096 --fixed-size 128M

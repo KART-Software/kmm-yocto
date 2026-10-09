@@ -1,0 +1,108 @@
+From: build <build@localhost>
+Subject: [PATCH] spl: mmc: let the board choose the FS boot partition
+
+With CONFIG_SYS_MMCSD_FS_BOOT_PARTITION=-1 the SPL always loads from the
+first MBR partition flagged bootable. Move that scan into
+spl_mmc_first_bootable_partition() and call it through a weak
+spl_mmc_fs_boot_partition(), so a board can pick the partition itself
+(here: the A/B slot from the environment, falling back to the MBR flag).
+No functional change for boards that do not override it.
+
+Upstream-Status: Inappropriate [product-specific A/B integration]
+---
+diff --git a/common/spl/spl_mmc.c b/common/spl/spl_mmc.c
+index 6bea28f3340..55e7fc5257c 100644
+--- a/common/spl/spl_mmc.c
++++ b/common/spl/spl_mmc.c
+@@ -212,6 +212,40 @@ int spl_start_uboot(void)
+ }
+ #endif
+ 
++#if CONFIG_SYS_MMCSD_FS_BOOT_PARTITION == -1
++/**
++ * spl_mmc_first_bootable_partition() - first MBR partition with the boot flag
++ *
++ * Return: partition number, or -ENOENT if no partition is flagged bootable
++ */
++int spl_mmc_first_bootable_partition(struct mmc *mmc)
++{
++	struct disk_partition info;
++
++	debug("Checking for the first MBR bootable partition\n");
++	for (int type_part = 1; type_part <= DOS_ENTRY_NUMBERS; type_part++) {
++		if (part_get_info(mmc_get_blk_desc(mmc), type_part, &info))
++			continue;
++		debug("Partition %d is of type %d and bootable=%d\n",
++		      type_part, info.sys_ind, info.bootable);
++		if (info.bootable != 0) {
++			debug("Using first bootable partition: %d\n", type_part);
++			return type_part;
++		}
++	}
++	return -ENOENT;
++}
++
++/*
++ * Boards can override this to choose the FAT/ext partition themselves,
++ * e.g. from an A/B slot variable in the environment.
++ */
++int __weak spl_mmc_fs_boot_partition(struct mmc *mmc)
++{
++	return spl_mmc_first_bootable_partition(mmc);
++}
++#endif
++
+ #ifdef CONFIG_SYS_MMCSD_FS_BOOT
+ static int spl_mmc_do_fs_boot(struct spl_image_info *spl_image,
+ 			      struct spl_boot_device *bootdev,
+@@ -223,25 +257,9 @@ static int spl_mmc_do_fs_boot(struct spl_image_info *spl_image,
+ 	__maybe_unused int partition = CONFIG_SYS_MMCSD_FS_BOOT_PARTITION;
+ 
+ #if CONFIG_SYS_MMCSD_FS_BOOT_PARTITION == -1
+-	{
+-		struct disk_partition info;
+-		debug("Checking for the first MBR bootable partition\n");
+-		for (int type_part = 1; type_part <= DOS_ENTRY_NUMBERS; type_part++) {
+-			err = part_get_info(mmc_get_blk_desc(mmc), type_part, &info);
+-			if (err)
+-				continue;
+-			debug("Partition %d is of type %d and bootable=%d\n", type_part, info.sys_ind, info.bootable);
+-			if (info.bootable != 0) {
+-				debug("Partition %d is bootable, using it\n", type_part);
+-				partition = type_part;
+-				break;
+-			}
+-		}
+-		printf("Using first bootable partition: %d\n", partition);
+-		if (partition == CONFIG_SYS_MMCSD_FS_BOOT_PARTITION) {
+-			return -ENOSYS;
+-		}
+-	}
++	partition = spl_mmc_fs_boot_partition(mmc);
++	if (partition < 0)
++		return -ENOSYS;
+ #endif
+ 
+ #ifdef CONFIG_SPL_FS_FAT
+diff --git a/include/spl.h b/include/spl.h
+index 35a5be9ae9c..b25da73fea4 100644
+--- a/include/spl.h
++++ b/include/spl.h
+@@ -500,6 +500,17 @@ u32 spl_spi_boot_cs(void);
+  */
+ u32 spl_mmc_boot_mode(struct mmc *mmc, const u32 boot_device);
+ 
++/**
++ * spl_mmc_fs_boot_partition() - partition to load the payload from in FS mode
++ *
++ * Used when CONFIG_SYS_MMCSD_FS_BOOT_PARTITION is -1. The default picks the
++ * first MBR partition flagged bootable (spl_mmc_first_bootable_partition()).
++ *
++ * Return: partition number, or a negative error code
++ */
++int spl_mmc_fs_boot_partition(struct mmc *mmc);
++int spl_mmc_first_bootable_partition(struct mmc *mmc);
++
+ /**
+  * spl_mmc_boot_partition() - MMC partition to load U-Boot from.
+  * @boot_device:	ID of the device which the MMC driver wants to load

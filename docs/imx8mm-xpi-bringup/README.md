@@ -33,6 +33,21 @@ SoC 内部(A53 / M4 / メモリ / NoC / HSIOMIX・DISPMIX・GPU・VPU / AIPS1〜
 箱 = DT ノードまたは RM のサブシステム、色 = Linux 使用 / M4 所有 / disabled。根拠は製品 DTS(mainline 6.12 dtsi で
 コンパイル)と本ディレクトリの 01/08/09/10/11、XPI 仕様書 V1.1。編集は [hardware.drawio](hardware.drawio)(draw.io)。
 
+## A/B のコマンド(2026-10 以降のイメージ)
+
+A/B の操作は `ab` コマンド一つにまとめた(設計は
+[../imx8mp-debix-bringup/04-falcon.md](../imx8mp-debix-bringup/04-falcon.md)「A/B とスロット選択」)。
+このディレクトリの記録に出てくる旧コマンドとの対応は次のとおり。XPI の SPL はまだ A/B 化して
+いないので、Linux の面は MBR の起動フラグで選ばれ、M コアの A/B は無い(M4 のファームは
+今までどおり boot パーティションの `m4-fw.img`)。
+
+| 旧 | 新 |
+|---|---|
+| `ab-status` / `uboot-status` | `ab linux status` / `ab spl status`(`ab status` でまとめて) |
+| `scripts/ota-update.sh` | `scripts/ab.sh --host <機体> linux try <イメージ>` |
+| `ab-commit` | `ab linux commit`(健全性の確認つき) |
+| `uboot-update` / `uboot-rollback` | `ab spl update` / `ab spl rollback` |
+
 このディレクトリの構成:
 
 | ファイル | 内容 |

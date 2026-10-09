@@ -1,13 +1,16 @@
 From: build <build@localhost>
-Subject: [PATCH] imx8mp: SPL — Cortex-M7 ファーム (m7-fw.img) をファイルとして読み DDR にステージング
+Subject: [PATCH] imx8mp: SPL — M コア (Cortex-M7) のファームを p3 の A/B ファイルから読み DDR にステージング
 
-boot パーティションの m7-fw.img (M7FW ヘッダ + zephyr.bin) を検証して
-0x46000000 に置く。ITCM 配置と起動は BL31 (imx-atf 0001-imx8mp-bl31-start-m7)。
-ファイルが無ければ無言で M7 なし構成。8MM の 0011 の 8MP 移植で、
-kas/imx8mp-m7.yml が注入する。
+M コア専用パーティション (p3) の mcore-a.img / mcore-b.img (M7FW ヘッダ + zephyr.bin) を
+env の mcore_try (1 回きりの試行) / mcore_slot で選び、検証して 0x46000000 に置く。
+ITCM 配置と起動は BL31 (imx-atf 0001-imx8mp-bl31-start-m7)。ファイルが無ければ
+無言で M7 なし構成。置いた面・版・試行中かを /chosen (mcore,*) に書く。
+8MM の 0011 の 8MP 移植で、kas/imx8mp-m7.yml が注入する。
 
 Upstream-Status: Inappropriate [product-specific falcon integration]
 ---
+diff --git a/board/freescale/imx8mp_evk/Makefile b/board/freescale/imx8mp_evk/Makefile
+index 1421e46628a..2fb0a6489b4 100644
 --- a/board/freescale/imx8mp_evk/Makefile
 +++ b/board/freescale/imx8mp_evk/Makefile
 @@ -5,6 +5,7 @@
@@ -18,89 +21,154 @@ Upstream-Status: Inappropriate [product-specific falcon integration]
  
  ifdef CONFIG_SPL_BUILD
  obj-y += spl.o
+diff --git a/board/freescale/imx8mp_evk/spl_m7.c b/board/freescale/imx8mp_evk/spl_m7.c
+new file mode 100644
+index 00000000000..8c2f29f8dfd
 --- /dev/null
 +++ b/board/freescale/imx8mp_evk/spl_m7.c
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,145 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
-+ * spl_m7.c — Cortex-M7 ファーム (m7-fw.img) を boot パーティションのファイルとして
-+ * 読み、検証して DDR ステージングへ置く。ITCM への配置と起動 (CPUWAIT 解除) は
-+ * BL31 が行う (imx-atf 0001-imx8mp-bl31-start-m7)。SPL は TCM 内で実行されるため
-+ * 直接置けない (8MM と同じ理由)。8MM の 0011-imx8mm-spl-m4-file-read の 8MP 移植。
++ * spl_m7.c — M コア (Cortex-M7) のファームを、M コア専用パーティション (p3) の
++ * A/B ファイルから読み、検証して DDR ステージングへ置く。ITCM への配置と起動
++ * (CPUWAIT 解除) は BL31 が行う (imx-atf 0001-imx8mp-bl31-start-m7)。SPL は TCM 内で
++ * 実行されるため直接置けない (8MM と同じ理由)。8MM の 0011-imx8mm-spl-m4-file-read の
++ * 8MP 移植。
++ *
++ * A/B (Linux の A/B とは独立。ab コマンドの ab mcore update / rollback が操作する):
++ *   p3 の mcore-a.img / mcore-b.img。env の mcore_try があればその面を 1 回だけ
++ *   試す (読む前に mcore_try を消して保存するので、試した版が SoC をリセット
++ *   させ続けても次の起動は確定面に戻る)。無ければ mcore_slot の面。どちらも
++ *   無ければ M コアは起動しない (手で置く運用で、置いていない機体も正常)。
++ *   起動した面・版・試行中かは /chosen (mcore,slot / mcore,version / mcore,try) で伝え、Linux 側の
++ *   自動確定 (mcore-confirm) が mcore_slot を書き換える。
 + *
 + * ファイル形式 (16B ヘッダ + payload、falcon-itb.bb が生成):
 + *   0x00 magic "M7FW" / 0x04 payload 長 (LE32) / 0x08 payload の CRC32 (LE32)
 + *   0x0C version (LE32, 表示用) / 0x10 payload = zephyr.bin (先頭がベクタ)
 + *
-+ * ファイル無し = M7 なし構成 (正常、無言)。壊れていれば警告して M7 スキップ
-+ * (ステージングは無効のままなので BL31 のゲートが弾く)。
++ * 壊れていれば警告して M7 スキップ (ステージングは無効のままなので BL31 の
++ * ゲートが弾く)。
 + */
 +#include <common.h>
 +#include <asm/io.h>
 +#include <cpu_func.h>
++#include <env.h>
 +#include <fat.h>
 +#include <mmc.h>
 +#include <part.h>
 +#include <spl.h>
 +#include <u-boot/crc.h>
++#include <linux/libfdt.h>
 +
 +#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_SPL_OS_BOOT) && defined(CONFIG_SPL_FS_FAT)
 +
-+#define M7_IMG_NAME	"m7-fw.img"
++#define MCORE_PART	3		/* p3 (wks の MCORE、旧ラベル RSV) */
 +#define M7_STAGING	0x46000000UL	/* BL31 パッチ M7_STAGING と一致必須 */
 +#define M7_SCRATCH	0x45f00000UL	/* img (ヘッダ付き) の一時読み込み先 */
 +#define M7_MAGIC	0x5746374dUL	/* "M7FW" (LE) */
 +#define M7_MAX_PAYLOAD	0x20000UL	/* ITCM 128KB */
 +
-+void spl_board_prepare_for_boot(void)
++int spl_ab_env_ready(void);	/* spl.c (falcon) */
++
++static bool mcore_done;
++static char mcore_loaded;	/* 置いた面 'a' / 'b'。0 = 置いていない */
++static char mcore_tried;	/* 今回 mcore_try で試した面。0 = 試行ではない */
++static u32 mcore_ver;
++
++static char mcore_pick(void)
 +{
-+	struct disk_partition info;
++	const char *t, *s;
++
++	if (!spl_ab_env_ready())
++		return 0;
++	t = env_get("mcore_try");
++	if (t && (*t == 'a' || *t == 'b')) {
++		mcore_tried = *t;
++		/* 1 回きり: 読む前に消して保存する */
++		env_set("mcore_try", NULL);
++		if (env_save())
++			puts("mcore: save err\n");
++		return mcore_tried;
++	}
++	s = env_get("mcore_slot");
++	if (s && (*s == 'a' || *s == 'b'))
++		return *s;
++	return 0;		/* 未配置 (正常、無言) */
++}
++
++void spl_mcore_stage(void)
++{
 +	struct blk_desc *desc;
 +	struct mmc *mmc;
++	char name[] = "mcore-?.img";
++	char sel;
 +	u32 size, crc;
-+	int part = 0, i;
 +	long len;
++
++	if (mcore_done)
++		return;
++	mcore_done = true;
 +
 +	/* stale ステージングの無効化 (DDR は warm reboot で消えない) */
 +	writel(0, M7_STAGING);
 +	writel(0, M7_STAGING + 4);
 +	flush_dcache_range(M7_STAGING, M7_STAGING + 64);
 +
++	sel = mcore_pick();
++	if (!sel)
++		return;
++
 +	mmc = find_mmc_device(1);	/* SPL の DM では eMMC (usdhc3) = dev 1 (mmc_env.c 参照) */
 +	if (!mmc)
 +		return;
 +	desc = mmc_get_blk_desc(mmc);
-+	if (!desc)
++	if (!desc || fat_register_device(desc, MCORE_PART)) {
++		puts("mcore: no p3\n");
 +		return;
-+	/* falcon と同じ「MBR bootable フラグの立ったパーティション」を使う */
-+	for (i = 1; i <= 4; i++) {
-+		if (part_get_info(desc, i, &info))
-+			continue;
-+		if (info.bootable) {
-+			part = i;
-+			break;
-+		}
 +	}
-+	if (!part || fat_register_device(desc, part))
-+		return;
 +
-+	len = file_fat_read(M7_IMG_NAME, (void *)M7_SCRATCH,
-+			    0x10 + M7_MAX_PAYLOAD);
-+	if (len < 0x10)
-+		return;		/* 無ファイル = M7 なし (正常) */
++	name[6] = sel;
++	len = file_fat_read(name, (void *)M7_SCRATCH, 0x10 + M7_MAX_PAYLOAD);
++	if (len < 0x10) {
++		printf("mcore: no %s\n", name);
++		return;
++	}
 +
 +	size = readl(M7_SCRATCH + 4);
 +	crc = readl(M7_SCRATCH + 8);
 +	if (readl(M7_SCRATCH) != M7_MAGIC ||
 +	    size > M7_MAX_PAYLOAD || (long)(0x10 + size) > len ||
 +	    crc32(0, (void *)(M7_SCRATCH + 0x10), size) != crc) {
-+		printf("spl: %s invalid (len=%ld) — M7 skipped\n",
-+		       M7_IMG_NAME, len);
++		printf("mcore: %s bad\n", name);
 +		return;
 +	}
 +	memcpy((void *)M7_STAGING, (void *)(M7_SCRATCH + 0x10), size);
 +	flush_dcache_range(M7_STAGING, M7_STAGING + size);
-+	printf("spl: %s staged (%u bytes, ver %u)\n",
-+	       M7_IMG_NAME, size, readl(M7_SCRATCH + 12));
++	mcore_loaded = sel;
++	mcore_ver = readl(M7_SCRATCH + 12);
++	printf("mcore: %s v%u%s\n", name, mcore_ver, mcore_tried ? " try" : "");
++}
++
++/* falcon 経路で /chosen に書く (proper 経路では書かない) */
++void spl_mcore_fixup_fdt(void *fdt, int chosen)
++{
++	char v[2] = { 0, 0 };
++
++	if (mcore_loaded) {
++		v[0] = mcore_loaded;
++		fdt_setprop_string(fdt, chosen, "mcore,slot", v);
++		fdt_setprop_u32(fdt, chosen, "mcore,version", mcore_ver);
++	}
++	if (mcore_tried) {
++		v[0] = mcore_tried;
++		fdt_setprop_string(fdt, chosen, "mcore,try", v);
++	}
++}
++
++/* proper 経路 (u-boot.itb) でも M コアは置く。falcon 経路では置き済み */
++void spl_board_prepare_for_boot(void)
++{
++	spl_mcore_stage();
 +}
 +#endif /* CONFIG_SPL_BUILD && CONFIG_SPL_OS_BOOT && CONFIG_SPL_FS_FAT */

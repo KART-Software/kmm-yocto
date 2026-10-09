@@ -220,29 +220,122 @@ rearm は kernel 2.55〜2.63s = 電源 +3.6s)で切ると次回は proper 経路
 触るたびに `fw_setenv boot_os no` + 電源断入で回帰テストする。falcon が健全なほど
 proper 経路は走らず、壊れていても気付かない。
 
-### OTA と SPL/proper ↔ カーネル契約の整合(2026-09-07 確定)
+## A/B とスロット選択
 
-SPL は **MBR の bootable フラグが立った BOOT パーティション**から u-boot.itb と
-falcon.itb を読む(ab-commit がフラグを新スロットへ移す)。したがって try 中
-(`upgrade_available=1`、SPL は proper 経路に落とす)は **旧スロットの u-boot.itb** が
-新スロットのカーネルを起動する。u-boot.itb と falcon.itb を新スロットの BOOT に
-コピーする OTA 手順は、commit 後にしか効かない。
+Linux、M コア(Cortex-M7)、SPL は**互いに独立した 3 つの A/B** で、機体側の `ab` コマンド
+(ab-tools)一つで扱う。PC からは `scripts/ab.sh --host <機体> <対象> <操作> [ファイル]`。
 
-SPL/proper とカーネルの間の契約(`/chosen splash-active` のプロパティ名、logo.bin の
-マジック "LOGO")を変える更新では、この非対称が try 起動を殺す:
-名前の一掃(2026-09-07)で実際に踏んだ(新 SPL + 旧カーネルは falcon 経路で固まりデッドマンで
-proper に落ち、try は旧 u-boot.itb が旧プロパティ名を立てて新カーネルが養子縁組せず
-固まった → bootlimit で旧スロットへ復帰)。手順は次のとおり:
+| 対象 | 置き場所 | 面の選択 | 操作 |
+|---|---|---|---|
+| linux | BOOT p1/p2(falcon.itb・u-boot.itb・logo.bin・extlinux)と root p5/p6 | env の `ab_slot` | try / commit / rollback / status |
+| mcore | p3(ラベル MCORE、旧 RSV)の `mcore-a.img` / `mcore-b.img` | env の `mcore_slot`、1 回きりの試行は `mcore_try` | update / rollback / status |
+| spl | eMMC のパーティション外、A=32KiB / B=4MiB | ROM(A の IVT が不正なときだけ B) | update / rollback / status |
 
-1. `uboot-update <imx-boot>` で SPL を更新(A=新、B=前版)
-2. 旧スロットの BOOT(/boot、ro マウント)へ新 u-boot.itb をコピー
-3. OTA(try → commit)。commit 後は falcon.itb/u-boot.itb とも新スロットのもの
-4. もう一度 OTA して旧スロットも新イメージにする(フォールバック先を整合させる)
+### SPL が面を選ぶ(0002 + 0008)
+
+- **BOOT 領域は env の `ab_slot` で選ぶ**(a → p1、b → p2)。U-Boot 本体の SPL は
+  `CONFIG_SYS_MMCSD_FS_BOOT_PARTITION=-1` で MBR の bootable フラグの面を読むので、0008 で
+  その選択を差し替え口(`spl_mmc_fs_boot_partition()`)にし、0002 がボード側で上書きする。
+  env が読めないときだけ MBR のフラグに従う(`ab` は env と MBR を常に揃える)
+- **ロゴ(logo.bin)だけは面に関係なく p1 から読む**。ロゴは更新しない前提で、env の読み込みを
+  待たずに出すため(06-splash.md)。logo.bin は両方の BOOT に入っているが、使われるのは p1 のもの
+- **試起動も普段と同じ falcon 経路**で、新しい面の falcon.itb を使う。試す経路と確定後に
+  走る経路が同じになる
+- **試行回数は SPL が数える**。`upgrade_available=1` なら起動のたびに `bootcount` を増やして
+  保存し、`bootlimit`(既定 1)を超えたら `ab_slot` を `ab_fallback_slot` に戻して
+  `upgrade_available=0` にする。新しい u-boot.itb を試す以上、proper では数えられない
+  (proper が壊れていたら数える前に止まる)ため。proper 経路に入ったときは proper の
+  bootcount も重ねて数えるが、どちらも戻す方向にしか効かない
+- **起動情報を /chosen でカーネルに伝える**(falcon 経路だけ。proper 経路では書かない)
+
+| /chosen のプロパティ | 内容 |
+|---|---|
+| `ab,slot` | 起動した Linux の面(a / b) |
+| `ab,boot-path` | `falcon` |
+| `ab,try` | Linux の試行中(空のプロパティ) |
+| `mcore,slot` / `mcore,version` | SPL が置いた M コアの面と版 |
+| `mcore,try` | この起動で `mcore_try` により試した面(置けなかった場合も書く) |
+
+これにより、旧方式の「試起動中は旧スロットの u-boot.itb が新スロットのカーネルを起動し、
+新しい u-boot.itb / falcon.itb は commit 後にしか使われない」非対称は無くなった。SPL と
+proper、またはそれらとカーネルの間の取り決め(`/chosen splash-active` のプロパティ名など)を
+変える更新も、`ab linux try` 一回で試せる(2026-09-07 の名前の
+一掃では、この非対称のために 4 段階の手順が要った)。
+
+### M コアの A/B(0007)
+
+- SPL は `mcore_try` があればその面を読む。**読む前に `mcore_try` を消して env に保存する**ので
+  試行は 1 回きりで、試した版が SoC をリセットさせ続けても次の起動は確定面に戻る。
+  無ければ `mcore_slot` の面。どちらも無ければ M コアは起動しない(手で置く運用で、
+  置いていない機体も正常)
+- 起動時の `ab-mcore-confirm.service`(`/chosen/mcore,try` があるときだけ動く)が確かめて
+  `mcore_slot` を書き換える。当面の条件は「試した面を SPL が置けた + remoteproc が attached +
+  rpmsg のチャネルが 30 秒以内にでき、10 秒続く」。満たさなければ再起動して確定面に戻す。
+  最終形は M コアからのキープアライブ(issue #19)
+- `ab mcore rollback` も反対の面を `mcore_try` で 1 回試し、同じ条件で確定する。反対の面に
+  試行に失敗した版が残っていても、確かめずに確定しないため。`ab linux rollback` も同じ理由で、
+  反対の面を試行(`upgrade_available=1`)として起動し、`ab linux commit` で確定する
+- Linux のイメージには M コアのファームを入れない(Linux の更新で M コアが変わらない)。
+  ビルドが deploy する `m7-fw.img` を `ab mcore update` で置く。書いたばかりの eMMC の p3 は空
+
+### SPL の A/B
+
+`ab spl update` は新しい版を A、それまでの版を B に書く(どの瞬間に電源が切れても書きかけの
+面は IVT 不正で ROM に無視されるよう、IVT を最後に書く)。ROM は A の IVT が不正なときだけ
+B を起動し、ソフトから「次は B」とは頼めないので、**自動の判断はしない**。`ab spl status` で
+起動したコピーと A/B のハッシュを見て、必要なら `ab spl rollback`。falcon 経路で起動したか
+どうかで自動判定する案は、デッドマン窓での電源断の後の正常な proper 経路を失敗と取り違えて
+正しい SPL を戻してしまうため採らない。A が壊れて ROM が B で起動したときは、起動時の
+`ab-spl-selfheal.service` が B で A を直す。
+
+### Linux の commit の歯止め
+
+`ab linux commit` は次を満たさないと確定しない(`--force` で飛ばす)。試した面で動いていない
+(元の面に戻った)ときは `--force` でも確定しない。
+
+- 新しい面から falcon 経路で起動し、falcon-rearm が成功して次も falcon 経路
+- 起動完了、失敗ユニット 0、起動順の循環 0
+- weston と kmm が active(kmm は最初の画面表示で READY を通知する)
+- `/data` がマウントされ `kmm.env` がある
+- `/boot` がマウントされ、動いているカーネルのモジュール(`/lib/modules/$(uname -r)`)がある
+  (2026-09-08 の、カーネルとモジュールの版ずれで /boot が読めなかった事故)
+- `ab linux try` の開始時に旧面で記録した状態と比べ、Tailscale がつながっていたなら今もつながっている
+
+実際の画面表示は判定できない(9 月の暗ブートは全ユニットが active でも黒画面だった)。
+
+### 実機確認(2026-10-09、DEBIX)
+
+| 確認したこと | 結果 |
+|---|---|
+| 旧 SPL のまま新しいイメージを入れ、新しい `ab linux commit` | 起動経路の確認だけ飛ばし、他の確認を通って確定 |
+| `ab spl update` で新 SPL へ | env の面で falcon 起動、/chosen に `ab,*` が載る。ローダ全長 0x3cfa8 |
+| `ab mcore update`(空の p3 へ初回) | a 面に書き、次の起動で試して自動確定。CAN 受信 約 145 件/秒 |
+| `ab linux try` → `commit` | 新しい面を falcon 経路で試起動、全確認を通って確定(PC 側 約 2 分) |
+| 試起動を確定せずに再起動 | SPL が試行回数の超過で元の面へ戻す |
+| 試す面の falcon.itb を消して試起動 | SPL が u-boot.itb に落ち、proper 経路で元の面へ戻る |
+| 無限ループだけの M コアのファームを試行 | attached になるが rpmsg ができず、約 30 秒後に再起動して確定面に戻る |
+| `ab mcore rollback` / `ab linux rollback` | 反対の面を試行として起動し、それぞれ自動確定 / commit で確定 |
+| `ab spl rollback` → 再 update | 旧 SPL で起動(M コアは止まる)、新 SPL に戻すと M コアと CAN が復帰 |
+| ロゴを常に p1 から読む SPL で、b 面の試起動 | ロゴは p1、falcon.itb は p2 から読んで falcon 起動。確定せずに再起動すると試行切れで a 面へ |
+| 同じ SPL で boot_os=no(proper 経路) | p1 のロゴを描いてから表示を止め、proper から Linux が起動。デッドマンは yes に戻る |
+
+試起動中の電源断は、この変更では試していない(SPL の bootcount の書き込みは試行時だけで、
+デッドマンの書き込みと同じ env の 2 面化で守られる)。
+
+### 旧 SPL からの移行
+
+- 旧 SPL は MBR の bootable フラグの面から読み、試起動は旧スロットの proper が受け持つ。
+  `ab` は今動いている SPL のコピーに A/B 対応の印(`mcore_try` という文字列)があるかで
+  見分け(env の変数名で、旧 SPL には無い)、旧 SPL では M コアの操作を断り、commit の起動経路の
+  確認を飛ばす。SPL のビルドの区別は、A/B コピーのハッシュで行う(バナーの日付は Yocto の
+  SOURCE_DATE_EPOCH で固定されていて区別に使えない)
+- 確定済み(`ab_slot` と MBR のフラグが一致)の状態なら、いつ SPL を新版にしても安全。
+  順序は `ab spl update` → 以後の `ab linux try` が新方式
 
 U-Boot の A/B 環境変数名(`ab_slot` / `ab_fallback_slot` / `ab_boot` / `ab_bootpart` /
 `ab_mmcdev`)を変えた更新も同類: 変数は eMMC の saved env に永続で、
 uboot-env.bin(既定 env)は焼き直し時にしか適用されない。旧名で稼働中のデバイスは
-新ツール(ab-commit/ab-status は新名を読む)を使う前に `fw_setenv -s` で ab-env.txt
+新ツール(当時の ab-commit/ab-status、今の ab コマンド。どちらも新名を読む)を使う前に `fw_setenv -s` で ab-env.txt
 相当(bootcmd / altbootcmd / ab_* 一式)を saved env に書き込み、旧変数は
 `fw_setenv <旧変数名>`(値なし)で消す。
 

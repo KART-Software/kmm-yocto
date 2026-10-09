@@ -34,6 +34,7 @@
 | 16 | 09-11 | **coldplug を seed 後に**(udev-slim: `systemd-udev-trigger.service.d/after-seed.conf` = After=systemd-random-seed.service) | **3.16s(σ0.05、N=10、3.07〜3.21)** | -0.18s + 二峰根絶 | 二峰(3.19〜3.25 / 3.34〜3.42)の真因 = coldplug(1.20〜2.0s、blkid/モジュールロード)が data-mount(電源断起動で毎回 ext4 recovery)+ seed(load/write + sync)と **同じ eMMC を取り合う**。差は data-mount 完了→seed 完了の区間だけに出て、PID1・ジョブ投入・weston は同じ。#11 で GUI レーンを sysinit から切っても I/O の物理競合は残っていた。直列化で data-mount 1.28→1.39、seed 1.46〜1.56、kmm 起動 1.45〜1.57。coldplug 完了 2.02→2.3s だが GUI レーンは coldplug 非依存(weston は card0 の devtmpfs ノード、kmm は wayland ソケット、rpmsgcan0 は modules-load)で、遅れるのはネット IF 等ノイズ系のみ。タッチ入力は元から無い(TOUCHSCREEN=n、kmm は表示専用、weston は powerkey しか見ていない) |
 | 17 | 09-14 | **falcon-rearm を seed 直後に前倒し**(`DefaultDependencies=no` + After=systemd-random-seed。open-issues #14。GUI 短縮でなくデッドマン窓の短縮) | **3.14s(σ0.05、N=10)= ±0** | GUI ±0 / デッドマン窓 3.3→2.05s | rearm(boot_os=yes 補充)が旧 `After=dev-mmcblk2.device` で coldplug 完了(kernel ~2.3s)待ち = 補充 +3.76s だった。単なる After=seed は `DefaultDependencies=yes` の暗黙 basic.target 順序(coldplug 待ち)で無効(実測 2.62s)。`DefaultDependencies=no` で sysinit 順序を外し seed 直後(kernel 1.5s、電源 +2.55s)に。rearm の eMMC 書きが kmm ロード 1.5s と同時間帯に入るが GUI は 3.14s σ0.05 単峰で非回帰。ordering cycle 0・failed 0。窓の上限は rearm 完了時刻 = 電源 +2.55s(journal 実測)|
 | 18 | 09-14 | **kernel→PID1 短縮: FEC(Ethernet)をモジュール化 + 未使用 probe 削減**(boottune-imx8mp.cfg `CONFIG_FEC=m`、DTS で ecspi2/usdhc2 無効。open-issues #7) | **2.93s(σ0.04、N=10、2.87〜2.97)** | -0.21s | initcall_debug プロファイルで kernel→PID1 0.77s の deferred_probe 0.34s を実測 → 個別 probe で FEC MAC 201ms + GbE PHY 89ms = ~290ms が PID1 前で同期消費(GUI 非依存)。`CONFIG_FEC=m` で coldplug ロードに回し PID1 0.77→0.56s、GUI 3.14→2.95s(−0.19s、主因)。続けて ecspi2(未配線)/usdhc2(SD、Linux マウント用途なし・ROM の SD 起動には無影響)を DTS 無効化し probe 削減で σ 0.06→0.04(GUI は誤差内 −0.02s)。**audio_blk_ctrl 無効化は起動ハング**(AudioMIX 電源/クロック provider、A/B フォールバックで回復)→ 有効のまま。jent(27〜33ms)は CRYPTO_DRBG が force-select で外せず。**残る大物 = 表示 lcdifv3 ~88ms(GUI 必須)は async 化候補だが dark-boot リスクで lcd-validation(カメラ)必須・未実施** |
+| 19 | 10-09 | **SPL ロゴを env より前に p1 から読む**(0005。ロゴは更新しない前提で、A/B の面に関係なく p1 の logo.bin を eMMC init 直後に blit。それまでは falcon.itb ロード後) | GUI は未計測 | **ロゴ -0.26s** | シリアル行時刻で N=5 ずつ: SPL バナー→ロゴ **0.570s→0.311s**(電源 +0.21s のバナー基準で ≈+0.78s→+0.52s)。SPL バナー→カーネルへのジャンプは 0.611s→0.618s で範囲が重なり、SPL 全体は変わらない。ロゴは表示チェーン準備(バナー +0.22s)の 0.09s 後。埋め込めば準備直後に出せるが、8MP の SPL にはその余裕が無い([06-splash.md](06-splash.md)) |
 ## 現在の内訳(2026-09-07、#14 後。シリアル ts + journal 実測。現行 3.17s / 旧 unit 3.71s)
 
 電源 ON からの積算(wall)。SPL 区間はシリアルの行時刻、カーネル以降は kernel 時刻原点
@@ -47,7 +48,7 @@
 | RNG/GIC + eMMC init | 0.04s | 0.04s | |
 | env ロード | 0.14s | 0.14s | 16KB のインポート処理(dcache OFF)が主 |
 | デッドマン env_save | 0.03s | 0.03s | |
-| falcon.itb ロード + ロゴ blit | 0.15s | 0.15s | itb 読みが主。ロゴはファイルから |
+| falcon.itb ロード + ロゴ blit | 0.15s | 0.15s | itb 読みが主。ロゴはその後 #19 で eMMC init 直後へ移した |
 | SPL ジャンプ → カーネル時刻原点 | 0.22s | 0.22s | BL31 + カーネル head(電源 +0.80 → +1.02s) |
 | カーネル → PID1 | 1.13s | 1.13s | 累計 2.15s。最大の単一区間。**現行 0.77s**(falcon の /memory を実 DRAM バンクに直した 8d1bcac、09-08。open-issues #7) |
 | PID1 → /data マウント + seed credit | 0.37s | 0.42s | 累計 ~2.55s。crng init done 1.45〜1.56s(kernel 原点) |

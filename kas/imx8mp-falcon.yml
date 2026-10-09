@@ -3,15 +3,15 @@
 #   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml
 #
 # SPL が FAT の falcon.itb (ATF+Image+DTB) を直接起動して U-Boot proper を飛ばす。
-# OTA 試行 (upgrade_available=1) は FAT の u-boot.itb (proper) へ委譲 — 8MM と同一設計
-# (docs/imx8mm-xpi-bringup/08-falcon.md)。
+# BOOT 領域は env の ab_slot で選び、OTA 試行 (upgrade_available=1) も falcon 経路で
+# 新しい面を起動する。試行回数は SPL が数える (0002 + 0008、docs 04-falcon.md「A/B とスロット選択」)。
 # 注意: falcon SPL は ROM API ロードをやめるため、flash.bin 内の proper は到達不能。
 # UUU リカバリは stock ビルド (このフラグメント無し) の imx-boot を使うこと。
 header:
   version: 14
 local_conf_header:
   falcon: |
-    SRC_URI:append:pn-u-boot-imx = " file://debix-falcon.cfg file://0002-imx8mp-debix-falcon-mode.patch file://0003-imx8mp-debix-spl-usdhc3-fast-pinctrl.patch file://0004-spl-fit-skip-inplace-memcpy.patch"
+    SRC_URI:append:pn-u-boot-imx = " file://debix-falcon.cfg file://0002-imx8mp-debix-falcon-mode.patch file://0003-imx8mp-debix-spl-usdhc3-fast-pinctrl.patch file://0004-spl-fit-skip-inplace-memcpy.patch file://0008-spl-mmc-fs-boot-partition-hook.patch"
     IMAGE_BOOT_FILES:append = " falcon-a.itb;falcon.itb falcon-a.itb falcon-b.itb u-boot.itb args"
     WIC_EXTRA_DEPENDS:append:imx8mp-debix = " falcon-itb:do_deploy"
     IMAGE_INSTALL:append = " falcon-rearm"

@@ -10,7 +10,7 @@
 #
 # The firmware reads autoboot.txt from partition 1 and boots BOOTA (2) or
 # BOOTB (3); OTA writes the inactive slot and flips via `reboot '0 tryboot'`
-# (see scripts/ota-update.sh and ab-commit).
+# (see ab-commit; the RPi5 OTA script lives in the rpi5-final tag).
 # Slot partitions use --fixed-size so dd-based OTA between slots always fits.
 
 part --source rawcopy --sourceparams="file=autoboot.vfat" --ondisk nvme0n1 --fstype=vfat --label AUTOBOOT --active --align 4096 --fixed-size 4M

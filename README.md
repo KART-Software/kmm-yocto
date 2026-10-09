@@ -237,10 +237,16 @@ firmware (`can-gw`, Zephyr) on the M-core links over rpmsg to the kernel's
 - The M firmware lives in a separate repo,
   [data-logger-zephyr](https://github.com/KART-Software/data-logger-zephyr)
   (`apps/can-gw`, branching 8MM/8MP with SoC guards)
-- **Falcon integration**: `m7-fw.img` (8MP) / `m4-fw.img` (8MM) is placed on the
-  boot partition; the SPL verifies it → stages it in DDR, and BL31 starts the
-  M-core's root clock + places it in ITCM + boots it. Linux then attaches to the
-  running M-core via `remoteproc`
+- **Falcon integration**: the SPL verifies the M-core firmware → stages it in DDR,
+  and BL31 starts the M-core's root clock + places it in ITCM + boots it. Linux then
+  attaches to the running M-core via `remoteproc`
+- **The M-core firmware has its own A/B, independent of Linux** (8MP): partition p3
+  holds `mcore-a.img` / `mcore-b.img`, and the env variables `mcore_slot` /
+  `mcore_try` select one. It is placed by hand with `ab mcore update` (see the A/B
+  section below) and is not part of the Linux image, so a Linux update never
+  changes it. A freshly flashed eMMC has none, and Linux runs fine without it.
+  XPI (8MM) still reads `m4-fw.img` from the boot partition (its SPL does not have
+  the A/B change yet)
 - The dev iteration is: drop the ELF into `/lib/firmware` and start it from
   `/sys/class/remoteproc/remoteproc0` (while running, stop → start to swap)
 - kmm selects the interface to read from via `CAN_INTERFACE=rpmsgcan0` in
@@ -285,44 +291,54 @@ touched, deliberately corrupt the A/B IVT from running Linux to drop to SDP
 > SDPV handshake). The UUU path uses a stashed stock imx-boot, exposes eMMC with
 > `ums`, and dd's to it.
 
-### Updating the bootloader (imx-boot)
+### Updating the SPL (imx-boot)
 
-It cannot be delivered by OTA (fixed eMMC location). On a running device use
-`uboot-update <flash.bin>` (A=new / B=previous, read-back verified; on a power
-cut the ROM auto-falls back to the previous version).
+It is not part of the Linux image (fixed eMMC location). Use `ab spl update` (see
+the A/B section below).
 
 ---
 
-## OTA updates (A/B, over SSH)
+## A/B updates (over SSH)
 
-A running device can be updated (whole OS) over SSH (Tailscale OK). `ota-update.sh`
-auto-detects the platform from the image's partition layout and the device's
-`ab-status`:
-
-```bash
-./scripts/ota-update.sh --host <host> --yes \
-  build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2
-```
-
-Flow: write to the inactive slot (rootfs=dd, boot=file copy) → boot **once** on
-trial with `upgrade_available=1` → health check → **commit to make it official**.
-If the new slot fails to boot, U-Boot's `altbootcmd` auto-falls back to the old
-slot (until you commit, the old slot = the safe side). **To bring both slots in
-sync, run twice** (1st = inactive slot; after commit, the 2nd = the other one).
-
-You can also inject a Tailscale auth key into the new slot's boot FAT for initial
-join: `--authkey <keyfile>` (auto-deleted on the device after a successful
-connection).
-
-Device-side commands:
+Linux, the M-core firmware and the SPL each have their own independent A/B. One
+command, `ab`, handles all three on the device, and `scripts/ab.sh` drives it from
+the PC (SSH, Tailscale OK; it copies the file to the device first):
 
 ```bash
-ab-status      # current slot
-ab-commit      # manually commit the trial-booted slot
-uboot-status   # imx-boot A/B boot source and state
-uboot-update   # A/B update of imx-boot
-uboot-rollback # roll imx-boot back to the previous version
+H=192.168.0.7
+./scripts/ab.sh --host $H status
+./scripts/ab.sh --host $H linux try build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2
+./scripts/ab.sh --host $H linux commit
+./scripts/ab.sh --host $H mcore update build/tmp/deploy/images/imx8mp-debix/m7-fw.img
+./scripts/ab.sh --host $H spl update build/tmp/deploy/images/imx8mp-debix/imx-boot
 ```
+
+| Target | Operations | What happens |
+|---|---|---|
+| `linux` | `try` / `commit` / `rollback` / `status` | `try` writes the inactive slot and boots it **once** through the normal falcon path. You check it and run `commit`; rebooting without a commit returns to the old slot, and the SPL also counts the tries and returns after `bootlimit`. `rollback` boots the other slot as a trial in the same way (no writing), so it is committed only after you check it |
+| `mcore` | `update` / `rollback` / `status` | `update` writes the other slot on p3 and tries it once on the next boot. It is committed automatically if the M-core comes up (attached + rpmsg channel), otherwise the device reboots back to the committed slot. `rollback` tries the other slot the same way |
+| `spl` | `update` / `rollback` / `status` | `update` writes the new version to A and keeps the previous one in B. The ROM boots B only if A is invalid, so there is no automatic judgement; check `ab spl status` and use `rollback` if needed |
+
+`update`, `try` and `rollback` reboot by themselves; add `--no-reboot` to wait.
+
+`ab linux commit` refuses unless these hold (`--force` skips them): the device
+booted the new slot through the falcon path and falcon-rearm re-armed it, boot
+finished with no failed units and no ordering cycle, weston and kmm are active,
+`/data` is mounted with `kmm.env`, `/boot` is mounted and the modules for the
+running kernel exist, and Tailscale is connected if it was before the try. It
+cannot tell whether the screen actually shows the GUI; use lcd-validation for that.
+
+**To bring both Linux slots in sync, run `linux try` twice** (the second one
+writes the other slot). `--authkey <keyfile>` on `linux try` injects a Tailscale
+auth key into the new slot's boot FAT for the initial join (deleted on the device
+after a successful connection).
+
+The SPL selects the Linux slot from the env variable `ab_slot` (it falls back to
+the MBR boot flag only when the env cannot be read), so the trial boot already
+runs the new slot's U-Boot proper, BL31 and kernel. Details:
+[04-falcon.md](docs/imx8mp-debix-bringup/04-falcon.md) "A/B and slot selection".
+XPI (8MM) has the same `ab` command, but its SPL still selects by the MBR boot
+flag and has no M-core A/B.
 
 ---
 
@@ -335,7 +351,7 @@ password and allow LAN SSH too.
 It auto-joins with an auth key on first boot:
 
 1. Place `tailscale.authkey` on the boot partition (at flash time, or injected
-   via `ota-update.sh --authkey`)
+   via `scripts/ab.sh ... linux try --authkey`)
 2. `tailscale-autoconnect.service` starts gated on the key's presence
    (`ConditionPathExists`)
 3. It runs `tailscale up --authkey=… --ssh --accept-dns=false`. `--ssh` enables

@@ -1,6 +1,124 @@
+diff --git a/board/freescale/imx8mp_evk/Kconfig b/board/freescale/imx8mp_evk/Kconfig
+index 5e8c9970be5..b8f3464b2a0 100644
+--- a/board/freescale/imx8mp_evk/Kconfig
++++ b/board/freescale/imx8mp_evk/Kconfig
+@@ -13,3 +13,10 @@ config IMX_CONFIG
+ 	default "board/freescale/imx8mp_evk/imximage-8mp-lpddr4.cfg"
+ 
+ endif
++
++config SPL_SPLASH
++	bool "SPL splash on DEBIX (LCDIFv3/DW-HDMI/Samsung PHY direct init)"
++	depends on SPL_OS_BOOT
++	help
++	  DEBIX (i.MX8MP) の HDMI 表示チェーンを SPL で直接初期化し、
++	  手続き描画したロゴを電源投入直後に表示する。
+diff --git a/board/freescale/imx8mp_evk/Makefile b/board/freescale/imx8mp_evk/Makefile
+index 2fb0a6489b4..a5f4ad74255 100644
+--- a/board/freescale/imx8mp_evk/Makefile
++++ b/board/freescale/imx8mp_evk/Makefile
+@@ -9,6 +9,7 @@ obj-$(CONFIG_SPL_BUILD) += spl_m7.o
+ 
+ ifdef CONFIG_SPL_BUILD
+ obj-y += spl.o
++obj-$(CONFIG_SPL_SPLASH) += spl_splash.o
+ ifdef CONFIG_IMX8M_LPDDR4_FREQ0_3200MTS
+ obj-y += lpddr4_timing_ndm.o
+ else
+diff --git a/board/freescale/imx8mp_evk/spl.c b/board/freescale/imx8mp_evk/spl.c
+index 3dca51f42cc..1a04720459e 100644
+--- a/board/freescale/imx8mp_evk/spl.c
++++ b/board/freescale/imx8mp_evk/spl.c
+@@ -28,6 +28,7 @@
+ #include <mmc.h>
+ #include <asm/arch/ddr.h>
+ #include <asm/sections.h>
++#include "spl_splash.h"
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -186,6 +187,10 @@ void board_init_f(ulong dummy)
+ 	/* DDR initialization */
+ 	spl_dram_init();
+ 
++	/* splash: DDR が使えた瞬間に表示チェーンを立ち上げる。
++	 * FIT ロードや env 読みより先 = 電源投入から最速でロゴを出す */
++	spl_splash_prepare();
++
+ 	board_init_r(NULL, 0);
+ }
+ 
+@@ -209,6 +214,7 @@ void board_init_f(ulong dummy)
+ #include <image.h>
+ #include <cpu_func.h>
+ #include <linux/libfdt.h>
++#include <linux/sizes.h>
+ 
+ #define FALCON_SHIM_ADDR	0x40200000UL	/* ATF PLAT_NS_IMAGE_OFFSET */
+ #define FALCON_KERNEL_ADDR	0x40400000UL	/* falcon.its の load/entry と一致必須 */
+@@ -255,6 +261,8 @@ int spl_mmc_fs_boot_partition(struct mmc *mmc)
+ 	/* 呼ばれるたびに数えないよう、1 回の起動で決めるのは 1 度だけ */
+ 	if (ab_part)
+ 		return ab_part;
++	/* ロゴは env を待たずに p1 から (spl_splash.c のロゴの節) */
++	spl_splash_try_logo(mmc_get_blk_desc(mmc));
+ 	if (!spl_ab_env_ready()) {
+ 		/* 判断材料が無い: ab コマンドが env と揃えている MBR に従う */
+ 		ab_part = spl_mmc_first_bootable_partition(mmc);
+@@ -371,14 +379,46 @@ void spl_perform_fixups(struct spl_image_info *spl_image)
+ 	 * u-boot proper (u-boot.itb、os="u-boot") は素通しする。falcon.itb の
+ 	 * atf ノードは os 無し (8MM 実測で os=255)。
+ 	 */
+-	if (spl_image->os == IH_OS_U_BOOT || !fdt)
++	if (spl_image->os == IH_OS_U_BOOT || !fdt) {
++		/* proper は FB 直上へ再配置し、prop も /memory 隠しも
++		 * 渡せない経路 — 表示を止めてから渡す (関数コメント参照) */
++		spl_splash_quiesce();
+ 		return;
++	}
+ 
+ 	/* /memory を実 DRAM 構成で更新 (bootargs は DTB に焼き込み済み) */
+ 	spl_fixup_fdt(fdt);
+ 	flush_dcache_range((ulong)fdt,
+ 			   (ulong)fdt + fdt_totalsize(fdt) + 64);
+ 
++	/* スプラッシュ点灯中: カーネルへ通知 (seamless takeover パッチの
++	 * 発動条件)。/memory は SPL の bi_dram (dram_init_banksize、3GB + 1GB) で
++	 * 書き直す。以前は bank0 を 2GB-2MB / bank1 を 2GB と決め打ちしていて
++	 * 存在しない上位 1GB をカーネルに見せていた (2026-09-08)。FB の 2MB は
++	 * dts の reserved-memory (splash-fb@bfe00000, no-map) が隠す */
++	if (spl_splash_active()) {
++		int off;
++
++		dram_init_banksize();
++		fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
++		off = fdt_path_offset(fdt, "/chosen");
++		if (off >= 0)
++			fdt_setprop_empty(fdt, off, "splash-active");
++		off = fdt_path_offset(fdt, "/memory@40000000");
++		if (off < 0)
++			off = fdt_subnode_offset(fdt, 0, "memory");
++		if (off >= 0) {
++			/* 実 DRAM 構成 (PHYS_SDRAM*: 3GB + 1GB)。FB は dts の reserved-memory が隠す */
++			u64 regs[4] = {
++				cpu_to_fdt64(gd->bd->bi_dram[0].start),
++				cpu_to_fdt64(gd->bd->bi_dram[0].size),
++				cpu_to_fdt64(gd->bd->bi_dram[1].start),
++				cpu_to_fdt64(gd->bd->bi_dram[1].size),
++			};
++			fdt_setprop(fdt, off, "reg", regs, sizeof(regs));
++		}
++	}
++
+ 	/* M コアを置いてから (FAT を M コアの領域へ切り替える)、起動情報を書く */
+ 	spl_mcore_stage();
+ 	ab_fixup_fdt(fdt);
+diff --git a/board/freescale/imx8mp_evk/spl_splash.c b/board/freescale/imx8mp_evk/spl_splash.c
+new file mode 100644
+index 00000000000..e4974bec6db
 --- /dev/null
 +++ b/board/freescale/imx8mp_evk/spl_splash.c
-@@ -0,0 +1,392 @@
+@@ -0,0 +1,394 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SPL splash: DEBIX (i.MX8MP) の電源投入直後スプラッシュ。
@@ -38,9 +156,7 @@
 +#include <linux/kernel.h>
 +#include <linux/types.h>
 +#include "spl_splash.h"
-+/* ロゴは一旦外している: SPL サイズが ROM のブートイメージ上限 (OCRAM
-+ * バッファ) を超えると DDR FW 末尾が切られ Training FAILED になるため。
-+ * 復帰は RLE 圧縮ロゴで行う (docs 予定)。 */
++/* ロゴは SPL に埋め込まず、p1 の logo.bin から読む (下のロゴの節) */
 +
 +/* FB は 0xBFE00000 (bank0 3GB の中ほど)。カーネル側は dts の reserved-memory
 + * splash-fb@bfe00000 (2MB, no-map) が隠す。800x480 XRGB8888 = 1.5MB */
@@ -329,12 +445,16 @@
 + * BootROM の OCRAM 上限 (0x3c7e8=OK / 0x3e1c8=NG を実測) を超えて DDR FW
 + * 末尾が切られ、Training FAILED で文鎮化する。そこでロゴは boot パーティ
 + * ションの logo.bin (falcon-itb が spl_splash_logo.h から生成、
-+ * ヘッダ: "LOGO" w h x y 各 LE32 + 1bit マスク) とし、falcon の FAT が
-+ * 使える時点で読んで blit する。6.5KB なので表示 DMA 稼働中でも ~2ms。
-+ * ファイルが無ければ黒背景のまま (安全に何もしない)。 */
++ * ヘッダ: "LOGO" w h x y 各 LE32 + 1bit マスク) とする。
++ * ロゴは更新しないので、A/B の面に関係なく常に p1 (BOOTA) から読む。
++ * eMMC の初期化直後、env の読み込み (~0.14s) と falcon.itb のロードより
++ * 前に呼ばれ、FAT 層へ直接 p1 を登録する。spl_fat.c の登録済みフラグは
++ * 立てないので、この後 falcon は選んだ面を登録し直す。
++ * 6.5KB なので表示 DMA 稼働中でも ~2ms。p1 が読めない・ファイルが無い
++ * ときは黒背景のまま (安全に何もしない)。 */
 +#define LOGO_SCRATCH	0x48100000UL
 +
-+void spl_splash_try_logo(void)
++void spl_splash_try_logo(struct blk_desc *desc)
 +{
 +	u8 *b = (u8 *)LOGO_SCRATCH;
 +	u32 *hdr = (u32 *)LOGO_SCRATCH;
@@ -344,7 +464,7 @@
 +	const u8 *bits;
 +	int row, col;
 +
-+	if (!splash_ok)
++	if (!splash_ok || !desc || fat_register_device(desc, 1))
 +		return;
 +	if (fat_read_file("logo.bin", b, 0, 64 * 1024, &got) || got < 20)
 +		return;
@@ -367,7 +487,7 @@
 +		}
 +	}
 +	flush_dcache_range(SPLASH_FB_ADDR, SPLASH_FB_ADDR + SPLASH_FB_SIZE);
-+	printf("splash: logo blit (file)\n");
++	printf("splash: logo p1\n");
 +}
 +
 +/* falcon (Linux 直行) へは表示を稼働させたまま渡す — カーネル側の
@@ -393,9 +513,12 @@
 +	splash_ok = false;
 +	printf("splash: off (proper handoff)\n");
 +}
+diff --git a/board/freescale/imx8mp_evk/spl_splash.h b/board/freescale/imx8mp_evk/spl_splash.h
+new file mode 100644
+index 00000000000..f13f0ef349e
 --- /dev/null
 +++ b/board/freescale/imx8mp_evk/spl_splash.h
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,23 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * SPL splash (DEBIX / i.MX8MP): 電源投入直後スプラッシュ。
@@ -404,120 +527,18 @@
 +#ifndef __SPL_SPLASH_H
 +#define __SPL_SPLASH_H
 +
++struct blk_desc;
++
 +#ifdef CONFIG_SPL_SPLASH
 +void spl_splash_prepare(void);
 +bool spl_splash_active(void);
-+void spl_splash_try_logo(void);
++void spl_splash_try_logo(struct blk_desc *desc);
 +void spl_splash_quiesce(void);
 +#else
 +static inline void spl_splash_prepare(void) {}
 +static inline bool spl_splash_active(void) { return false; }
-+static inline void spl_splash_try_logo(void) {}
++static inline void spl_splash_try_logo(struct blk_desc *desc) {}
 +static inline void spl_splash_quiesce(void) {}
 +#endif
 +
 +#endif
---- a/board/freescale/imx8mp_evk/Kconfig
-+++ b/board/freescale/imx8mp_evk/Kconfig
-@@ -13,3 +13,10 @@
- 	default "board/freescale/imx8mp_evk/imximage-8mp-lpddr4.cfg"
- 
- endif
-+
-+config SPL_SPLASH
-+	bool "SPL splash on DEBIX (LCDIFv3/DW-HDMI/Samsung PHY direct init)"
-+	depends on SPL_OS_BOOT
-+	help
-+	  DEBIX (i.MX8MP) の HDMI 表示チェーンを SPL で直接初期化し、
-+	  手続き描画したロゴを電源投入直後に表示する。
---- a/board/freescale/imx8mp_evk/Makefile
-+++ b/board/freescale/imx8mp_evk/Makefile
-@@ -8,6 +8,7 @@
- 
- ifdef CONFIG_SPL_BUILD
- obj-y += spl.o
-+obj-$(CONFIG_SPL_SPLASH) += spl_splash.o
- ifdef CONFIG_IMX8M_LPDDR4_FREQ0_3200MTS
- obj-y += lpddr4_timing_ndm.o
- else
---- a/board/freescale/imx8mp_evk/spl.c
-+++ b/board/freescale/imx8mp_evk/spl.c
-@@ -28,6 +28,7 @@
- #include <mmc.h>
- #include <asm/arch/ddr.h>
- #include <asm/sections.h>
-+#include "spl_splash.h"
- 
- DECLARE_GLOBAL_DATA_PTR;
- 
-@@ -186,6 +187,10 @@
- 	/* DDR initialization */
- 	spl_dram_init();
- 
-+	/* splash: DDR が使えた瞬間に表示チェーンを立ち上げる。
-+	 * FIT ロードや env 読みより先 = 電源投入から最速でロゴを出す */
-+	spl_splash_prepare();
-+
- 	board_init_r(NULL, 0);
- }
- 
-@@ -203,6 +208,7 @@
- #include <image.h>
- #include <cpu_func.h>
- #include <linux/libfdt.h>
-+#include <linux/sizes.h>
- 
- #define FALCON_SHIM_ADDR	0x40200000UL	/* ATF PLAT_NS_IMAGE_OFFSET */
- #define FALCON_KERNEL_ADDR	0x40400000UL	/* falcon.its の load/entry と一致必須 */
-@@ -278,14 +284,50 @@
- 	 * u-boot proper (u-boot.itb、os="u-boot") は素通しする。falcon.itb の
- 	 * atf ノードは os 無し (8MM 実測で os=255)。
- 	 */
--	if (spl_image->os == IH_OS_U_BOOT || !fdt)
-+	if (spl_image->os == IH_OS_U_BOOT || !fdt) {
-+		/* proper は FB 直上へ再配置し、prop も /memory 隠しも
-+		 * 渡せない経路 — 表示を止めてから渡す (関数コメント参照) */
-+		spl_splash_quiesce();
- 		return;
-+	}
- 
- 	/* /memory を実 DRAM 構成で更新 (bootargs は DTB に焼き込み済み) */
- 	spl_fixup_fdt(fdt);
- 	flush_dcache_range((ulong)fdt,
- 			   (ulong)fdt + fdt_totalsize(fdt) + 64);
- 
-+	/* スプラッシュ点灯中: カーネルへ通知 (seamless takeover パッチの
-+	 * 発動条件)。/memory は SPL の bi_dram (dram_init_banksize、3GB + 1GB) で
-+	 * 書き直す。以前は bank0 を 2GB-2MB / bank1 を 2GB と決め打ちしていて
-+	 * 存在しない上位 1GB をカーネルに見せていた (2026-09-08)。FB の 2MB は
-+	 * dts の reserved-memory (splash-fb@bfe00000, no-map) が隠す */
-+	if (spl_splash_active()) {
-+		int off;
-+
-+		dram_init_banksize();
-+		fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
-+		off = fdt_path_offset(fdt, "/chosen");
-+		if (off >= 0)
-+			fdt_setprop_empty(fdt, off, "splash-active");
-+		off = fdt_path_offset(fdt, "/memory@40000000");
-+		if (off < 0)
-+			off = fdt_subnode_offset(fdt, 0, "memory");
-+		if (off >= 0) {
-+			/* 実 DRAM 構成 (PHYS_SDRAM*: 3GB + 1GB)。FB は dts の reserved-memory が隠す */
-+			u64 regs[4] = {
-+				cpu_to_fdt64(gd->bd->bi_dram[0].start),
-+				cpu_to_fdt64(gd->bd->bi_dram[0].size),
-+				cpu_to_fdt64(gd->bd->bi_dram[1].start),
-+				cpu_to_fdt64(gd->bd->bi_dram[1].size),
-+			};
-+			fdt_setprop(fdt, off, "reg", regs, sizeof(regs));
-+		}
-+	}
-+
-+	/* ロゴはここ (falcon FIT ロード後 = FAT 登録済み) でファイルから blit。
-+	 * 表示は止めずに渡す (seamless takeover、spl_splash.c 冒頭参照) */
-+	spl_splash_try_logo();
-+
- 	emit_bl33_shim(FALCON_SHIM_ADDR, (ulong)fdt,
- 			    FALCON_KERNEL_ADDR);
- 

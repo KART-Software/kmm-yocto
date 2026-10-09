@@ -22,6 +22,7 @@ SRC_URI = "file://m4-fw.bin"
 # 8MP SPL スプラッシュのロゴ (単一ソースは u-boot 側の spl_splash_logo.h)。
 # ロゴを SPL に埋め込むと ROM のブートイメージ上限 (docs 04-falcon.md ⑤) を
 # 超えるため、boot パーティションの logo.bin として配りファイル読みする。
+# SPL は A/B の面に関係なく p1 の logo.bin を読む (ロゴは更新しない前提)。
 # ヘッダ: "LOGO" + w/h/x/y (各 LE32) + 1bit マスク。
 FILESEXTRAPATHS:prepend := "${THISDIR}/../u-boot/files:"
 SRC_URI:append:imx8mp-debix = " file://spl_splash_logo.h"
@@ -48,7 +49,8 @@ FALCON_M4 ?= ""
 # 8MP (DEBIX) の Cortex-M7 版: m7-fw.bin (data-logger-zephyr apps/can-gw の
 # imx8mp_evk/mimx8ml8/m7 ビルド、ITCM リンク) を m7-fw.img (magic M7FW) に包む。
 # SPL パッチ 0007-imx8mp-debix-spl-m7-file-read / BL31 パッチ 0001-imx8mp-bl31-start-m7
-# とペア。kas/imx8mp-m7.yml が "1" にする。
+# とペア。kas/imx8mp-m7.yml が "1" にする。m7-fw.img は deploy するだけで Linux の
+# イメージには入れない。M コア専用パーティション p3 へは `ab mcore update` で手で置く。
 FALCON_M7 ?= ""
 SRC_URI:append:imx8mp-debix = " file://m7-fw.bin"
 

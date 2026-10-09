@@ -1,7 +1,7 @@
 #!/bin/sh
 # Auto-connect to Tailscale on first boot using an auth key injected onto the
 # boot partition. Injection paths: flash.sh (inject_tailscale_key, RPi5),
-# ota-update.sh --authkey (inactive-slot update), or manual placement per
+# scripts/ab.sh ... linux try --authkey (inactive-slot update), or manual placement per
 # docs/imx8mm-xpi-bringup/06-emmc-flash.md (netboot dd / U-Boot ums).
 # tailscaled state persists on /data/tailscale, so the key is only needed
 # once: it is deleted after a successful login, and the service's
