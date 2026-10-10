@@ -2,6 +2,7 @@
 
 Polyhex **DEBIX Infinity**(NXP i.MX 8M Plus Quad Lite、EMB-IMX8MP-06-D4E32)への製品移行の記録。
 形式は [../imx8mm-xpi-bringup/](../imx8mm-xpi-bringup/) に倣う。全体像は [../../README.ja.md](../../README.ja.md)。
+ビルド・書き込み・更新などの操作の手順は [../usage/](../usage/README.md) にまとめてある。
 
 ## ハード構成図
 

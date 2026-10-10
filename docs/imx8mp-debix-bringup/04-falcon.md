@@ -139,9 +139,12 @@ memcpy をスキップ**(mainline の後年修正と同型)。ロード合計 0.
 
 `spl_start_uboot()` の判定:
 
-1. `upgrade_available=1`(OTA 試行中)→ proper(bootcount/altbootcmd に任せる。8MM と同じ)
+1. env が読めなければ proper
 2. `boot_os` が **yes でなければ proper**(デフォルト安全側)
 3. falcon 発動時は **ジャンプ前に `boot_os=no` を書き戻す**(SPL_SAVEENV + SPL_MMC_WRITE)
+
+OTA の試行中(`upgrade_available=1`)も同じ判定で、試す経路と確定後に走る経路が同じになる
+(下の「A/B とスロット選択」)。8MM の SPL は試行中を proper に回し、proper の bootcount に任せる。
 
 falcon 経路がどこでクラッシュしても次回は必ず proper に落ちるため、
 **ブートローダ実験でロックアウトしない**(今回のデバッグ中、毎クラッシュ後に
@@ -160,7 +163,8 @@ kas/imx8mp-falcon.yml が IMAGE_INSTALL)が担う: 起動早期(~3s、basic 付�
   (proper のみ注入、実機確認済み)
 - 実行を GUI(kmm READY)まで遅らせない — falcon 経路の健全性はカーネルが
   userspace に到達した時点で証明済み(GUI 故障は proper でも同じに壊れる)
-- OTA 試行中(ua=1)は SPL が boot_os を見ずに proper へ行くため干渉なし
+- OTA 試行中も falcon 経路で起動し、同じ再アームで次の起動も falcon になる。試行回数は SPL が
+  数えるので、再アームとは干渉しない
 
 手動アームなし 2 連続コールドブートで自律サイクル(falcon → 補充 → falcon)を
 実機確認済み(2026-09-02)。

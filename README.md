@@ -41,7 +41,7 @@ Shared design principles:
 | Boot | **Falcon Mode** (SPL boots `falcon.itb` = ATF+kernel+DTB directly, skipping U-Boot proper) + SPL splash (zero-blackout handoff) |
 | Dead-man | falcon fires only when `boot_os=yes`; the SPL writes it back to `no` when it fires → a crash or power cut auto-falls back to proper next time. On Linux, `falcon-rearm.service` replenishes `yes` |
 | CAN | The CAN controller is **handed to the Cortex-M (M4/M7)**; `can-gw` (Zephyr) on the M-core links over rpmsg to the `rpmsg-can` kernel module and exposes **`rpmsgcan0`** (SocketCAN) |
-| A/B OTA | Write to the inactive slot over SSH (Tailscale OK) → boot once on trial → commit. On failure U-Boot auto-falls back to the old slot |
+| A/B OTA | Linux, the M-core firmware and the SPL each have their own A/B, all handled by the `ab` command. Linux: write the inactive slot over SSH (Tailscale OK) → boot once on trial → commit. If the trial fails, the SPL (8MP) or U-Boot (8MM) falls back to the old slot |
 | GUI | Wayland + Weston 13 (poky, kiosk) + C++/Qt6 Widgets (`kmm`). 8MP uses no GPU (pixman compositing) |
 | init / net | systemd / systemd-networkd, read-only rootfs (persistence on `/data`) |
 | Remote | Tailscale SSH (the only channel on prod) |
@@ -56,7 +56,7 @@ Shared design principles:
 |------|-------|-------|
 | SoC | i.MX8M Plus **Quad Lite** A53 + Cortex-M7 | VPU/NPU are fused out, disabled in DTS |
 | RAM | 4GB LPDDR4 (Micron MT53E1G32D2NP) | Custom timing table (Model A 3732MTS + 16Gb die-density port) |
-| eMMC | `/dev/mmcblk2` | A/B: imx-boot A=32KiB / B=4MiB, env 7MiB, BOOTA/B · rootA/B · data |
+| eMMC | `/dev/mmcblk2` | A/B: imx-boot A=32KiB / B=4MiB, env 7MiB, BOOTA/B (p1/p2) · MCORE (p3, M-core firmware A/B) · rootA/B (p5/p6) · data (p7) |
 | Display | HDMI (lcdif3 → Samsung HDMI PHY → DW-HDMI) | TFP401 LCD (800x480@33.75MHz) gets EDID via firmware + `drm.edid_firmware` |
 | CAN | FlexCAN1 owned by M7 → `rpmsgcan0`. FlexCAN2 = `can0` (unused spare) | J2 Pin31/33 → isolated transceiver |
 | Boot mode | DIP (001=UUU / 010=eMMC / 011=SD) | bit2/bit3 driven remotely by a USB relay (`debix-boot-switch`) |
@@ -86,116 +86,50 @@ skills.
 
 ---
 
-## Prerequisites
+## Getting started
 
-- **Ubuntu 22.04 or newer** (WSL2 included), Docker, kas-container
-- Enough disk space (50GB+ recommended for the first build)
-- **NXP `uuu`** (mfgtools) for flashing hardware. Used for first-time flashing
-  over SDP and for bootloader recovery
-- **Agreement to the NXP EULA** is required (the DDR-training FW in `imx-boot`
-  = firmware-imx is distributed under EULA). `ACCEPT_FSL_EULA = "1"` is already
-  set in `kas/imx8mm.yml` / `kas/imx8mp.yml`
+Step-by-step guides are in [docs/usage/](docs/usage/README.md) (written in Japanese),
+in the order you need them:
 
-```bash
-sudo apt install -y docker.io e2fsprogs uuu    # uuu from apt or an mfgtools release
-pipx install kas                               # or: uv tool install kas
-sudo usermod -aG docker,dialout,plugdev $USER  # re-login required
-```
+| Step | Guide |
+|---|---|
+| Set up the PC and build images | [01-build.md](docs/usage/01-build.md) |
+| First flash of a new board's eMMC | [02-first-flash.md](docs/usage/02-first-flash.md) |
+| Per-device setup: `kmm.env`, M-core firmware, Tailscale | [03-provisioning.md](docs/usage/03-provisioning.md) |
+| A/B updates of Linux, the M-core firmware and the SPL | [04-ab-updates.md](docs/usage/04-ab-updates.md) |
+| App (`kmm`) updates and quick iteration | [05-app.md](docs/usage/05-app.md) |
+| M-core firmware: try and install | [06-mcore-firmware.md](docs/usage/06-mcore-firmware.md) |
+| Bench: power, boot mode, serial, camera | [07-bench.md](docs/usage/07-bench.md) |
+| When a device does not boot | [08-recovery.md](docs/usage/08-recovery.md) |
 
----
-
-## Build
-
-### build.sh (development images)
-
-```bash
-./scripts/build.sh imx8mp --emmc            # DEBIX (i.MX8MP) dev image, eMMC A/B ← latest
-./scripts/build.sh imx8mp --emmc --falcon   # DEBIX product boot: Falcon Mode + SPL splash (no M7)
-./scripts/build.sh imx8mp                    # DEBIX single slot (for a carried-in SD)
-./scripts/build.sh imx8mm --emmc            # XPI-iMX8MM eMMC A/B
-./scripts/build.sh imx8mm --emmc --falcon   # XPI product boot: Falcon + splash (no M4)
-./scripts/build.sh imx8mm --netboot         # XPI TFTP/NFS netboot (DTS/driver trials)
-./scripts/build.sh imx8mm                    # XPI plain EVK SD carry-in (single slot)
-```
-
-`imx8mm`/`imx8mp` are development images (with debug-tweaks). `--emmc` selects
-the eMMC A/B WKS (without it you get the machine-default single slot). `--falcon`
-adds Falcon Mode + the SPL splash (the product boot path), so a fresh clone can
-build a bootable product image in **one command**. The Cortex-M CAN gateway
-(M7/M4) is a separate overlay — see below.
-
-> **Layer versions are pinned for reproducibility.** `kas/imx8mp-dev.lock.yml`
-> and `kas/imx8mm-dev.lock.yml` lock poky / meta-openembedded / meta-qt6 /
-> meta-freescale to exact commits; kas auto-applies the lock that sits next to
-> the matching config, so a fresh clone builds the same tree that was tested.
-> To re-pin after an intentional bump: `kas-container dump --lock --update
-> <composition> > /tmp/x && mv /tmp/x kas/<config>.lock.yml` (write elsewhere
-> first — the output name must not collide with the lock kas auto-loads).
-
-### Cortex-M overlay + full manual composition (direct kas invocation)
-
-`build.sh --falcon` covers Falcon + splash. The Cortex-M CAN gateway
-(`rpmsgcan0`) is kept as a **separate overlay**; compose the full stack by
-invoking kas directly (`:` merges YAMLs left to right —
-**overlay order = application order**). **Export the cache variables first**:
+Building the DEBIX product composition and updating a running device looks like this
+(export the cache variables first, or bitbake cannot write its caches):
 
 ```bash
 export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
-
-# DEBIX (8MP): dev + eMMC A/B + Falcon + splash + M7 CAN
 kas-container build \
   kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml:kas/imx8mp-m7.yml
-
-# XPI (8MM) production (Tailscale SSH only, no debug-tweaks) + eMMC A/B + Falcon + splash + M4 CAN
-kas-container build \
-  kas/imx8mm-prod.yml:kas/imx8mm-emmc-ab.yml:kas/imx8mm-falcon.yml:kas/imx8mm-splash.yml:kas/imx8mm-m4.yml
+./scripts/ab.sh --host <device> linux try build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2
+./scripts/ab.sh --host <device> linux commit
 ```
 
-> Without exporting `DL_DIR`/`SSTATE_DIR`, `base.yml`'s weak defaults resolve
-> against the container's `TOPDIR=/build`, and bitbake aborts with
-> `Failed to create a file in SSTATE_DIR: Permission denied`. The caches are
-> placed as siblings of `build/`, so `rm -rf build` does not remove them.
-> (kas 5.x forwards the in-project DL_DIR as `/work/downloads`.)
-
-> **8MP has no prod variant equivalent to `imx8mm-prod.yml` yet.** The bench
-> runs on `imx8mp-dev.yml` (debug-tweaks). Creating a debug-tweaks-off variant
-> for shipping is future work.
-
-Artifacts land in `build/tmp/deploy/images/{imx8mp-debix,imx8mm-xpi}/*.wic.bz2`.
-
-### kas composition files
-
-| File | Type | Contents |
-|------|------|----------|
-| `base.yml` | base | upstream repos, distro features, DL/SSTATE, rm_work |
-| `imx8mp.yml` / `imx8mm.yml` | machine | machine + meta-freescale + NXP EULA |
-| `imx8mp-dev.yml` | combo | base + imx8mp + debug-tweaks |
-| `imx8mm-dev.yml` / `imx8mm-prod.yml` | combo | base + imx8mm (prod has no debug-tweaks) |
-| `imx-emmc-ab.yml` | fragment | eMMC A/B WKS selection **shared by 8MM/8MP** (the WKS itself is the machine's `EMMC_AB_WKS`) |
-| `imx8mm-emmc-ab.yml` | fragment | the older 8MM-only A/B WKS |
-| `imx8mp-falcon.yml` / `imx8mm-falcon.yml` | overlay | SPL-direct kernel boot (`falcon.itb`) |
-| `imx8mp-splash.yml` / `imx8mm-splash.yml` | overlay | SPL splash + seamless handoff (**place after falcon**) |
-| `imx8mp-m7.yml` / `imx8mm-m4.yml` | overlay | M-core CAN gateway (`rpmsgcan0`) + falcon integration (BL31 starts the M-core) |
-| `imx8mm-netboot.yml` | overlay | TFTP/NFS root (for bring-up) |
-| `rpi5*.yml` / `boot-*.yml` / `qemu*.yml` / `sdk.yml` | legacy/aux | RPi5 · QEMU · Qt SDK |
-
-The app (the C++ kart-machine-manager) is **always included in the image**. The
-recipe (`meta-kart/recipes-app/kmm/kmm_2.0.bb`) fetches it from GitHub at a
-pinned `SRCREV` and cross-builds it. Updating the app = bump `SRCREV` and
-rebuild.
-
-> **`.env` (secret config) is not baked into images.** `kmm.service` reads
-> `/data/kmm.env` (a persistent partition that survives OTA). Place it once per
-> device: `scp .env root@<host>:/data/kmm.env`. On M-core builds, include
-> `CAN_INTERFACE=rpmsgcan0`.
+- **Remote access**: prod images are reachable only over Tailscale SSH (the root
+  password is locked). Dev images (debug-tweaks) allow LAN SSH as root with an empty
+  password. The serial console logs in as root on every image, prod included:
+  anyone with physical access to the board is treated as root by design
+- **Secrets are not baked into images**: `kmm.service` reads `/data/kmm.env`, a
+  persistent partition that survives updates. Place it once per device
+- **8MP has no prod variant yet**: the bench runs the dev composition (debug-tweaks)
 
 ---
 
 ## How boot works (Falcon Mode)
 
 The relay is **BootROM → SPL (Falcon) → ATF/BL31 (+ M-core start) → kernel →
-systemd/weston/kmm**. U-Boot proper appears only during an OTA trial and during
-recovery.
+systemd/weston/kmm**. U-Boot proper appears only during recovery (the dead-man
+fallback, or a slot whose `falcon.itb` cannot be loaded). On the 8MP an OTA trial
+also boots through falcon; on the 8MM (older SPL) the trial goes through U-Boot
+proper.
 
 - **Falcon Mode**: the SPL reads `falcon.itb` (ATF+kernel+DTB) straight from the
   eMMC FAT and jumps to it. On the 8MP, BL31 starts the M7 before entering the
@@ -208,13 +142,17 @@ recovery.
   boot is proven successful (moved to right after seed, dead-man window ≈2.05s).
   A crash or a power cut during the dead-man window auto-recovers to proper next
   boot
-- **A/B is two-layered**:
-  - **rootfs/boot A/B**: BOOTA/B (p1/p2) · rootA/B (p5/p6) · data (p7, shared).
-    OTA writes the inactive slot and boots once on trial with
-    `upgrade_available=1`
-  - **U-Boot (imx-boot) A/B**: the BootROM auto-falls back to slot B when slot
-    A's IVT is invalid (8MM=SIT table, 8MP=fuse default offset). Managed by the
-    `uboot-*` tools
+- **Three independent A/B sets**, all handled by the `ab` command
+  ([04-ab-updates.md](docs/usage/04-ab-updates.md)):
+  - **Linux**: BOOTA/B (p1/p2) · rootA/B (p5/p6) · data (p7, shared). An update
+    writes the inactive slot and boots it once on trial with
+    `upgrade_available=1`. On the 8MP the SPL picks the slot from the env and
+    counts the tries
+  - **M-core firmware (8MP)**: `mcore-a.img` / `mcore-b.img` on p3 (MCORE),
+    independent of Linux
+  - **SPL (imx-boot)**: A/B copies outside the partitions. The BootROM boots
+    slot B only when slot A's IVT is invalid (8MM=SIT table, 8MP=fuse default
+    offset). Managed with `ab spl`
 - **Redundant env (8MP)**: env is kept in two copies (0x700000 / 0x704000) and
   saves always go to the unused copy. Even a power cut during a dead-man write
   leaves the other copy intact, so A/B state is unharmed
@@ -242,13 +180,14 @@ firmware (`can-gw`, Zephyr) on the M-core links over rpmsg to the kernel's
   attaches to the running M-core via `remoteproc`
 - **The M-core firmware has its own A/B, independent of Linux** (8MP): partition p3
   holds `mcore-a.img` / `mcore-b.img`, and the env variables `mcore_slot` /
-  `mcore_try` select one. It is placed by hand with `ab mcore update` (see the A/B
-  section below) and is not part of the Linux image, so a Linux update never
-  changes it. A freshly flashed eMMC has none, and Linux runs fine without it.
+  `mcore_try` select one. It is placed by hand with `ab mcore update` and is not
+  part of the Linux image, so a Linux update never changes it. A freshly flashed
+  eMMC has none, and Linux runs fine without it.
   XPI (8MM) still reads `m4-fw.img` from the boot partition (its SPL does not have
   the A/B change yet)
-- The dev iteration is: drop the ELF into `/lib/firmware` and start it from
-  `/sys/class/remoteproc/remoteproc0` (while running, stop → start to swap)
+- To try a new firmware (back on reboot) or install it, use data-logger-zephyr's
+  `scripts/try.sh` / `scripts/install.sh`
+  ([06-mcore-firmware.md](docs/usage/06-mcore-firmware.md))
 - kmm selects the interface to read from via `CAN_INTERFACE=rpmsgcan0` in
   `/data/kmm.env`
 - The mechanics and rules (clock routing, RDC/CCGR, MU read/ACK) are in
@@ -260,148 +199,6 @@ firmware (`can-gw`, Zephyr) on the M-core links over rpmsg to the kernel's
 candump rpmsgcan0
 cansend rpmsgcan0 123#DEADBEEF
 ```
-
----
-
-## First-time flashing (new board → standalone boot)
-
-### DEBIX (8MP)
-
-The DIP can be **switched over a USB relay** (`bootsel.py` in the
-`debix-boot-switch` skill). Either write the bootloader + partitions with `uuu`
-(DIP=001), or stream to eMMC from the `sd` (DIP=011) U-Boot. The procedure is in
-[fastboot-runbook.md](docs/imx8mp-debix-bringup/fastboot-runbook.md) and the
-`debix-boot-switch` skill.
-
-```bash
-S=.claude/skills/debix-boot-switch/bootsel.py
-python3 $S uuu && python3 scripts/dp100.py cycle --off-time 3   # drop to SDP and run uuu
-python3 $S emmc && python3 scripts/dp100.py cycle               # back to normal boot
-```
-
-### XPI (8MM)
-
-Set the physical DIP **S1** to Serial Download and power on → the BootROM appears
-as a USB SDP device → write with `uuu`. The runbook is in
-[06-emmc-flash.md](docs/imx8mm-xpi-bringup/06-emmc-flash.md). When S1 can't be
-touched, deliberately corrupt the A/B IVT from running Linux to drop to SDP
-(`xpi-remote-sdp` skill).
-
-> **The Falcon imx-boot cannot be RAM-booted with UUU** (it does not accept the
-> SDPV handshake). The UUU path uses a stashed stock imx-boot, exposes eMMC with
-> `ums`, and dd's to it.
-
-### Updating the SPL (imx-boot)
-
-It is not part of the Linux image (fixed eMMC location). Use `ab spl update` (see
-the A/B section below).
-
----
-
-## A/B updates (over SSH)
-
-Linux, the M-core firmware and the SPL each have their own independent A/B. One
-command, `ab`, handles all three on the device, and `scripts/ab.sh` drives it from
-the PC (SSH, Tailscale OK; it copies the file to the device first):
-
-```bash
-H=192.168.0.7
-./scripts/ab.sh --host $H status
-./scripts/ab.sh --host $H linux try build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2
-./scripts/ab.sh --host $H linux commit
-./scripts/ab.sh --host $H mcore update build/tmp/deploy/images/imx8mp-debix/m7-fw.img
-./scripts/ab.sh --host $H spl update build/tmp/deploy/images/imx8mp-debix/imx-boot
-```
-
-| Target | Operations | What happens |
-|---|---|---|
-| `linux` | `try` / `commit` / `rollback` / `status` | `try` writes the inactive slot and boots it **once** through the normal falcon path. You check it and run `commit`; rebooting without a commit returns to the old slot, and the SPL also counts the tries and returns after `bootlimit`. `rollback` boots the other slot as a trial in the same way (no writing), so it is committed only after you check it |
-| `mcore` | `update` / `rollback` / `status` | `update` writes the other slot on p3 and tries it once on the next boot. It is committed automatically if the M-core comes up (attached + rpmsg channel), otherwise the device reboots back to the committed slot. `rollback` tries the other slot the same way |
-| `spl` | `update` / `rollback` / `status` | `update` writes the new version to A and keeps the previous one in B. The ROM boots B only if A is invalid, so there is no automatic judgement; check `ab spl status` and use `rollback` if needed |
-
-`update`, `try` and `rollback` reboot by themselves; add `--no-reboot` to wait.
-
-`ab linux commit` refuses unless these hold (`--force` skips them): the device
-booted the new slot through the falcon path and falcon-rearm re-armed it, boot
-finished with no failed units and no ordering cycle, weston and kmm are active,
-`/data` is mounted with `kmm.env`, `/boot` is mounted and the modules for the
-running kernel exist, and Tailscale is connected if it was before the try. It
-cannot tell whether the screen actually shows the GUI; use lcd-validation for that.
-
-**To bring both Linux slots in sync, run `linux try` twice** (the second one
-writes the other slot). `--authkey <keyfile>` on `linux try` injects a Tailscale
-auth key into the new slot's boot FAT for the initial join (deleted on the device
-after a successful connection).
-
-The SPL selects the Linux slot from the env variable `ab_slot` (it falls back to
-the MBR boot flag only when the env cannot be read), so the trial boot already
-runs the new slot's U-Boot proper, BL31 and kernel. Details:
-[04-falcon.md](docs/imx8mp-debix-bringup/04-falcon.md) "A/B and slot selection".
-XPI (8MM) has the same `ab` command, but its SPL still selects by the MBR boot
-flag and has no M-core A/B.
-
----
-
-## About Tailscale
-
-**On prod images Tailscale is the only remote-access channel** (root password
-locked, serial cannot log in). Dev images (debug-tweaks) have an empty root
-password and allow LAN SSH too.
-
-It auto-joins with an auth key on first boot:
-
-1. Place `tailscale.authkey` on the boot partition (at flash time, or injected
-   via `scripts/ab.sh ... linux try --authkey`)
-2. `tailscale-autoconnect.service` starts gated on the key's presence
-   (`ConditionPathExists`)
-3. It runs `tailscale up --authkey=… --ssh --accept-dns=false`. `--ssh` enables
-   Tailscale SSH
-4. On success the key is deleted (not left in the image) and the auth state is
-   persisted to `/data/tailscale` — no re-auth even across OTA
-
-> `--accept-dns=false`: MagicDNS is not applied to the OS. The path where
-> tailscaled rewrites resolv.conf never runs, eliminating write failures on the
-> read-only rootfs.
-
-Issue auth keys in the
-[Tailscale admin console](https://login.tailscale.com/admin/settings/keys)
-(a reusable key is recommended). The tailnet ACL must permit SSH.
-
----
-
-## Serial / bench operations
-
-- **DEBIX**: power = `scripts/dp100.py` (DP100, `/dev/dp100`), boot mode = USB
-  relay (`bootsel.py` in `debix-boot-switch`, `/dev/usbrelay`), A53 console =
-  FTDI `/dev/ttyUSB0` (115200 8N1), display validation = `lcd-validation`
-  (AprilTag + camera)
-- **XPI**: use the stable udev names (`/dev/kart-a53-console`, etc.). Power,
-  camera validation, and UUU are in `imx8mm-xpi-bench`; serial/M4 debugging is in
-  the `xpi-serial-debug` skill
-
-(Each skill's procedures and measured values are collected under
-`.claude/skills/`.)
-
----
-
-## Updating the app
-
-**Official**: push kart-machine-manager → update the recipe's `SRCREV` →
-rebuild → OTA.
-
-**Dev iteration** (no rebuild): cross-build with the Qt6 SDK and swap just the
-binary.
-
-```bash
-source <SDK>/environment-setup-*        # build the SDK with kas/sdk.yml (bitbake meta-toolchain-qt6)
-cmake -B build-app ../kart-machine-manager/app-cpp && cmake --build build-app -j
-ssh root@<host> 'mount -o remount,rw /'
-scp build-app/kmm root@<host>:/usr/bin/kmm
-ssh root@<host> 'mount -o remount,ro / ; systemctl restart kmm'
-```
-
-To build into the image from local sources, use the externalsrc wiring
-(`local/kas-kmm-externalsrc.yml`, outside the repo).
 
 ---
 
@@ -427,17 +224,22 @@ kmm-yocto/
 │   ├── recipes-app/kmm/          # C++/Qt6 GUI (kmm_2.0.bb)
 │   ├── recipes-graphics/weston/  # kiosk config (weston 13)
 │   ├── recipes-connectivity/tailscale/
-│   ├── recipes-support/ab-tools/ # A/B and U-Boot A/B management tools, fw_env.config
+│   ├── recipes-support/ab-tools/ # the ab command (Linux / M-core / SPL A/B), fw_env.config
 │   └── wic/                      # imx8mp-emmc-ab.wks, imx8mm-emmc-ab.wks, rpi5*.wks
 ├── m4/                           # M4 bare-metal skeletons and diagnostic ELFs (clk-test, etc.)
 ├── learning/                     # teaching material for M-core / low-level boot
-├── docs/                         # bring-up logs (below)
-└── scripts/                      # build/flash/ota helpers
+├── docs/                         # usage guides and bring-up logs (below)
+└── scripts/                      # build / flash / A/B (ab.sh) helpers
 ```
 
 ---
 
 ## Documentation
+
+### Usage — [docs/usage/](docs/usage/README.md)
+
+Build, first flash, per-device setup, A/B updates, app and M-core firmware updates,
+bench operations and recovery (see "Getting started" above).
 
 ### DEBIX (i.MX8MP) — [docs/imx8mp-debix-bringup/](docs/imx8mp-debix-bringup/)
 
@@ -447,7 +249,7 @@ kmm-yocto/
 | 01-m7 | Cortex-M7 startup · can-gw · falcon integration (CAN1 root clock, etc.) |
 | 02-dts-delta | DTS delta vs. the EVK |
 | 03-first-boot | first-boot U-Boot fixes (DDR 4GB · HDMI · USB) |
-| 04-falcon | Falcon mode · dead-man · fallback proper · power-cut sweep |
+| 04-falcon | Falcon mode · dead-man · fallback proper · power-cut sweep · A/B and slot selection |
 | 06-splash | SPL splash · dark-boot root cause and fix (weston 13) |
 | 07-emmc-boot-rom | eMMC boot ROM / fast-boot investigation (on hold) |
 | 08-dark-boot | history of the dark-boot investigation |
