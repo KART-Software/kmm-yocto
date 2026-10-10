@@ -59,6 +59,8 @@ Linux が無くてもよい。2026-09-17 に製品構成の wic(3.65GB)を約 3 
 - Linux は a 面だけに入る。b 面は空
 - M コアの領域(p3)は空で、M7 は動かない。CAN(`rpmsgcan0`)も無い
 - `/data/kmm.env` が無いので kmm は起動に失敗する
+- SSH のホスト鍵は最初の起動で作られ、`/data/ssh` に残る。`/data` ごと書き直したので、前と違う鍵になる
+  ([03-provisioning.md](03-provisioning.md))
 
 いずれも [03-provisioning.md](03-provisioning.md) で埋める。
 

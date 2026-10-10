@@ -11,6 +11,20 @@
 - prod イメージは root のパスワードがロックされていて、LAN の SSH では入れない。入り口は
   Tailscale SSH だけなので、下の Tailscale を先に済ませる
 
+## SSH のホスト鍵
+
+SSH のホスト鍵は機体ごとに違う。最初の起動で GUI が出た後に作られ、永続領域 `/data/ssh` に残る。
+Linux を更新しても変わらない。イメージにもリポジトリにも鍵は入っていない。
+
+`/data` ごと書き直す(最初の書き込みをやり直す)と鍵が変わるので、PC の `known_hosts` から古い鍵を
+消してからつなぐ:
+
+```bash
+ssh-keygen -R <IP>
+```
+
+Tailscale SSH は tailscaled が自分の鍵を使うので、この影響を受けない。
+
 ## kmm.env を置く
 
 GUI アプリ(kmm)の秘密の設定は、イメージにも Git にも入れない。永続領域 `/data` に置く
