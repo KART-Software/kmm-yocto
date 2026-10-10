@@ -12,7 +12,7 @@ DEBIX の DIP S1 のうち bit2/bit3 が PC の USB リレー (dcttech USBRelay
 | mode | DIP | relay1 | relay2 | 用途 |
 |---|---|---|---|---|
 | `emmc` | 010 | ON | OFF | 通常運用(A/B スロット、falcon) |
-| `uuu` | 001 | OFF | ON | SDPS 復旧 (`local/recovery/debix-recover.uuu`) |
+| `uuu` | 001 | OFF | ON | SDPS 復旧・全書き (`scripts/debix-probe.uuu` / `debix-flash-all.uuu`、U-Boot は `scripts/build-recovery-uboot.sh imx8mp`) |
 | `sd` | 011 | ON | ON | SD の U-Boot から eMMC 復旧 ([[debix-emmc-recovery-via-uboot]]) |
 
 ## 操作

@@ -14,42 +14,46 @@ Linux が無くてもよい。2026-09-17 に製品構成の wic(3.65GB)を約 3 
 ### 用意するもの
 
 - **書き込み用の U-Boot**: falcon を付けない、U-Boot proper 入りの imx-boot。falcon の SPL は USB 書き込み
-  (SDP)の 2 段目を受けないので使えない。動作実績があるのは `local/recovery/imx-boot-imx8mp-stock`
-  で、これは Git に入っていない。リポジトリから作る手順はまだ確かめていない
-  ([open-issues](../imx8mp-debix-bringup/open-issues.md) の 5)
-- **展開した wic**: `bunzip2 -k build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2`
+  (SDP)の 2 段目を受けないので使えない。次のコマンドで `local/recovery/imx-boot-imx8mp-stock` に作る。
+  別のビルドディレクトリ(`build/recovery-imx8mp`)で作るので、普段の成果物は変わらない
+
+  ```bash
+  ./scripts/build-recovery-uboot.sh imx8mp
+  ```
+
+- **展開した wic**: 置き場所は uuu のスクリプトが決めている
+
+  ```bash
+  bunzip2 -kc build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2 > local/recovery/flash.wic
+  ```
+
 - **USB の線**: 機体の Type-A の DWN_USB1(OTG ができる方の口)と PC を A-A ケーブルでつなぐ。
-  LTE ドングルなどを挿しているときは抜いて差し替える
+  LTE ドングルを挿している口と同じなので、抜いて差し替える
 
 ### 手順
 
-1. 作業用のディレクトリに書き込み用の U-Boot と wic を置き(シンボリックリンクでよい)、uuu の
-   スクリプトを書く。**スクリプトの中のパスは、スクリプトのあるディレクトリからの相対で書く**
-   (絶対パスは前に連結されて壊れる)
-
-   ```
-   uuu_version 1.4.193
-   SDPS: boot -f imx-boot-stock
-   SDPV: delay 1000
-   SDPV: write -f imx-boot-stock -skipspl
-   SDPV: jump
-   FB: ucmd setenv fastboot_dev mmc
-   FB: ucmd setenv mmcdev 2
-   FB: ucmd mmc dev 2
-   FB: flash -raw2sparse all kart-image.wic
-   FB: done
-   ```
-
-   先頭の `uuu_version` 行が無いと、uuu はスクリプトではなく起動イメージだと思い込む。
-2. ブートモードを USB 書き込み(DIP 001)にして電源を入れ直す。ベンチではリレーで切り替える
+1. ブートモードを USB 書き込み(DIP 001)にして電源を入れ直す。ベンチではリレーで切り替える
    ([07-bench.md](07-bench.md))。`lsusb` に `1fc9:0146`(NXP)が出ればよい
-3. 書き込む。USB 機器の権限がログイン中の席にしか付かない PC では `sudo` が要る
 
    ```bash
-   cd <作業用のディレクトリ> && sudo uuu flash-all.uuu
+   python3 .claude/skills/debix-boot-switch/bootsel.py uuu && python3 scripts/dp100.py cycle --off-time 3
    ```
 
-4. ブートモードを eMMC(DIP 010)に戻して電源を入れ直す
+2. 書き込む。USB 機器の権限がログイン中の席にしか付かない PC では `sudo` が要る
+
+   ```bash
+   sudo uuu scripts/debix-flash-all.uuu
+   ```
+
+3. ブートモードを eMMC(DIP 010)に戻して電源を入れ直す
+
+   ```bash
+   python3 .claude/skills/debix-boot-switch/bootsel.py emmc && python3 scripts/dp100.py cycle --off-time 3
+   ```
+
+書く前に、線と書き込み用の U-Boot だけを確かめたいときは、手順 2 の代わりに
+`sudo uuu scripts/debix-probe.uuu` を使う。eMMC には書かず、fastboot から読んだ eMMC の区画表が
+シリアルに出る。
 
 ### 書いた直後の状態
 
