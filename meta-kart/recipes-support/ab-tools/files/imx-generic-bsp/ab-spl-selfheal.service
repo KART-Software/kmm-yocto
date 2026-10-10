@@ -1,0 +1,13 @@
+[Unit]
+Description=Repair SPL A copy after ROM fallback boot (ab spl selfheal)
+# 非クリティカル: 失敗してもシステムは B コピーで正常動作しており、次回起動時に再試行される。
+# After=kmm: basic.target 直後は起動が集中して 4 コアが飽和する (systemd-analyze plot 実測)。
+# このサービスは起動中のどこかで一度動けばよいので、GUI 表示 (kmm READY) の後に回す。
+After=kmm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ab spl selfheal
+
+[Install]
+WantedBy=multi-user.target

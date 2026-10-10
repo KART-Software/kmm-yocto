@@ -50,7 +50,7 @@ timeout 60 uuu scripts/boot.uuu
 sudo dd if=sec65.bin of=/dev/sda bs=512 seek=65 conv=fsync
 sudo dd if=sec66.bin of=/dev/sda bs=512 seek=66 conv=fsync   # 4162 は壊した場合のみ
 sudo python3 scripts/dp100.py cycle --off-time 3
-# 起動後: uboot-status で ACTIVE_COPY=A と A/B MD5 が実験前と一致すること
+# 起動後: ab spl status (旧イメージでは uboot-status) で起動コピーが A、A/B の MD5 が実験前と一致すること
 ```
 
 ## 注意

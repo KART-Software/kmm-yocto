@@ -88,7 +88,7 @@ GUI 完全起動 + Calibration Pattern 表示状態で:
 ./target-stage-setup.sh uninstall   # 完全に元へ戻す
 ```
 
-差し替えの中身: ① `/boot/logo.bin` → bootloader パターンの LOGO
+差し替えの中身: ① p1(BOOTA)の `logo.bin` → bootloader パターンの LOGO
 (SPL がそのまま blit する。原本は logo.bin.orig に退避)
 ② splash-wl.service → wl-image-view weston.raw(drop-in)
 ③ kmm.service → wl-image-view gui.raw(drop-in、Type=simple 化)。

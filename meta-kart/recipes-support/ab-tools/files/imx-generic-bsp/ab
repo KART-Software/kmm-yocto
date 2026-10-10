@@ -1,0 +1,647 @@
+#!/bin/sh
+# ab — Linux / M コア / SPL の A/B を操作する (i.MX、busybox sh)
+#
+#   ab status                                    3 つの対象の状態をまとめて表示
+#   ab linux status
+#   ab linux try ...                             PC の scripts/ab.sh から使う (rootfs を流し込むため)
+#   ab linux commit [--force]                    試している面を確定する (健全性の確認つき)
+#   ab linux rollback [--no-reboot]              反対の面を試行として起動する (確かめて commit)
+#   ab mcore status
+#   ab mcore update <ファイル> [--no-reboot]     反対の面に書いて次の起動で 1 回試し、動けば自動で確定
+#   ab mcore rollback [--no-reboot]              反対の面を次の起動で 1 回試し、動けば自動で確定
+#   ab spl status
+#   ab spl update <flash.bin> [--no-reboot]      新しい版を A、それまでの版を B に書く
+#   ab spl rollback [--no-reboot]                B (前の版) を A に書き戻す
+#
+# 3 つの A/B は互いに独立している:
+#   linux  BOOT (p1/p2) と root (p5/p6)。面は env の ab_slot。試行中は upgrade_available=1 で、
+#          試行回数は SPL が数え bootlimit を超えると ab_fallback_slot へ戻す
+#   mcore  M コア専用パーティション p3 の mcore-a.img / mcore-b.img。面は env の mcore_slot、
+#          1 回きりの試行は mcore_try (SPL が読む前に消す)。確定は起動時の ab mcore confirm
+#   spl    eMMC のパーティション外の A/B コピー。ROM は A の IVT が不正なときだけ B を起動する
+#          (ソフトから「次は B」とは頼めない)。自動の判断はせず、人が status を見る
+#
+# 設計: kmm-yocto docs/imx8mp-debix-bringup/04-falcon.md「A/B とスロット選択」
+# busybox 前提: tail -c / dd / hexdump -e / strings / flock / sha256sum。head -c と timeout は無い
+set -eu
+
+A_SECTOR=@AB_UBOOT_A_SECTOR@		# SPL A コピーの先頭セクタ (machine ごとにレシピが埋める)
+B_SECTOR=@AB_UBOOT_B_SECTOR@		# SPL B コピー (ROM のフォールバック先)
+AREA_SECTORS=@AB_UBOOT_AREA_SECTORS@	# 1 コピーの領域
+MCORE_MAGIC=@AB_MCORE_MAGIC@		# M コアのファームの先頭 4 バイト (8MP: "M7FW"、8MM: "M4FW" の hex)
+MCORE_MAX=131072			# TCM 128KB (SPL の上限と同じ)
+SPL_MARKER='mcore_try'			# A/B 対応の SPL にだけある文字列 (env の変数名)
+CHOSEN=/proc/device-tree/chosen
+RUN=/run/ab
+STATE=/data/ab
+GPR=0x30390098
+PSB_BIT=0x40000000
+
+die() { echo "ab: $*" >&2; exit 1; }
+note() { echo "ab: $*"; }
+
+usage() {
+	sed -n '2,/^# 3 つの A/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'
+	exit "${1:-1}"
+}
+
+BASE_DEV=$(sed -n 's/.*root=\(\/dev\/[a-z0-9]*\)p[56].*/\1/p' /proc/cmdline)
+[ -n "$BASE_DEV" ] || die "cmdline の root= が A/B の面 (p5/p6) ではない"
+case "$(cat /proc/cmdline)" in
+	*root=*p6*) RUNNING=b ;;
+	*) RUNNING=a ;;
+esac
+MCORE_DEV=${BASE_DEV}p3
+
+other() { [ "$1" = a ] && echo b || echo a; }
+bootpart() { [ "$1" = a ] && echo 1 || echo 2; }
+rootpart() { [ "$1" = a ] && echo 5 || echo 6; }
+ok() { if "$@"; then echo 0; else echo 1; fi; }
+
+envget() { fw_printenv -n "$1" 2>/dev/null || true; }
+
+# 1 回の CRC 更新でまとめて書き、全部読み戻して照合する。"名前=" は空にする
+envset() {
+	t=$(mktemp)
+	for kv in "$@"; do echo "$kv"; done > "$t"
+	if ! fw_setenv -s "$t"; then
+		rm -f "$t"
+		die "fw_setenv に失敗"
+	fi
+	rm -f "$t"
+	for kv in "$@"; do
+		[ "$(envget "${kv%%=*}")" = "${kv#*=}" ] || die "env の読み戻しが一致しない (${kv%%=*})"
+	done
+}
+
+dt_str() { if [ -e "$CHOSEN/$1" ]; then tr -d '\000' < "$CHOSEN/$1"; fi; }
+dt_u32() { if [ -e "$CHOSEN/$1" ]; then echo $((0x$(hexdump -n 4 -e '4/1 "%02x"' "$CHOSEN/$1"))); fi; }
+
+lock() {
+	mkdir -p "$RUN"
+	exec 9> "$RUN/lock"
+	flock -n 9 || die "別の ab の操作が実行中"
+}
+
+maybe_reboot() {
+	if [ "$NO_REBOOT" = 1 ]; then
+		note "再起動を待っています (--no-reboot)。次の起動で反映されます"
+	else
+		note "再起動します"
+		sync
+		reboot
+	fi
+}
+
+# ---------------------------------------------------------------- MBR
+# 旧 SPL は MBR の bootable フラグの面から読む。新 SPL は env の ab_slot を使うが、env が
+# 読めないときは MBR に従うので、Linux の面を切り替えるときは常に両方を揃える。
+mbr_bootable() {
+	f1=$(dd if="$BASE_DEV" bs=1 skip=446 count=1 2>/dev/null | hexdump -e '1/1 "%02x"')
+	f2=$(dd if="$BASE_DEV" bs=1 skip=462 count=1 2>/dev/null | hexdump -e '1/1 "%02x"')
+	if [ "$f1" = 80 ]; then echo a; elif [ "$f2" = 80 ]; then echo b; else echo none; fi
+}
+
+mbr_set() {
+	[ "$(mbr_bootable)" = "$1" ] && return 0
+	m=$(mktemp); pre=$(mktemp); mid=$(mktemp); post=$(mktemp); new=$(mktemp)
+	dd if="$BASE_DEV" of="$m" bs=512 count=1 2>/dev/null
+	# 446 (p1 のフラグ) と 462 (p2 のフラグ) の 2 バイトだけ差し替える
+	dd if="$m" of="$pre" bs=1 count=446 2>/dev/null
+	dd if="$m" of="$mid" bs=1 skip=447 count=15 2>/dev/null
+	dd if="$m" of="$post" bs=1 skip=463 count=49 2>/dev/null
+	if [ "$1" = a ]; then f1='\200'; f2='\000'; else f1='\000'; f2='\200'; fi
+	{ cat "$pre"; printf "$f1"; cat "$mid"; printf "$f2"; cat "$post"; } > "$new"
+	if [ "$(wc -c < "$new")" -ne 512 ]; then
+		rm -f "$m" "$pre" "$mid" "$post" "$new"
+		die "MBR の組み立てに失敗"
+	fi
+	dd if="$new" of="$BASE_DEV" bs=512 count=1 2>/dev/null
+	sync
+	dd if="$BASE_DEV" of="$m" bs=512 count=1 2>/dev/null
+	r=$(ok cmp -s "$m" "$new")
+	rm -f "$m" "$pre" "$mid" "$post" "$new"
+	[ "$r" = 0 ] || die "MBR の bootable フラグの読み戻しが一致しない"
+}
+
+# ---------------------------------------------------------------- SPL
+# ROM のイベントログ (ポインタ @0x9e0、0x50 = primary / 0x51 = secondary) で起動したコピーを
+# 判定する (U-Boot の imx8m_detect_secondary_image_boot と同じ方法)
+spl_active_copy() {
+	active=""
+	ptr=$(( $(devmem 0x9e0) ))
+	if [ "$ptr" -ge $((0x00900000)) ] && [ "$ptr" -lt $((0x00B00000)) ] && [ $((ptr % 4)) -eq 0 ]; then
+		i=0
+		while [ $i -lt 128 ]; do
+			v=$(devmem $((ptr + i * 4)))
+			case "$v" in
+				0x00000000) break ;;
+				0x80*|0x81*|0x82*|0x8F*|0x8f*|0x90*|0x91*|0x9F*|0x9f*) i=$((i + 2)) ;;
+				0xA0*|0xa0*|0xC0*|0xc0*) i=$((i + 3)) ;;
+				0x50*) active=A; i=$((i + 1)) ;;
+				0x51*) active=B; i=$((i + 1)) ;;
+				*) i=$((i + 1)) ;;
+			esac
+		done
+	fi
+	if [ -z "$active" ]; then
+		# ログが読めないときは GPR の PERSIST_SECONDARY_BOOT (ROM がフォールバック中に立てる)
+		if [ $(( $(devmem $GPR) & PSB_BIT )) -ne 0 ]; then active=B; else active=A; fi
+	fi
+	echo "$active"
+}
+
+spl_sector() { [ "$1" = B ] && echo "$B_SECTOR" || echo "$A_SECTOR"; }
+spl_copy() { dd if="$BASE_DEV" bs=512 skip="$(spl_sector "$1")" count="$AREA_SECTORS" 2>/dev/null; }
+spl_ivt() { spl_copy "$1" | hexdump -n 4 -e '4/1 "%02x"'; }
+
+# 今起動している SPL が A/B (env の ab_slot、M コアの p3) に対応しているか
+spl_is_ab() { spl_copy "$(spl_active_copy)" | strings | grep -q -F "$SPL_MARKER"; }
+
+spl_status() {
+	act=$(spl_active_copy)
+	a=$(spl_copy A | md5sum | cut -d' ' -f1)
+	b=$(spl_copy B | md5sum | cut -d' ' -f1)
+	echo "SPL_RUNNING_COPY=$act"
+	if [ "$a" = "$b" ]; then echo "SPL_COPIES=IDENTICAL"; else echo "SPL_COPIES=DIFFER"; fi
+	echo "SPL_A_MD5=$a"
+	echo "SPL_B_MD5=$b"
+	for c in A B; do
+		if spl_copy $c | strings | grep -q -F "$SPL_MARKER"; then x=1; else x=0; fi
+		echo "SPL_${c}_AB=$x"
+	done
+}
+
+# 新しい面への書き込み。どの瞬間に電源が切れても、書きかけの面は「IVT が不正」で ROM に
+# 無視されるよう、先頭セクタ (IVT) を潰してから本体、最後に IVT を書く
+spl_write_header_last() {
+	dst=$1; src=$2; cnt=$3; tmp=$(mktemp)
+	dd if=/dev/zero of="$BASE_DEV" bs=512 seek="$dst" count=1 2>/dev/null
+	sync
+	dd if="$src" of="$BASE_DEV" bs=512 skip=1 seek=$((dst + 1)) count=$((cnt - 1)) 2>/dev/null
+	sync
+	dd if="$src" of="$BASE_DEV" bs=512 seek="$dst" count=1 2>/dev/null
+	sync
+	dd if="$BASE_DEV" of="$tmp" bs=512 skip="$dst" count="$cnt" 2>/dev/null
+	r=$(ok cmp -s "$tmp" "$src")
+	rm -f "$tmp"
+	[ "$r" = 0 ] || die "セクタ $dst からの読み戻しが一致しない"
+}
+
+spl_update() {
+	new=${1:-}
+	[ -n "$new" ] && [ -f "$new" ] || die "使い方: ab spl update <flash.bin>"
+	size=$(wc -c < "$new")
+	[ "$size" -le $((AREA_SECTORS * 512)) ] || die "$new (${size}B) がコピー領域より大きい"
+	case "$(hexdump -n 4 -e '4/1 "%02x"' "$new")" in
+		d1????41) ;;
+		*) die "$new の先頭に正しい IVT が無い" ;;
+	esac
+	[ "$(spl_active_copy)" = A ] || die "B コピーで起動中 (A が壊れて ROM が切り替えた)。起動時の自動修復の後に再起動してから実行する"
+	lock
+	src=$(mktemp)
+	spl_copy A > "$src"
+	case "$(hexdump -n 4 -e '4/1 "%02x"' "$src")" in
+		d1????41)
+			note "1/2: 今の A (動作実績のある版) を B に退避"
+			spl_write_header_last "$B_SECTOR" "$src" "$AREA_SECTORS"
+			;;
+		*)
+			note "1/2: A が壊れているので B (今の起動元) をそのまま残す"
+			;;
+	esac
+	note "2/2: 新しい版を A に書き込み"
+	cp "$new" "$src"
+	rem=$((size % 512))
+	[ "$rem" -eq 0 ] || dd if=/dev/zero bs=1 count=$((512 - rem)) 2>/dev/null >> "$src"
+	spl_write_header_last "$A_SECTOR" "$src" $(((size + 511) / 512))
+	rm -f "$src"
+	note "完了: A = 新しい版、B = それまでの版。動作を確かめたら ab spl status、駄目なら ab spl rollback"
+	maybe_reboot
+}
+
+spl_rollback() {
+	lock
+	src=$(mktemp); tmp=$(mktemp)
+	spl_copy B > "$src"
+	case "$(hexdump -n 4 -e '4/1 "%02x"' "$src")" in
+		d1????41) ;;
+		*) rm -f "$src" "$tmp"; die "B に正しい IVT が無く、戻す先が無い" ;;
+	esac
+	spl_copy A > "$tmp"
+	if cmp -s "$tmp" "$src"; then
+		rm -f "$src" "$tmp"
+		note "A と B は同じ版。何もしない"
+		return 0
+	fi
+	rm -f "$tmp"
+	note "B (前の版) を A に書き戻します"
+	spl_write_header_last "$A_SECTOR" "$src" "$AREA_SECTORS"
+	rm -f "$src"
+	note "完了: A = B (前の版)"
+	maybe_reboot
+}
+
+# 起動時のサービス (ab-spl-selfheal.service): A が壊れて ROM が B で起動していたら、
+# 動いている B で A を直す。A が不正な状態は例外なく事故の痕跡なので機械的に直してよい
+spl_selfheal() {
+	[ "$(spl_active_copy)" = B ] || return 0
+	note "ROM が B コピーで起動した (A が壊れている)。B で A を修復します"
+	NO_REBOOT=1
+	spl_rollback
+}
+
+# ---------------------------------------------------------------- Linux
+tailscale_state() {
+	if ! command -v tailscale > /dev/null 2>&1; then echo none; return; fi
+	if tailscale status --peers=false > /dev/null 2>&1; then echo running; else echo stopped; fi
+}
+
+linux_status() {
+	# 新 SPL は falcon 経路でだけ /chosen に書く。旧 SPL は経路を伝えないので unknown
+	p=$(dt_str ab,boot-path)
+	if [ -z "$p" ]; then
+		if spl_is_ab; then p=proper; else p=unknown; fi
+	fi
+	echo "LINUX_RUNNING=$RUNNING"
+	echo "LINUX_SLOT=$(envget ab_slot)"
+	echo "LINUX_FALLBACK=$(envget ab_fallback_slot)"
+	echo "LINUX_TRY=$(envget upgrade_available)"
+	echo "LINUX_BOOTCOUNT=$(envget bootcount)/$(envget bootlimit)"
+	echo "LINUX_BOOT_PATH=$p"
+	echo "LINUX_MBR_BOOTABLE=$(mbr_bootable)"
+	echo "LINUX_KERNEL=$(uname -r)"
+	echo "BASE_DEV=$BASE_DEV"
+}
+
+# 反対の面に起動できる Linux があるか (BOOT の extlinux と root の ext4 の署名)
+linux_slot_ok() {
+	mkdir -p "$RUN/chk"
+	mount -o ro "${BASE_DEV}p$(bootpart "$1")" "$RUN/chk" 2>/dev/null || return 1
+	r=$(ok test -f "$RUN/chk/extlinux/extlinux.conf")
+	umount "$RUN/chk"
+	[ "$r" = 0 ] || return 1
+	[ "$(dd if="${BASE_DEV}p$(rootpart "$1")" bs=1 skip=1080 count=2 2>/dev/null | hexdump -e '2/1 "%02x"')" = 53ef ]
+}
+
+# ---- try (PC の scripts/ab.sh が段階ごとに呼ぶ) ----
+try_target() { sed -n 's/^TO=//p' "$STATE/linux-try" 2>/dev/null; }
+
+linux_try_begin() {
+	lock
+	[ "$(envget upgrade_available)" != 1 ] || die "Linux の試行が確定待ち。ab linux commit か、再起動で元の面へ戻してから"
+	slot=$(envget ab_slot)
+	[ "$slot" = "$RUNNING" ] || die "env の ab_slot=$slot と動いている面 $RUNNING が違う"
+	tgt=$(other "$RUNNING")
+	for p in "$(bootpart "$tgt")" "$(rootpart "$tgt")"; do
+		if grep -q "^${BASE_DEV}p$p " /proc/mounts; then die "書き込み先 ${BASE_DEV}p$p がマウントされている"; fi
+	done
+	mkdir -p "$STATE"
+	{
+		echo "FROM=$RUNNING"
+		echo "TO=$tgt"
+		echo "TAILSCALE=$(tailscale_state)"
+		echo "MCORE=$(cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null || echo none)"
+		echo "DATE=$(date +%s)"
+	} > "$STATE/linux-try"
+	sync
+	echo "TARGET=$tgt"
+	echo "TARGET_BOOT=${BASE_DEV}p$(bootpart "$tgt")"
+	echo "TARGET_ROOT=${BASE_DEV}p$(rootpart "$tgt")"
+	echo "BASE_DEV=$BASE_DEV"
+}
+
+# 標準入力の gzip ストリームを rootfs の面へ書き、読み戻して sha256 を照合する
+linux_try_root() {
+	size=${1:-}; sum=${2:-}
+	[ -n "$size" ] && [ -n "$sum" ] || die "使い方: ab linux try root <バイト数> <sha256>"
+	tgt=$(try_target); [ -n "$tgt" ] || die "ab linux try begin が済んでいない"
+	lock
+	dev=${BASE_DEV}p$(rootpart "$tgt")
+	cap=$(( $(cat "/sys/class/block/${dev##*/}/size") * 512 ))
+	[ "$size" -le "$cap" ] || die "rootfs (${size}B) が ${dev} (${cap}B) より大きい"
+	set -o pipefail
+	if ! gzip -dc | dd of="$dev" bs=4M 2>/dev/null; then
+		die "rootfs の書き込みに失敗 (${dev})"
+	fi
+	set +o pipefail
+	sync
+	if [ $((size % 4194304)) -eq 0 ]; then
+		got=$(dd if="$dev" bs=4M count=$((size / 4194304)) 2>/dev/null | sha256sum | cut -d' ' -f1)
+	else
+		got=$(dd if="$dev" bs=512 count=$((size / 512)) 2>/dev/null | sha256sum | cut -d' ' -f1)
+	fi
+	[ "$got" = "$sum" ] || die "rootfs の読み戻しが一致しない (${dev})"
+	note "rootfs -> $dev (sha256 照合済み)"
+}
+
+# boot のイメージ (FAT) を BOOT の面へファイル単位でコピーする (BOOTA/BOOTB のラベルを残す)
+linux_try_boot() {
+	img=${1:-}; key=${2:-}
+	[ -n "$img" ] && [ -f "$img" ] || die "使い方: ab linux try boot <boot.img> [tailscale の鍵]"
+	tgt=$(try_target); [ -n "$tgt" ] || die "ab linux try begin が済んでいない"
+	lock
+	dev=${BASE_DEV}p$(bootpart "$tgt")
+	rootdev=${BASE_DEV}p$(rootpart "$tgt")
+	mkdir -p "$RUN/src" "$RUN/dst"
+	mount -o loop,ro "$img" "$RUN/src"
+	mount "$dev" "$RUN/dst"
+	rm -rf "$RUN/dst"/*
+	cp -r "$RUN/src/." "$RUN/dst/"
+	sed -i "s|root=/dev/[a-z0-9]*p[56]|root=$rootdev|" "$RUN/dst/extlinux/extlinux.conf"
+	# falcon: SPL が読む falcon.itb を書き込み先の面の変種にする (bootargs に root= が焼き込み済み)
+	if [ -f "$RUN/dst/falcon-$tgt.itb" ]; then cp "$RUN/dst/falcon-$tgt.itb" "$RUN/dst/falcon.itb"; fi
+	if [ -n "$key" ]; then cp "$key" "$RUN/dst/tailscale.authkey"; fi
+	sync
+	# 書いたファイルを照合する (extlinux.conf と falcon.itb は書き換えたので除く)
+	bad=$(cd "$RUN/src" && find . -type f ! -name extlinux.conf ! -name falcon.itb | while read -r f; do
+		cmp -s "$f" "$RUN/dst/$f" || echo "$f"
+	done)
+	umount "$RUN/src" "$RUN/dst"
+	[ -z "$bad" ] || die "boot の読み戻しが一致しない: $bad"
+	note "boot -> $dev (root=$rootdev)"
+}
+
+linux_try_arm() {
+	tgt=$(try_target); [ -n "$tgt" ] || die "ab linux try begin が済んでいない"
+	lock
+	envset "ab_slot=$tgt" "ab_fallback_slot=$RUNNING" upgrade_available=1 bootcount=0
+	note "次の起動で面 $tgt を試します。駄目なら面 $RUNNING に戻ります"
+	maybe_reboot
+}
+
+linux_try() {
+	case "${1:-}" in
+		begin) linux_try_begin ;;
+		root) shift; linux_try_root "$@" ;;
+		boot) shift; linux_try_boot "$@" ;;
+		arm) linux_try_arm ;;
+		*) die "Linux のイメージは 1.5GB あり機体に置けないので、PC から scripts/ab.sh --host <機体> linux try <イメージ> を使う" ;;
+	esac
+}
+
+# ---- commit の歯止め ----
+CHK_FAIL=0
+check() {
+	if [ "$2" = 0 ]; then echo "  OK  $1"; else echo "  NG  $1${3:+ ($3)}"; CHK_FAIL=1; fi
+}
+
+linux_checks() {
+	CHK_FAIL=0
+	i=0
+	while :; do
+		st=$(systemctl is-system-running 2>/dev/null || true)
+		case "$st" in running|degraded) break ;; esac
+		i=$((i + 1))
+		[ $i -lt 90 ] || break
+		[ $i -ne 1 ] || note "起動の完了を待っています ($st)"
+		sleep 2
+	done
+	check "起動が完了している" "$(ok test "$st" = running -o "$st" = degraded)" "$st"
+	if spl_is_ab; then
+		p=$(dt_str ab,boot-path); s=$(dt_str ab,slot)
+		check "新しい面から falcon 経路で起動した" "$(ok test "$p" = falcon -a "$s" = "$RUNNING")" "経路=${p:-proper} 面=${s:-?}"
+		if systemctl cat falcon-rearm.service > /dev/null 2>&1; then
+			r=$(systemctl show -p Result --value falcon-rearm.service)
+			check "falcon-rearm が成功し、次も falcon 経路" "$(ok test "$r" = success -a "$(envget boot_os)" = yes)" "Result=$r boot_os=$(envget boot_os)"
+		fi
+	else
+		echo "  --  起動経路 (SPL が A/B 未対応の旧版なので確認しない)"
+	fi
+	n=$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l)
+	check "失敗したユニットが無い" "$(ok test "$n" -eq 0)" "$n 個"
+	n=$(journalctl -b 2>/dev/null | grep -c -i 'ordering cycle' || true)
+	check "起動順の循環が無い" "$(ok test "${n:-0}" -eq 0)" "$n 行"
+	for u in weston kmm; do
+		check "$u が動いている" "$(ok systemctl is-active --quiet "$u")"
+	done
+	check "/data がマウントされ kmm.env がある" "$(ok sh -c 'grep -q " /data " /proc/mounts && test -f /data/kmm.env')"
+	check "/boot がマウントされ、今のカーネルのモジュールがある" "$(ok sh -c "grep -q ' /boot ' /proc/mounts && test -d /lib/modules/$(uname -r)")"
+	# 更新前に動いていたものは更新後も動いていること (try begin が旧面で記録)
+	if [ -f "$STATE/linux-try" ]; then
+		if [ "$(sed -n 's/^TAILSCALE=//p' "$STATE/linux-try")" = running ]; then
+			check "Tailscale が更新前と同じくつながっている" "$(ok test "$(tailscale_state)" = running)"
+		fi
+		# M コアの条件は issue #19 (キープアライブ) で決める
+	fi
+	return $CHK_FAIL
+}
+
+linux_commit() {
+	lock
+	slot=$(envget ab_slot)
+	if [ "$(envget upgrade_available)" != 1 ]; then
+		[ "$slot" = "$RUNNING" ] || die "試行中ではなく、動いている面 ($RUNNING) も確定面 ($slot) と違う"
+		mbr_set "$RUNNING"
+		note "Linux は面 $RUNNING で確定済み"
+		return 0
+	fi
+	[ "$slot" = "$RUNNING" ] || die "試した面 $slot ではなく面 $RUNNING で動いている (元の面に戻った)。確定できない"
+	if [ "$FORCE" = 1 ]; then
+		note "--force: 健全性の確認を飛ばして確定します"
+	else
+		echo "確定前の確認:"
+		linux_checks || die "確認に通らなかったので確定しない。原因を調べるか、--force で確定する"
+	fi
+	envset "ab_slot=$RUNNING" "ab_fallback_slot=$RUNNING" upgrade_available=0 bootcount=0
+	mbr_set "$RUNNING"
+	rm -f "$STATE/linux-try"
+	note "確定: Linux の面 $RUNNING"
+}
+
+linux_rollback() {
+	lock
+	if [ "$(envget upgrade_available)" = 1 ]; then
+		fb=$(envget ab_fallback_slot)
+		envset "ab_slot=$fb" "ab_fallback_slot=$fb" upgrade_available=0 bootcount=0
+		mbr_set "$fb"
+		rm -f "$STATE/linux-try"
+		note "試行を取りやめ、面 $fb に戻します"
+		maybe_reboot
+		return 0
+	fi
+	# 反対の面も、いきなり確定はせず try と同じく試行として起動する。反対の面に残っているのが
+	# 試行に失敗した版でも、確かめずに確定しないため
+	[ "$(envget ab_slot)" = "$RUNNING" ] || die "env の ab_slot と動いている面 $RUNNING が違う"
+	tgt=$(other "$RUNNING")
+	linux_slot_ok "$tgt" || die "面 $tgt に起動できる Linux が無い"
+	rm -f "$STATE/linux-try"
+	envset "ab_slot=$tgt" "ab_fallback_slot=$RUNNING" upgrade_available=1 bootcount=0
+	note "次の起動で面 $tgt を試します。確かめて ab linux commit。確定しなければ面 $RUNNING に戻ります"
+	maybe_reboot
+}
+
+# ---------------------------------------------------------------- M コア
+mcore_mount() {
+	mkdir -p "$RUN/mcore"
+	mount -t vfat -o "$1" "$MCORE_DEV" "$RUN/mcore" || die "M コアの領域 ($MCORE_DEV) をマウントできない"
+}
+
+# ファームの検証。正しければ "版 CRC 長さ" を出す。ヘッダ: magic / 長さ / CRC32 / 版 (各 LE32)
+mcore_check() {
+	f=$1
+	[ -f "$f" ] || return 1
+	[ "$(hexdump -n 4 -e '4/1 "%02x"' "$f")" = "$MCORE_MAGIC" ] || return 1
+	size=$(hexdump -s 4 -n 4 -e '1/4 "%u"' "$f")
+	crc=$(hexdump -s 8 -n 4 -e '1/4 "%u"' "$f")
+	ver=$(hexdump -s 12 -n 4 -e '1/4 "%u"' "$f")
+	[ "$size" -gt 0 ] && [ "$size" -le "$MCORE_MAX" ] || return 1
+	# falcon-itb.bb が作る形式はヘッダ + payload ちょうど (余分な尾は不正として扱う)
+	[ "$(wc -c < "$f")" -eq $((16 + size)) ] || return 1
+	# gzip の末尾 8 バイトの前半は元データの CRC32 (LE)。busybox に crc32 が無いための代用。
+	# busybox の head は -c が無いので、切り出しは tail -c と dd で行う
+	calc=$(tail -c +17 "$f" | gzip -c | tail -c 8 | dd bs=4 count=1 2>/dev/null | hexdump -e '1/4 "%u"')
+	[ "$calc" = "$crc" ] || return 1
+	echo "$ver $crc $size"
+}
+
+mcore_running_state() { cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null || echo none; }
+
+mcore_status() {
+	r=$(dt_str mcore,slot)
+	if [ -z "$r" ]; then
+		if [ -n "$(dt_str ab,boot-path)" ]; then r=none; else r=unknown; fi
+	fi
+	echo "MCORE_SLOT=$(envget mcore_slot)"
+	echo "MCORE_TRY_PENDING=$(envget mcore_try)"
+	echo "MCORE_RUNNING=$r"
+	echo "MCORE_RUNNING_VERSION=$(dt_u32 mcore,version)"
+	echo "MCORE_TRIED_THIS_BOOT=$(dt_str mcore,try)"
+	echo "MCORE_STATE=$(mcore_running_state)"
+	mcore_mount ro
+	for s in a b; do
+		if info=$(mcore_check "$RUN/mcore/mcore-$s.img"); then
+			set -- $info
+			echo "MCORE_$(echo $s | tr ab AB)=version $1 crc $2 size $3"
+		elif [ -e "$RUN/mcore/mcore-$s.img" ]; then
+			echo "MCORE_$(echo $s | tr ab AB)=invalid"
+		else
+			echo "MCORE_$(echo $s | tr ab AB)=none"
+		fi
+	done
+	umount "$RUN/mcore"
+}
+
+mcore_update() {
+	f=${1:-}
+	[ -n "$f" ] || die "使い方: ab mcore update <ファイル>"
+	spl_is_ab || die "今の SPL は M コアの A/B に対応していない旧版。先に ab spl update で新しい SPL にする"
+	info=$(mcore_check "$f") || die "$f はこの機体の M コアのファームではないか、CRC が合わない"
+	lock
+	[ -z "$(envget mcore_try)" ] || die "M コアの試行が予約済み (mcore_try=$(envget mcore_try))。再起動して結果を見てから"
+	cur=$(envget mcore_slot)
+	case "$cur" in a|b) tgt=$(other "$cur") ;; *) tgt=a ;; esac
+	mcore_mount rw
+	cp "$f" "$RUN/mcore/.mcore-$tgt.tmp"
+	sync
+	mv -f "$RUN/mcore/.mcore-$tgt.tmp" "$RUN/mcore/mcore-$tgt.img"
+	sync
+	umount "$RUN/mcore"
+	# キャッシュではなく eMMC から読み戻して照合する
+	echo 3 > /proc/sys/vm/drop_caches
+	mcore_mount ro
+	r=$(ok cmp -s "$f" "$RUN/mcore/mcore-$tgt.img")
+	umount "$RUN/mcore"
+	[ "$r" = 0 ] || die "M コアの面 $tgt の読み戻しが一致しない"
+	envset "mcore_try=$tgt"
+	set -- $info
+	note "M コアの面 $tgt に書きました (版 $1)。次の起動で 1 回だけ試し、動けば自動で確定、駄目なら元に戻ります"
+	maybe_reboot
+}
+
+mcore_rollback() {
+	lock
+	cur=$(envget mcore_slot)
+	case "$cur" in a|b) ;; *) die "確定している M コアの面が無い" ;; esac
+	tgt=$(other "$cur")
+	mcore_mount ro
+	if mcore_check "$RUN/mcore/mcore-$tgt.img" > /dev/null; then r=0; else r=1; fi
+	umount "$RUN/mcore"
+	[ "$r" = 0 ] || die "面 $tgt に正しい M コアのファームが無い"
+	# update と同じく 1 回試して、動けば自動で確定する (失敗した版が残っていても確定しない)
+	envset "mcore_try=$tgt"
+	note "次の起動で M コアの面 $tgt を 1 回試し、動けば自動で確定、駄目なら面 $cur に戻ります"
+	maybe_reboot
+}
+
+# 起動時のサービス (ab-mcore-confirm.service)。SPL が mcore_try で試した面を確かめて確定する。
+# 当面の条件: 試した面を SPL が置けた + remoteproc が attached + rpmsg のチャネルができる +
+# その状態が続く。最終形はキープアライブ (issue #19)。満たさなければ再起動して確定面へ戻す
+MCORE_WAIT=30
+MCORE_STABLE=10
+mcore_channel() { ls /sys/bus/rpmsg/devices 2>/dev/null | grep -v -e rpmsg_ctrl -e rpmsg_ns | grep -q .; }
+
+mcore_confirm() {
+	tried=$(dt_str mcore,try)
+	[ -n "$tried" ] || return 0
+	cur=$(envget mcore_slot)
+	fail=""
+	if [ "$(dt_str mcore,slot)" != "$tried" ]; then
+		fail="面 $tried のファームを SPL が置けなかった (無いか壊れている)"
+	else
+		i=0
+		until [ "$(mcore_running_state)" = attached ] && mcore_channel; do
+			i=$((i + 1))
+			if [ $i -ge $MCORE_WAIT ]; then fail="${MCORE_WAIT} 秒以内に M コアの rpmsg がつながらない"; break; fi
+			sleep 1
+		done
+		if [ -z "$fail" ]; then
+			i=0
+			while [ $i -lt $MCORE_STABLE ]; do
+				if [ "$(mcore_running_state)" != attached ] || ! mcore_channel; then
+					fail="M コアの rpmsg が ${MCORE_STABLE} 秒続かない"
+					break
+				fi
+				i=$((i + 1))
+				sleep 1
+			done
+		fi
+	fi
+	if [ -z "$fail" ]; then
+		envset "mcore_slot=$tried"
+		note "確定: M コアの面 $tried"
+		return 0
+	fi
+	note "M コアの面 $tried は確定しない: $fail"
+	if [ -n "$cur" ] && [ "$cur" != "$tried" ]; then
+		note "確定面 $cur に戻すため再起動します"
+		sync
+		reboot
+	fi
+	# 失敗したユニットにはしない (Linux の commit の確認を巻き込まないため)。記録は journal に残る
+	return 0
+}
+
+# ---------------------------------------------------------------- main
+NO_REBOOT=0
+FORCE=0
+n=$#
+i=0
+while [ $i -lt $n ]; do
+	a=$1
+	shift
+	case "$a" in
+		--no-reboot) NO_REBOOT=1 ;;
+		--force) FORCE=1 ;;
+		-h|--help) usage 0 ;;
+		*) set -- "$@" "$a" ;;
+	esac
+	i=$((i + 1))
+done
+
+case "${1:-} ${2:-}" in
+	"status "*) linux_status; mcore_status; spl_status ;;
+	"linux status") linux_status ;;
+	"linux try") shift 2; linux_try "$@" ;;
+	"linux commit") linux_commit ;;
+	"linux rollback") linux_rollback ;;
+	"mcore status") mcore_status ;;
+	"mcore update") mcore_update "${3:-}" ;;
+	"mcore rollback") mcore_rollback ;;
+	"mcore confirm") mcore_confirm ;;
+	"spl status") spl_status ;;
+	"spl update") spl_update "${3:-}" ;;
+	"spl rollback") spl_rollback ;;
+	"spl selfheal") spl_selfheal ;;
+	*) usage ;;
+esac

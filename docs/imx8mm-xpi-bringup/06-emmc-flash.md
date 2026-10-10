@@ -3,8 +3,8 @@
 新品(またはベンダ環境)の XPI-iMX8MM を、**電源投入だけで 自作イメージが
 [eMMC](00-glossary.md#g-emmc) から起動する状態**にするまでの手順書。
 
-一度この手順を通せば、以後の更新は `scripts/ota-update.sh`(SSH 経由の A/B OTA)
-だけで済み、この手順に戻ることはない。
+一度この手順を通せば、以後の更新は `scripts/ab.sh`(SSH 経由の A/B 更新、
+[docs/usage/](../usage/))だけで済み、この手順に戻ることはない。
 
 方式は **UMS 直書き**: uuu で RAM に U-Boot を上げ、`ums` で eMMC を PC の
 ブロックデバイスとして見せて bmaptool で焼く。uuu は 1 周だけ、
@@ -100,7 +100,7 @@ lsblk -S | grep -i usb      # デバイス名を確認 (以下 sdX と表記)
 パーティションは公開されないので、**ベンダブートローダ(boot0)には触れようがない**。
 
 なお falcon 構成の wic は U-Boot A/B の**両面とも falcon** になる(既存ボードの
-「B 面 = stock」は uboot-update の温存による)。新品ボードの最終復旧は
+「B 面 = stock」は、SPL の更新(今の `ab spl update`)が前の版を B に残したことによる)。新品ボードの最終復旧は
 UUU + stock (`local/recovery/flash.bin-stock`) と覚えておくこと。
 
 ## Step 3 — wic を書き込む
@@ -139,7 +139,7 @@ sudo umount /mnt
 複数台展開は reusable + タグ付き(例 `tag:kiosk`)にして ACL をタグで書く。
 
 なお**稼働中**ボードのスロット更新で注入する場合は
-`ota-update.sh --authkey <file>` を使う(boot コピーが書き込み先を
+`scripts/ab.sh --host <host> linux try <wic.bz2> --authkey <file>` を使う(boot コピーが書き込み先を
 `rm -rf` してから展開するため、事前に手で置いた鍵は消される。
 dev → prod 移行で tailnet 参加まで実機検証済み 2026-08-12)。
 
@@ -167,9 +167,9 @@ A/B: booting slot a (mmc 2:1)    ← wic に焼き込んだ A/B env が機能
 ```
 
 - dev イメージなら login プロンプトまで(実測 +15.4s、シリアル初バイト起点)
-- prod はシリアルログイン不可。健全性は tailnet 参加
-  (`tailscale status | grep <ホスト名>`)→ Tailscale SSH で確認:
-  `ab-status`(slot A / upgrade_available=0)、
+- prod もシリアルは root で自動ログインする(物理アクセス = root の設計判断)。リモートでの
+  健全性は tailnet 参加(`tailscale status | grep <ホスト名>`)→ Tailscale SSH で確認:
+  `ab status`(`LINUX_SLOT=a` / `LINUX_TRY=0`)、
   `systemctl is-active weston kmm can0-up`、`systemctl --failed` が空
 
 ## Step 6 — プロビジョニング(デバイス個体ごとに一度)
@@ -181,8 +181,11 @@ A/B: booting slot a (mmc 2:1)    ← wic に焼き込んだ A/B env が機能
 ## 以後の更新
 
 ```bash
-./scripts/ota-update.sh --host <host> [--yes] [--authkey <file>] build/tmp/deploy/images/imx8mm-xpi/kart-image-*-emmc.wic.bz2
+./scripts/ab.sh --host <host> linux try build/tmp/deploy/images/imx8mm-xpi/kart-image-*-emmc.wic.bz2 [--authkey <file>]
+./scripts/ab.sh --host <host> linux commit
 ```
+
+手順の全体は [docs/usage/](../usage/)。
 
 A/B の仕組み・フォールバック挙動(起動失敗 → bootcount 超過 → 旧スロット自動復帰、
 無人 84s 実測)は [05-next-steps](05-next-steps.md) C-4 を参照。

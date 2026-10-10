@@ -41,8 +41,13 @@
 4. (解決 → [06-splash.md](06-splash.md)): SPL スプラッシュ + seamless takeover は
    falcon/proper 両経路で実機確定。スプラッシュ導入後の起動時間は 30-boot-time.md
    #12〜#14 で再計測済み
-5. **uuu 標準フロー(emmc_all)の再検証**: fastboot 段は未検証。SPL/imx-boot の更新は
-   Linux からの dd、または 04-falcon.md のリカバリ経路(tftp)で運用中
+5. **eMMC 全書き用の U-Boot がリポジトリの外にある**: uuu で書き込み用の U-Boot を RAM で起動し、
+   fastboot で wic を全書きする手順は実績がある(09-16、09-17。[usage/02-first-flash.md](../usage/02-first-flash.md))。
+   ただし使った U-Boot は Git の外の `local/recovery/imx-boot-imx8mp-stock`(env を 2 面にする前の、
+   falcon を付けない構成)。今の falcon を付けない構成(`imx8mp-dev.yml:imx-emmc-ab.yml`)の imx-boot で
+   代わりになるかは未確認。10-11 に試したときは、USB 書き込みの口(DWN_USB1)に LTE ドングルが
+   挿さっていて PC から SDP が見えなかった。確かめられたら、XPI の `scripts/build-recovery-uboot.sh`
+   と同じように作れるようにする
 6. (解決 2026-09-13 → [01-m7.md](01-m7.md)「M7 の役割(確定)」): M7 が FlexCAN1 を所有する
    can-gw 構成を製品構成として確定(08-31 の「廃止も含めて判断」は事前リサーチ時の
    メモで、実装は一貫してこの構成)。BL31 diag NOTICE 1 行は残す、flexcan2(`can0`)は

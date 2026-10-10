@@ -23,7 +23,7 @@
 #   sector 0x1042 (2081KiB) B copy (= SIT.firstSectorNumber 0x1000 + 0x42)
 # 電源断 (POR) で PERSIST_SECONDARY_BOOT がクリアされ必ず A に戻るため、
 # 「B で試して電源入れ直せば旧に復帰」という tryboot 相当の運用が成立する。
-# 操作は uboot-try / uboot-commit (ab-tools)。
+# 操作は ab spl update / rollback / status (ab-tools の ab コマンド)。
 # B copy 終端 (~3.2MiB) と env (4MiB) の間に ~840KiB の余裕。imx-boot が
 # 2015KiB を超えたら firstSectorNumber と env オフセットの再設計が必要。
 # SIT は sector 0x41 で --align (KiB 単位) では直接指せないため、

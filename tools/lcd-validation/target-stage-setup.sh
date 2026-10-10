@@ -6,8 +6,9 @@
 #   ./target-stage-setup.sh uninstall [root@host]
 #
 # install が行うこと:
-#  1. /boot/logo.bin を bootloader パターンの LOGO に交換 (原本は logo.bin.orig)
-#     → SPL スプラッシュが bootloader パターンを表示する
+#  1. p1 (BOOTA) の logo.bin を bootloader パターンの LOGO に交換 (原本は logo.bin.orig)
+#     → SPL スプラッシュが bootloader パターンを表示する。SPL は A/B の面に関係なく
+#       p1 から読むので、/boot が p2 (b 面で稼働中) なら p1 を一時マウントして書く
 #  2. wl-image-view を /usr/bin へ、weston/gui パターン raw を /etc/lcdval へ
 #  3. splash-wl.service を drop-in で wl-image-view (weston パターン) に差し替え
 #  4. kmm.service を drop-in で wl-image-view (gui パターン) に差し替え
@@ -48,11 +49,16 @@ printf "[Service]\nType=simple\nExecStart=\nExecStart=/usr/bin/wl-image-view /et
     > /etc/systemd/system/kmm.service.d/lcdval.conf
 systemctl daemon-reload
 
-mount -o remount,rw /boot
-[ -f /boot/logo.bin.orig ] || cp /boot/logo.bin /boot/logo.bin.orig
-cp /tmp/bootloader.logo /boot/logo.bin
+p1=/dev/mmcblk2p1
+if grep -q "^$p1 /boot " /proc/mounts; then
+    d=/boot; mount -o remount,rw /boot
+else
+    d=/run/lcdval-p1; mkdir -p $d; mount -t vfat $p1 $d
+fi
+[ -f $d/logo.bin.orig ] || cp $d/logo.bin $d/logo.bin.orig
+cp /tmp/bootloader.logo $d/logo.bin
 sync
-mount -o remount,ro /boot
+if [ "$d" = /boot ]; then mount -o remount,ro /boot; else umount $d; rmdir $d; fi
 mount -o remount,ro /
 echo "experiment mode: INSTALLED"'
     ;;
@@ -67,13 +73,18 @@ rmdir /etc/systemd/system/kmm.service.d 2>/dev/null || true
 rm -rf /etc/lcdval /usr/bin/wl-image-view
 systemctl daemon-reload
 
-mount -o remount,rw /boot
-if [ -f /boot/logo.bin.orig ]; then
-    cp /boot/logo.bin.orig /boot/logo.bin
-    rm /boot/logo.bin.orig
+p1=/dev/mmcblk2p1
+if grep -q "^$p1 /boot " /proc/mounts; then
+    d=/boot; mount -o remount,rw /boot
+else
+    d=/run/lcdval-p1; mkdir -p $d; mount -t vfat $p1 $d
+fi
+if [ -f $d/logo.bin.orig ]; then
+    cp $d/logo.bin.orig $d/logo.bin
+    rm $d/logo.bin.orig
 fi
 sync
-mount -o remount,ro /boot
+if [ "$d" = /boot ]; then mount -o remount,ro /boot; else umount $d; rmdir $d; fi
 mount -o remount,ro /
 echo "experiment mode: UNINSTALLED"'
     ;;

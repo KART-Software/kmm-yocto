@@ -1,0 +1,13 @@
+[Unit]
+Description=Confirm or revert the M-core firmware tried this boot (ab mcore confirm)
+# SPL が mcore_try で試した面を /chosen/mcore,try に書いたときだけ動く (普段はゼロコスト)。
+# 確かめて mcore_slot を書き換えるか、駄目なら再起動して確定面へ戻す。
+ConditionPathExists=/proc/device-tree/chosen/mcore,try
+After=kmm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ab mcore confirm
+
+[Install]
+WantedBy=multi-user.target

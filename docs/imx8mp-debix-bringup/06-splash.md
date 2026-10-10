@@ -1,6 +1,6 @@
 # 06 — SPL スプラッシュと seamless takeover(2026-09-02 実機確定)
 
-電源投入 **+0.7s** で SPL がロゴを点灯し、falcon 経路ではそのまま
+電源投入 **約 +0.5s**(SPL バナーから 0.31s、シリアル実測 N=5)で SPL がロゴを点灯し、falcon 経路ではそのまま
 **一度も消えずに** weston → kmm(GUI)へ引き継ぐ。8MM
 ([../imx8mm-xpi-bringup/](../imx8mm-xpi-bringup/) の SPL 手続き描画 +
 seamless takeover)と同型の設計を、8MP の表示チェーンに再実装したもの。
@@ -12,7 +12,7 @@ seamless takeover)と同型の設計を、8MP の表示チェーンに再実装�
 |---|---|
 | SPL 側実装(表示チェーン直叩き + ロゴ blit + proper 用停止) | `meta-kart/recipes-bsp-imx/u-boot/files/0005-imx8mp-debix-spl-splash.patch`(spl_splash.c/.h + spl.c フック) |
 | SPL config | `debix-splash.cfg`(CONFIG_SPL_SPLASH) |
-| ロゴ画素 | `spl_splash_logo.h`(8MM/splash-wl と単一ソース)→ ビルド時に `logo.bin` へ変換(`falcon-itb.bb`)し boot パーティションから供給 |
+| ロゴ画素 | `spl_splash_logo.h`(8MM/splash-wl と単一ソース)→ ビルド時に `logo.bin` へ変換(`falcon-itb.bb`)し BOOT 領域に置く。SPL は A/B の面に関係なく p1 のものを読む(ロゴは更新しない前提) |
 | カーネル takeover パッチ | `meta-kart/recipes-kernel-imx/linux/files/0010〜0013`(下記) |
 | busfreq 無効化 | `imx8mp-debix.dts`(`&{/busfreq} status="disabled"`) |
 | kas 配線 | `kas/imx8mp-splash.yml`(u-boot 側 + `pn-linux-fslc-imx` 側) |
@@ -36,12 +36,17 @@ CCM (HDMI AXI/APB/24M ゲート)
   HDMI_PHY の GPC ドメイン(PGC27)を上げ忘れると PLL が回らず、
   LCDIF の CTRLDESCL0_5 で SHADOW_LOAD ビットが落ちない(= vsync が来ていない)
   という形で現れる。デジタル系レジスタが全部正しくても絵は出ない
-- 初期化完了まで **24ms**(DDR init 直後に実行)。ロゴ blit は falcon の FAT が
-  使える時点で `logo.bin` から(下記 ROM 上限のため)
+- 初期化完了まで **24ms**(DDR init 直後に実行)。ロゴは SPL に埋め込まず(下記 ROM 上限のため)、
+  eMMC の初期化直後に p1 の `logo.bin` を読んで blit する。env の読み込み(0.14s)と falcon.itb の
+  ロードを待たない。面を選ぶ差し替え口(`spl_mmc_fs_boot_partition()`)の先頭で、p1 を FAT 層へ
+  直接登録して読む。spl_fat.c の登録済みフラグは立てないので、その後 falcon は選んだ面を登録し直す。
+  proper 経路でもロゴは出て、proper へ渡す前に表示を止める
 - **ROM ブートイメージのローダ全長上限**: ロゴを SPL に埋め込むと
   pad4(spl.bin)+0x14000+1404 が上限を超え、**DDR firmware の尻尾が黙って切られて
   Training FAILED で文鎮化**する(実測: 全長 0x3c990=OK / 0x3e1c8=NG)。
-  SPL のサイズを増やす変更をしたら、ビルド後に全長 < 0x3d000 を確認する
+  SPL のサイズを増やす変更をしたら、ビルド後に全長 < 0x3d000 を確認する。今は u-boot-spl.bin
+  166,458B、全長 0x3cfb8(残り 72B)。A/B 統一(04-falcon.md「A/B とスロット選択」)で増えた分を
+  詰めるのに、SPL の GPT 読み取りを外し(debix-falcon.cfg)、表示の文字列も削った
 
 ## ハンドオフは 2 経路で真逆
 
