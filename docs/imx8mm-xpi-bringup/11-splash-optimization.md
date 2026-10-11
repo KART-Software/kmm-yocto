@@ -157,7 +157,7 @@ crop・帯版はこの原理で OTA(falcon.itb)だけで配れる。
 
 - **falcon 版 flash.bin は [UUU](00-glossary.md#g-uuu-universal-update-utility) で RAM 起動できない**
   (falcon SPL は SDPV ハンドシェイクを受けない)。UUU 経路は常に stock 退避版
-  (`local/recovery/flash.bin-stock`、`scripts/boot.uuu`)。
+  (`build/recovery/flash.bin-stock`、`scripts/boot.uuu`)。
 - **eMMC への flash.bin 書き込み(A コピーは 33KiB オフセット):**
   - **Linux 起動中**: `dd if=flash.bin of=/dev/mmcblk2 bs=1k seek=33`(busybox は `conv=` 非対応。plain dd + `sync`)。
     SPL は起動時しか読まれないので実行中書き込みは安全。**最も簡単。**

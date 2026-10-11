@@ -84,7 +84,7 @@ ffmpeg -y -ss 3 -i rec.mkv -t 7 -vf "fps=3,scale=200:-1,tile=7x3:padding=2:color
 - **重要な制約: falcon 版 flash.bin は UUU で RAM 起動できない**。falcon SPL は SDP の
   SDPV ハンドシェイクを受けず、`SDP: boot -f flash.bin` を送っても SPL が走らない
   (USB は 0134 のまま遷移せず/HID timeout)。`scripts/falcon-bench.uuu` は動かない。
-  → **UUU 経路は常に stock 退避版** `local/recovery/flash.bin-stock`
+  → **UUU 経路は常に stock 退避版** `build/recovery/flash.bin-stock`
   (`scripts/build-recovery-uboot.sh` で生成、`scripts/boot.uuu` が参照)を使う。
 - **SDP は繰り返し試行で wedge する** (HID timeout)。詰まったら `dp100 cycle` で仕切り直し。
   1 電源投入 = 1 発勝負のつもりで。

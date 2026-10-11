@@ -125,7 +125,7 @@
    書き込み中に落ちても直前 1 変更を失うだけで A/B 状態は無傷。SPL loader 増は +0x400(1KB、
    boot_data.size 0x42860→0x42c60、OCRAM 余裕内)。**実機検証**: 移行後 4 起動で flags が
    copy1 03→05→07→09 / copy2 02→04→06→08 と交互・単調増加(= 各 save が反対面に書かれる)、
-   ab_slot/boot_os 無傷、falcon/kmm/M7 正常。移行手順は local/tools-handoff/env-redund-migrate/。
+   ab_slot/boot_os 無傷、falcon/kmm/M7 正常。既存機の移行に使った道具はリポジトリに入れていない。
 14. (解決 2026-09-14、実機検証済み): **デッドマン窓の短縮**。falcon-rearm が
    `After=dev-mmcblk2.device` で coldplug 完了(kernel ~2.3s)まで待たされ、補充が電源 +3.76s、
    窓(電源 +0.5〜)が ~3.3s あった。単に `After=systemd-random-seed` に替えても

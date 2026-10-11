@@ -1,7 +1,7 @@
 # 07 — eMMC ブートと BootROM の仕様調査(fast boot の採否判断)
 
 起動時間の残り候補「ROM ロード区間の eMMC fast boot 化」の前提調査として、
-IMX8MPRM Rev.3(Chapter 6 System Boot / Fusemap。`local/IMX8MPRM.pdf`)を
+IMX8MPRM Rev.3(Chapter 6 System Boot / Fusemap。NXP のサイトから入手)を
 精読した結果と、それに基づく決定の記録(2026-09-03)。
 仕組み側の恒久知識は [learning/09](../../learning/09-emmc-boot-partitions.md)、
 着工時の手順は [fastboot-runbook.md](fastboot-runbook.md) にある。
@@ -149,7 +149,7 @@ imx-boot(870b01ab)、最終ブート `+p0`・GUI まで正常。
 
 ## 出典
 
-- IMX8MPRM Rev.3 08/2024(`local/IMX8MPRM.pdf`)Chapter 6:
+- IMX8MPRM Rev.3 08/2024(NXP のサイトから入手)Chapter 6:
   Table 6-8(BOOT_MODE)、6-22(USDHC boot eFUSE)、6-24(MMC/eMMC boot)、
   6-28(image offset)、6-35(Fusemap Descriptions)、Figure 6-13/6-14
   (Expansion device boot flow)

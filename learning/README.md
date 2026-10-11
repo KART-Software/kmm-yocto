@@ -64,7 +64,6 @@
 
 - `docs/imx8mm-xpi-bringup/` — bring-up の実務記録(pitfalls 集は #26 が本件)
 - `m4/repro-mu-read-reset/` — NXP 報告用の最小再現(英語)
-- `local/nxp-inquiry-mu-read-reset.md` — NXP 問い合わせ文面
 
 この教材は「なぜそうなるのか」の理解用、上記は「何をどうやったか」の記録用、
 という住み分け。

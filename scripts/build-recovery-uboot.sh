@@ -1,9 +1,9 @@
 #!/bin/bash
 # build-recovery-uboot.sh — stock (非 falcon) U-Boot をビルドし、リカバリ・書き込み用の
-# 資産として local/recovery/ へ退避する。
+# 資産として build/recovery/ へ置く (build/ は Git の外。消しても、このスクリプトで作り直せる)。
 #
-#   ./scripts/build-recovery-uboot.sh            # XPI (8MM)  → local/recovery/flash.bin-stock
-#   ./scripts/build-recovery-uboot.sh imx8mp     # DEBIX (8MP) → local/recovery/imx-boot-imx8mp-stock
+#   ./scripts/build-recovery-uboot.sh            # XPI (8MM)  → build/recovery/flash.bin-stock
+#   ./scripts/build-recovery-uboot.sh imx8mp     # DEBIX (8MP) → build/recovery/imx-boot-imx8mp-stock
 #
 # なぜ必要か: falcon SPL は USB 書き込み (SDP) の 2 段目 (SDPV) を受けないため、UUU で
 # RAM 起動して `u-boot=>` や fastboot に到達できない。UUU 経路は必ずこの stock 版を使う。
@@ -17,13 +17,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
-mkdir -p local/recovery
+mkdir -p build/recovery
 
 case "${1:-imx8mm}" in
 imx8mm)
     kas-container shell kas/imx8mm-prod.yml:kas/imx8mm-emmc-ab.yml -c "bitbake u-boot-fslc"
-    cp build/tmp/deploy/images/imx8mm-xpi/flash.bin-imx8mm-xpi-sd local/recovery/flash.bin-stock
-    echo "==> local/recovery/flash.bin-stock を更新 (stock / SDPV 対応)"
+    cp build/tmp/deploy/images/imx8mm-xpi/flash.bin-imx8mm-xpi-sd build/recovery/flash.bin-stock
+    echo "==> build/recovery/flash.bin-stock を更新 (stock / SDPV 対応)"
     echo "    boot.uuu はこのファイルを使う。deploy 側は現在 stock なので、"
     echo "    falcon 運用イメージが必要なら imx8mm-falcon.yml 付きで再ビルドすること。"
     ;;
@@ -32,7 +32,7 @@ imx8mp)
     export KAS_BUILD_DIR=$PWD/build/recovery-imx8mp
     mkdir -p "$KAS_BUILD_DIR"
     kas-container shell kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml -c "bitbake imx-boot"
-    out=local/recovery/imx-boot-imx8mp-stock
+    out=build/recovery/imx-boot-imx8mp-stock
     new=$KAS_BUILD_DIR/tmp/deploy/images/imx8mp-debix/imx-boot-imx8mp-debix-sd.bin-flash_evk
     if [ -f "$out" ] && ! cmp -s "$new" "$out"; then
         mv "$out" "$out.prev"

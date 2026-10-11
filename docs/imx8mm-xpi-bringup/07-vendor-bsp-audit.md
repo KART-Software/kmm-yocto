@@ -1,7 +1,7 @@
 # 07 — ベンダ BSP 監査(現状構成との照合結果)
 
 Geniatech 公式 BSP `imx8mm_xpi_yocto-kernel-uboot-source-20210909.zip`
-(解凍パスワード `20210909`、`local/vendor-bsp/` に展開。NXP
+(解凍パスワード `20210909`、リポジトリの外に展開。NXP
 `4.14.98_2.0.0_ga` ベース、U-Boot 2018.03 + kernel 4.14.98)を精査し、
 現行構成(u-boot-fslc 2025.01 + mainline 系 kernel + 自作 XPI DTS)と
 照合した記録(2026-08-12 実施)。
@@ -9,7 +9,7 @@ Geniatech 公式 BSP `imx8mm_xpi_yocto-kernel-uboot-source-20210909.zip`
 照合元: `geniatech/{uboot-source,kernel-source}` +
 `loong/devices/xwayland-imx8mmevk-xpi/`(XPI 個体別 override。出荷版と
 バイト一致することを確認済み)+ 実機から吸い出した逆コンパイル DTB
-(`local/vendor-dtbs/running.dts`、こちらが最終の ground truth)。
+(リポジトリの外に保存、こちらが最終の ground truth)。
 ベンダ git 履歴は骨抜き(objects 無し)のため、NXP 公式タグとの
 バイト比較で改造分を切り出した。
 

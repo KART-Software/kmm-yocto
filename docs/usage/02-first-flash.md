@@ -14,7 +14,7 @@ Linux が無くてもよい。2026-09-17 に製品構成の wic(3.65GB)を約 3 
 ### 用意するもの
 
 - **書き込み用の U-Boot**: falcon を付けない、U-Boot proper 入りの imx-boot。falcon の SPL は USB 書き込み
-  (SDP)の 2 段目を受けないので使えない。次のコマンドで `local/recovery/imx-boot-imx8mp-stock` に作る。
+  (SDP)の 2 段目を受けないので使えない。次のコマンドで `build/recovery/imx-boot-imx8mp-stock` に作る。
   別のビルドディレクトリ(`build/recovery-imx8mp`)で作るので、普段の成果物は変わらない
 
   ```bash
@@ -24,7 +24,7 @@ Linux が無くてもよい。2026-09-17 に製品構成の wic(3.65GB)を約 3 
 - **展開した wic**: 置き場所は uuu のスクリプトが決めている
 
   ```bash
-  bunzip2 -kc build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2 > local/recovery/flash.wic
+  bunzip2 -kc build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2 > build/recovery/flash.wic
   ```
 
 - **USB の線**: 機体の Type-A の DWN_USB1(OTG ができる方の口)と PC を A-A ケーブルでつなぐ。
@@ -73,7 +73,7 @@ Linux が無くてもよい。2026-09-17 に製品構成の wic(3.65GB)を約 3 
 U-Boot の `ums` で eMMC を PC のブロックデバイスとして見せ、bmaptool で wic を書く。ROM の
 起動元を user 領域へ切り替える `mmc partconf` も同じ U-Boot で行う。手順は
 [imx8mm-xpi-bringup/06-emmc-flash.md](../imx8mm-xpi-bringup/06-emmc-flash.md)。書き込み用の U-Boot は
-`scripts/build-recovery-uboot.sh` で作る(`local/recovery/flash.bin-stock`)。
+`scripts/build-recovery-uboot.sh` で作る(`build/recovery/flash.bin-stock`)。
 
 XPI のブートモードは基板の DIP S1 で、手で切り替える。触れないときは、動いている Linux から
 SPL の A/B の IVT をわざと壊して USB 書き込みに落とす方法がある(`xpi-remote-sdp` スキル)。

@@ -63,7 +63,7 @@ echo start > /sys/class/remoteproc/remoteproc0/state        # stop で停止
 ```
 
 remoteproc は **ELF のみ受理**。ベアメタル .bin しか無い場合は
-`local/bin2elf-m4.py` で包む (p_paddr=0x1FFE0000 の PT_LOAD 1 本)。
+ELF に包む (p_paddr=0x1FFE0000 の PT_LOAD 1 本。包むスクリプトはリポジトリ外)。
 NXP プリビルトデモ 4 種はベンダイメージ boot パーティションから採取済み。
 
 ## ベアメタルの書き方 (m4/hello-world が雛形)

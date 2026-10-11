@@ -348,7 +348,7 @@ uboot-env.bin(既定 env)は焼き直し時にしか適用されない。旧名�
 ## リカバリ経路(SPL/imx-boot を壊した場合)
 
 falcon SPL は SDPV を受けないため、UUU 経路は falcon を付けない stock 版
-`local/recovery/imx-boot-imx8mp-stock` を使う(DIP 001)。stock 版は
+`build/recovery/imx-boot-imx8mp-stock` を使う(DIP 001)。stock 版は
 `scripts/build-recovery-uboot.sh imx8mp` で作り、`scripts/debix-probe.uuu`(eMMC に書かず fastboot まで)/
 `scripts/debix-flash-all.uuu`(wic を全書き)が参照する([usage/02-first-flash.md](../usage/02-first-flash.md))。8MP は ROM プロトコルが **SDPS**。`.uuu` スクリプトは
 **先頭に `uuu_version` 行が無いとブートイメージと誤認される**(実測)。

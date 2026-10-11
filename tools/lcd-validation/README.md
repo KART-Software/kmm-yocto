@@ -2,8 +2,7 @@
 
 実機ディスプレイを Web カメラで撮影し、Bootloader → Weston → GUI の表示
 タイミングと表示異常 (位置ずれ/スケール/クロップ/局所歪み) を自動判定する。
-設計書: `local/lcd_validation_system_design.md`(ML 不使用、AprilTag 36h11 +
-OpenCV aruco のルールベース)。
+方式は ML 不使用の、AprilTag 36h11 + OpenCV aruco のルールベース(設計書はリポジトリ外)。
 
 ## セットアップ (ホスト)
 

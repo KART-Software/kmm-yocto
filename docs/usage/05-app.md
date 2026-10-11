@@ -32,8 +32,8 @@ SDK は、機種の構成の後ろに `kas/sdk.yml` を足して `meta-toolchain
 `kas/sdk.yml` の冒頭)。Qt は qtbase だけに絞ってある。インストーラは
 `build/tmp/deploy/sdk/poky-glibc-x86_64-meta-toolchain-qt6-*.sh`。
 
-手元のソースのままイメージに入れたいときは、externalsrc の配線(`local/kas-kmm-externalsrc.yml`、
-Git の外)を使う。
+手元のソースのままイメージに入れたいときは、Yocto の externalsrc で kmm のレシピを手元のソースに向ける
+(kas の設定をもう 1 枚重ねる。リポジトリには入れていない)。
 
 ## 設定
 
