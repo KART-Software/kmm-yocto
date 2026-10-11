@@ -118,4 +118,4 @@ RDC 修正前、MU 回避策を検討した時の見積もり:
 - 質問 2(「必要な RDC 設定を見落としていないか?」)の答えが **YES** だったこと
 - **実行時 devmem では直らず、ブート時 ATF が必須**という知見
 - SDK に rpmsg + ECSPI/GPIO の複合サンプルが無いこと
-（詳細は `m4/repro-mu-read-reset/` と `local/nxp-inquiry-mu-read-reset.md`）
+（詳細は `m4/repro-mu-read-reset/`。NXP への問い合わせの文面はリポジトリ外）

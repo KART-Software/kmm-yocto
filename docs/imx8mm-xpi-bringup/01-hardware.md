@@ -1,6 +1,6 @@
 # 01 — XPI-iMX8MM ハードウェア実測
 
-HW UserGuide(`local/GTC(HF)-HW_UserGuide...pdf`)+ ベンダ [BSP](00-glossary.md#g-bsp) + 実機ログから
+HW UserGuide(Geniatech 配布の GTC(HF)-HW_UserGuide PDF)+ ベンダ [BSP](00-glossary.md#g-bsp) + 実機ログから
 確定した事実。**推測ではなく全て一次情報。**
 
 ## SoC / メモリ / ストレージ
@@ -133,7 +133,7 @@ fix(quality=2、衛星 11 機)まで実証済み。
 
 ## ベンダ配布物の扱い
 
-`local/` に以下がある(gitignore 済み):
+ベンダから入手したもの(リポジトリには入れない):
 
 | ファイル | 用途 |
 |---|---|

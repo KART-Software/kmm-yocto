@@ -32,7 +32,6 @@ IMAGE_INSTALL:append = " \
     glibc-utils \
     data-mount \
     systemd-tuning \
-    ssh-hostkeys \
 "
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,19 @@
+uuu_version 1.4.193
+# debix-probe.uuu — DEBIX (8MP) の書き込み用 U-Boot を USB で RAM 起動し、fastboot から eMMC が
+# 見えるかだけを確かめる。eMMC には一切書かない (電源を切れば元に戻る)。
+#
+#   python3 .claude/skills/debix-boot-switch/bootsel.py uuu && python3 scripts/dp100.py cycle --off-time 3
+#   sudo uuu scripts/debix-probe.uuu      # eMMC の区画表がシリアルに出る
+#   python3 .claude/skills/debix-boot-switch/bootsel.py emmc && python3 scripts/dp100.py cycle --off-time 3
+#
+# 前提: ../build/recovery/imx-boot-imx8mp-stock (scripts/build-recovery-uboot.sh imx8mp で生成)。
+# 機体の Type-A の DWN_USB1 を A-A ケーブルで PC へ。
+# 注意: 先頭の uuu_version 行が無いと、uuu はスクリプトを起動イメージだと思い込む。
+# パスはこのスクリプトのあるディレクトリからの相対 (絶対パスは前に連結されて壊れる)。
+SDPS: boot -f ../build/recovery/imx-boot-imx8mp-stock
+SDPV: delay 1000
+SDPV: write -f ../build/recovery/imx-boot-imx8mp-stock -skipspl
+SDPV: jump
+FB: ucmd mmc dev 2
+FB: ucmd mmc part
+FB: done

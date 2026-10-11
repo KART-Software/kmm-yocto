@@ -3,7 +3,7 @@
  * imx8mm-xpi.dts — Geniatech XPI-iMX8MM 用製品 DT
  *
  * 根拠は全て実機/実物から採取済み:
- *  - ベンダ実行中 DT (/sys/firmware/fdt, local/vendor-dtbs/running.dts)
+ *  - ベンダ実行中 DT (/sys/firmware/fdt を逆コンパイルしたもの。リポジトリ外)
  *  - ベンダ 4.14 カーネルの起動ログ (lt9611: irq_gpio=5 reset_gpio=6)
  *  - HW UserGuide の 40 ピン表 (ECSPI2 = pin19-24, RPi GPIO25 相当 = PDM_DATA3)
  *

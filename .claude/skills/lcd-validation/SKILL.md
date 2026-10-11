@@ -7,7 +7,7 @@ description: LCD バリデーションシステム (tools/lcd-validation) の使
 
 `tools/lcd-validation/` — 実機ディスプレイを Web カメラで撮り、AprilTag 60 個
 (10x6) の検出でブート表示タイミングと表示異常をルールベース判定する。
-設計書: `local/lcd_validation_system_design.md`、詳細手順: `tools/lcd-validation/README.md`。
+詳細手順: `tools/lcd-validation/README.md`(設計書はリポジトリ外)。
 新しい知見が出たらこの skill と README の両方に追記する。
 
 ## いつ使うか

@@ -32,7 +32,7 @@ mask が rootfs に焼き込まれることを tar で確認済み。
 
 ## B. pinctrl の deferred probe(LT9611 / CAN / backlight)— 解決済み
 
-login 時の実機ログ(`local/`… または再取得)にこの一覧が出た:
+login 時の実機ログ(手元に保存したもの、または再取得)にこの一覧が出た:
 
 ```
 32e00000.lcdif : mxsfb: Cannot connect bridge        (LT9611 待ち)
@@ -148,7 +148,7 @@ pinctrl ドライバが永遠に現れないので、fw_devlink がグループ 
    2. wic を NFS root の `/root/` に置き、ボード上で
       `dd if=/root/emmc.wic of=/dev/mmcblk2 bs=1M`(user 領域のみ。
       **boot0 のベンダブートローダは無傷**。先頭 8MiB は
-      `local/xpi-backup/emmc-head-8mib.img` に退避済み)
+      リポジトリの外に退避済み)
    3. SDP U-Boot から `mmc partconf 2 0 7 0`(BOOT_PARTITION_ENABLE=0x7 =
       user 領域)。ベンダ復帰は `mmc partconf 2 0 1 0`
    4. S1 を `0110 1010`(eMMC)にして電源投入

@@ -14,7 +14,7 @@ Phase 3 は「±0 の追認」にしかならないことが RM+実測で確定�
 目的: imx-boot を user 領域 (sector 64) から eMMC boot0/boot1 へ移す。
 狙いは ROM 区間の短縮(fast boot fuse 前提)と bootloader の A/B 構造化。
 
-**期待値(2026-09-03、IMX8MPRM Rev.3 精読で確定 — local/IMX8MPRM.pdf)**:
+**期待値(2026-09-03、IMX8MPRM Rev.3 精読で確定)**:
 
 - **fuse なしでも boot0 起動は可能**(Table 6-24: normal boot で ROM が
   Ext_CSD[179] BOOT_PARTITION_ENABLE を読んでパーティションを選ぶ)。
@@ -38,7 +38,7 @@ Phase 3 は「±0 の追認」にしかならないことが RM+実測で確定�
 - mmc-utils: ボード `/data/fastboot-prep/mmc`(動作確認済み)
 - バックアップ: ext_csd 生ダンプ + boot0/boot1 の全内容(ベンダー工場出荷の
   ブートローダ遺物入り)を `/data/fastboot-prep/` とホスト
-  `local/recovery/fastboot-prep/` の両方に保存(md5 照合済み)
+  (リポジトリの外)の両方に保存(md5 照合済み)
 - 現状値: PARTITION_CONFIG=0x00(boot パーティション無効)、
   BOOT_BUS_CONDITIONS=0x00 — ROM は user 領域から起動中
 

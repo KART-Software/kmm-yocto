@@ -55,6 +55,6 @@ XPI-iMX8MM の M4 統合作業で積み上げた低レベル知識の教材が�
 
 - `learning/` = **なぜそうなるのか**の恒久知識(この skill が管理)
 - `docs/imx8mm-xpi-bringup/` = **何をどうやったか**の実務記録・pitfalls
-- ブランチ `dev/imx8mm-m4-nxp-repro` / `local/nxp-inquiry-*` = 特定案件の成果物
+- ブランチ `dev/imx8mm-m4-nxp-repro` と NXP への問い合わせの下書き(リポジトリ外) = 特定案件の成果物
 
 概念の疑問は learning、手順や踏んだ罠は docs、と振り分ける。

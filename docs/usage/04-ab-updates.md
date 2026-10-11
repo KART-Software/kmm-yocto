@@ -38,6 +38,9 @@ D=build/tmp/deploy/images/imx8mp-debix
 - **両面を同じ版にするなら `linux try` → `commit` を 2 回**(2 回目はもう片方の面に書く)
 - `--authkey` は Tailscale の初回参加用の鍵を新しい面の BOOT に置く([03-provisioning.md](03-provisioning.md))
 - 新しい面では、`falcon.itb`(BL31 とカーネル)も、proper に落ちたときの U-Boot proper も新しい版が動く
+- 2026-10 より前のイメージは、全機体で同じ SSH のホスト鍵を使っていた。それより後のイメージへ更新すると、
+  試起動の時点で機体ごとの鍵に変わる。`ab.sh` の SSH が鍵の不一致で止まるので、PC で
+  `ssh-keygen -R <機体>` してから続ける([03-provisioning.md](03-provisioning.md))
 
 ### commit が確かめること
 

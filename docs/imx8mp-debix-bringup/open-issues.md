@@ -41,13 +41,12 @@
 4. (解決 → [06-splash.md](06-splash.md)): SPL スプラッシュ + seamless takeover は
    falcon/proper 両経路で実機確定。スプラッシュ導入後の起動時間は 30-boot-time.md
    #12〜#14 で再計測済み
-5. **eMMC 全書き用の U-Boot がリポジトリの外にある**: uuu で書き込み用の U-Boot を RAM で起動し、
-   fastboot で wic を全書きする手順は実績がある(09-16、09-17。[usage/02-first-flash.md](../usage/02-first-flash.md))。
-   ただし使った U-Boot は Git の外の `local/recovery/imx-boot-imx8mp-stock`(env を 2 面にする前の、
-   falcon を付けない構成)。今の falcon を付けない構成(`imx8mp-dev.yml:imx-emmc-ab.yml`)の imx-boot で
-   代わりになるかは未確認。10-11 に試したときは、USB 書き込みの口(DWN_USB1)に LTE ドングルが
-   挿さっていて PC から SDP が見えなかった。確かめられたら、XPI の `scripts/build-recovery-uboot.sh`
-   と同じように作れるようにする
+5. **eMMC 全書きを今の書き込み用 U-Boot で通していない**: 書き込み用 U-Boot は
+   `scripts/build-recovery-uboot.sh imx8mp` で作れるようにした([usage/02-first-flash.md](../usage/02-first-flash.md))。
+   10-11 にこの U-Boot で USB から RAM 起動し、fastboot から eMMC の区画表を読めることは確かめた
+   (`scripts/debix-probe.uuu`)。wic を全書きする最後の一段は、09-16 と 09-17 に前の U-Boot(env を 2 面に
+   する前の構成)で成功しているが、今の U-Boot では /data まで消えるので試していない。次に全書きが
+   要るときに `scripts/debix-flash-all.uuu` で確かめる
 6. (解決 2026-09-13 → [01-m7.md](01-m7.md)「M7 の役割(確定)」): M7 が FlexCAN1 を所有する
    can-gw 構成を製品構成として確定(08-31 の「廃止も含めて判断」は事前リサーチ時の
    メモで、実装は一貫してこの構成)。BL31 diag NOTICE 1 行は残す、flexcan2(`can0`)は
@@ -126,7 +125,7 @@
    書き込み中に落ちても直前 1 変更を失うだけで A/B 状態は無傷。SPL loader 増は +0x400(1KB、
    boot_data.size 0x42860→0x42c60、OCRAM 余裕内)。**実機検証**: 移行後 4 起動で flags が
    copy1 03→05→07→09 / copy2 02→04→06→08 と交互・単調増加(= 各 save が反対面に書かれる)、
-   ab_slot/boot_os 無傷、falcon/kmm/M7 正常。移行手順は local/tools-handoff/env-redund-migrate/。
+   ab_slot/boot_os 無傷、falcon/kmm/M7 正常。既存機の移行に使った道具はリポジトリに入れていない。
 14. (解決 2026-09-14、実機検証済み): **デッドマン窓の短縮**。falcon-rearm が
    `After=dev-mmcblk2.device` で coldplug 完了(kernel ~2.3s)まで待たされ、補充が電源 +3.76s、
    窓(電源 +0.5〜)が ~3.3s あった。単に `After=systemd-random-seed` に替えても

@@ -1,0 +1,21 @@
+uuu_version 1.4.193
+# debix-flash-all.uuu — DEBIX (8MP) の eMMC (mmc 2) 全体に wic を書く。**eMMC の全部が置き換わる**
+# (/data の kmm.env・Tailscale の参加状態・SSH の鍵も消える)。手順は docs/usage/02-first-flash.md。
+#
+#   bunzip2 -kc build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2 > build/recovery/flash.wic
+#   python3 .claude/skills/debix-boot-switch/bootsel.py uuu && python3 scripts/dp100.py cycle --off-time 3
+#   sudo uuu scripts/debix-flash-all.uuu
+#   python3 .claude/skills/debix-boot-switch/bootsel.py emmc && python3 scripts/dp100.py cycle --off-time 3
+#
+# 前提: ../build/recovery/imx-boot-imx8mp-stock (scripts/build-recovery-uboot.sh imx8mp で生成)、
+# ../build/recovery/flash.wic (展開した wic)。機体の Type-A の DWN_USB1 を A-A ケーブルで PC へ。
+# パスはこのスクリプトのあるディレクトリからの相対 (絶対パスは前に連結されて壊れる)。
+SDPS: boot -f ../build/recovery/imx-boot-imx8mp-stock
+SDPV: delay 1000
+SDPV: write -f ../build/recovery/imx-boot-imx8mp-stock -skipspl
+SDPV: jump
+FB: ucmd setenv fastboot_dev mmc
+FB: ucmd setenv mmcdev 2
+FB: ucmd mmc dev 2
+FB: flash -raw2sparse all ../build/recovery/flash.wic
+FB: done

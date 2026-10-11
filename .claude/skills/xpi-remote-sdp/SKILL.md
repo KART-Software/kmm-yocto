@@ -22,7 +22,7 @@ BootROM は「A 面 IVT → SIT → B 面 IVT の順に検証し、全滅なら 
   完全起動不能 + ssh 死亡なら現地で S1=Serial にするしかない —
   この技は「S1=Serial 保険を掛け忘れて外出した」を救うもの
 - ベンチ PC 側: USB OTG ケーブル接続済み・dp100(電源)・uuu・
-  `local/recovery/flash.bin-stock`(falcon 版は UUU RAM 起動不可のため必須)
+  `build/recovery/flash.bin-stock`(falcon 版は UUU RAM 起動不可のため必須)
 
 ## 手順
 

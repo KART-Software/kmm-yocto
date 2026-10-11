@@ -81,7 +81,7 @@ args                                      ← SPL falcon 機構が要求する�
   U-Boot A/B の B 面(stock、ROM の IVT フォールバック) → 最終 UUU/SDP。
   **UUU リカバリには stock ビルド(falcon オーバーレイ無し)の flash.bin を使う**
   (falcon SPL は SDPV を受けないため boot.uuu は stock 専用になった)。
-  stock 版は `scripts/build-recovery-uboot.sh` が `local/recovery/flash.bin-stock`
+  stock 版は `scripts/build-recovery-uboot.sh` が `build/recovery/flash.bin-stock`
   へ退避し、boot.uuu はそこを参照する(deploy の上書き合戦から独立)
 - 検証手順: 変更時はまず `falcon-bench.uuu` で RAM 起動ベンチ
   (eMMC 無書き込み) → 通ってから `uboot-update`(B 面に前版温存)

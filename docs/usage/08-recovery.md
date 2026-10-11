@@ -24,6 +24,9 @@ proper 経由で起動させたいときは、機体で `fw_setenv boot_os no` �
     [04-falcon.md](../imx8mp-debix-bringup/04-falcon.md)「リカバリ経路」。PC のファイアウォールが
     TFTP(UDP)を落とすことがあるので、通らなければ許可する
   - eMMC 全体を書き直す: [02-first-flash.md](02-first-flash.md)
+- **LAN の SSH に入れない**: SSH のホスト鍵は `/data/ssh` にあるので、`/data` がマウントできないと
+  LAN の SSH は動かない。シリアルで入り、`/data` の状態を見る。鍵が変わったと言われるときは
+  [03-provisioning.md](03-provisioning.md) の「SSH のホスト鍵」
 - **画面が出ない**: ユニットが全部動いていても黒いことがある。カメラの判定(lcd-validation)で
   確かめる。過去の真っ黒の原因と対処は [06-splash.md](../imx8mp-debix-bringup/06-splash.md)
 

@@ -13,10 +13,16 @@
 #
 # Options:
 #   --emmc       eMMC A/B レイアウト (imx8mm/imx8mp; 省略時は SD 持ち込み用シングルスロット)
-#   --falcon     Falcon Mode + SPL スプラッシュを合成 (製品ブート経路; --emmc 必須)
+#   --falcon     Falcon Mode + SPL スプラッシュを合成 (製品ブート経路; imx8mm/imx8mp で --emmc 必須)
 #   --netboot    TFTP/NFS root (imx8mm、bring-up 用)
-#   --sdcard     SD カードブート (RPi5 dev 用)
-#   --nvme       NVMe ブート (RPi5 dev 用)
+#   --sdcard     SD カードブート (RPi5 用)
+#   --nvme       NVMe ブート (RPi5 用)
+#
+# target と起動方式の組み合わせ (表に無いものはエラーで止める。target と起動方式は 1 つずつ):
+#   imx8mp       なし | --emmc [--falcon]
+#   imx8mm       なし | --emmc [--falcon] | --netboot
+#   qemu         なし
+#   prod / dev   --sdcard | --nvme (必須)
 #
 # アプリ (C++ 版) は常にイメージに含まれる（レシピが SRCREV 固定で取得）。
 #
@@ -36,26 +42,62 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TARGET=""
 BOOT=""
 FALCON=""
+USAGE="Usage: $0 <imx8mp|imx8mm|qemu|prod|dev> [--emmc|--netboot|--sdcard|--nvme] [--falcon]"
+
+die() {
+    echo "Error: $*" >&2
+    exit 1
+}
 
 for arg in "$@"; do
     case "$arg" in
-        prod|dev|qemu|imx8mm|imx8mp) TARGET="$arg" ;;
-        --sdcard)      BOOT="sdcard" ;;
-        --nvme)        BOOT="nvme" ;;
-        --emmc)        BOOT="emmc" ;;
-        --netboot)     BOOT="netboot" ;;
-        --falcon)      FALCON=1 ;;
+        prod|dev|qemu|imx8mm|imx8mp)
+            [ -z "$TARGET" ] || die "specify only one target (got $TARGET and $arg)"
+            TARGET="$arg"
+            ;;
+        --sdcard|--nvme|--emmc|--netboot)
+            [ -z "$BOOT" ] || die "specify only one boot option (got --$BOOT and $arg)"
+            BOOT="${arg#--}"
+            ;;
+        --falcon)
+            [ -z "$FALCON" ] || die "--falcon given twice"
+            FALCON=1
+            ;;
+        -h|--help)
+            sed -n '2,/^set -e/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
         *)
             echo "Unknown argument: $arg" >&2
-            echo "Usage: $0 <imx8mp|imx8mm|qemu|prod|dev> [--emmc] [--falcon] [--sdcard|--nvme|--netboot]" >&2
+            echo "$USAGE" >&2
             exit 1
             ;;
     esac
 done
 
 if [ -z "$TARGET" ]; then
-    echo "Usage: $0 <imx8mp|imx8mm|qemu|prod|dev> [--emmc] [--falcon] [--sdcard|--nvme|--netboot]" >&2
+    echo "$USAGE" >&2
     exit 1
+fi
+
+# --- Check the combination (no silent fallback to a default config) ---
+case "$TARGET" in
+    imx8mp)   ALLOWED_BOOT="emmc" ;;
+    imx8mm)   ALLOWED_BOOT="emmc netboot" ;;
+    qemu)     ALLOWED_BOOT="" ;;
+    prod|dev) ALLOWED_BOOT="sdcard nvme" ;;
+esac
+if [ -n "$BOOT" ]; then
+    case " $ALLOWED_BOOT " in
+        *" $BOOT "*) ;;
+        *) die "$TARGET does not support --$BOOT (allowed: ${ALLOWED_BOOT:-none})" ;;
+    esac
+fi
+if [ -n "$FALCON" ]; then
+    case "$TARGET" in
+        imx8mm|imx8mp) ;;
+        *) die "--falcon is only supported for imx8mm/imx8mp" ;;
+    esac
 fi
 
 # --- Map target to kas config ---
@@ -79,13 +121,13 @@ case "$TARGET" in
         case "$BOOT" in
             emmc)    KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-emmc-ab.yml" ;;
             netboot) KAS_CONFIG="kas/imx8mm-dev.yml:kas/imx8mm-netboot.yml" ;;
-            *)       KAS_CONFIG="kas/imx8mm-dev.yml" ;;
+            "")      KAS_CONFIG="kas/imx8mm-dev.yml" ;;
         esac
         ;;
     imx8mp)
         case "$BOOT" in
             emmc)    KAS_CONFIG="kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml" ;;
-            *)       KAS_CONFIG="kas/imx8mp-dev.yml" ;;
+            "")      KAS_CONFIG="kas/imx8mp-dev.yml" ;;
         esac
         ;;
 esac

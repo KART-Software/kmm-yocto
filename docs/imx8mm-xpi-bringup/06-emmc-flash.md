@@ -39,7 +39,7 @@ U-Boot が上がらない・USB が使えない等の深い状態からの復旧
 - `uuu`(NXP mfgtools。導入は [02-debug-setup.md](02-debug-setup.md))
 - `bmaptool`(Debian/Ubuntu: `sudo apt install bmap-tools`。無ければ dd でも可)
 - **stock U-Boot** — `./scripts/build-recovery-uboot.sh` で
-  `local/recovery/flash.bin-stock` を生成しておく(boot.uuu が参照)。
+  `build/recovery/flash.bin-stock` を生成しておく(boot.uuu が参照)。
   falcon 運用 ([08-falcon.md](08-falcon.md)) の flash.bin は SDPV を受けず
   `u-boot=>` に到達できないため、**UUU 経路は常に stock 版**を使う
 
@@ -101,7 +101,7 @@ lsblk -S | grep -i usb      # デバイス名を確認 (以下 sdX と表記)
 
 なお falcon 構成の wic は U-Boot A/B の**両面とも falcon** になる(既存ボードの
 「B 面 = stock」は、SPL の更新(今の `ab spl update`)が前の版を B に残したことによる)。新品ボードの最終復旧は
-UUU + stock (`local/recovery/flash.bin-stock`) と覚えておくこと。
+UUU + stock (`build/recovery/flash.bin-stock`) と覚えておくこと。
 
 ## Step 3 — wic を書き込む
 
