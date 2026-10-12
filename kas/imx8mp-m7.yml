@@ -17,7 +17,7 @@ local_conf_header:
     # imx8mp-debix.conf の UBOOT_EXTLINUX_FDT:default)
     FALCON_DTB:forcevariable = "imx8mp-debix-m7.dtb"
     UBOOT_EXTLINUX_FDT:default:forcevariable = "../imx8mp-debix-m7.dtb"
-    IMAGE_INSTALL:append = " rpmsg-can"
+    IMAGE_INSTALL:append = " rpmsg-can mcore-keepalive"
     # kmm が読む CAN は M7 経由の rpmsgcan0 (Linux 側 FlexCAN2 は can0 のまま残る)。
     # can0-up.service で上げる IF を差し替え、kmm 側は /data/kmm.env の
     # CAN_INTERFACE=rpmsgcan0 で選ぶ

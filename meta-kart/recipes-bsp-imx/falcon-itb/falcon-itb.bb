@@ -46,8 +46,12 @@ SPLASH_FB_HIDE_ARG:imx8mp-debix = ""
 # falcon.itb には埋め込まない (M4 更新を Yocto 非依存にするため —
 # 設計 docs/imx8mm-xpi-bringup/12-m4-standalone-bin-design.md、実証 10 ④)。
 FALCON_M4 ?= ""
-# 8MP (DEBIX) の Cortex-M7 版: m7-fw.bin (data-logger-zephyr apps/can-gw の
+# 8MP (DEBIX) の Cortex-M7 版: m7-fw.bin (data-logger-zephyr apps/main-app の
 # imx8mp_evk/mimx8ml8/m7 ビルド、ITCM リンク) を m7-fw.img (magic M7FW) に包む。
+#   provenance: data-logger-zephyr 677afc3 (feat/main-app) の build-main-app-8mp
+#   main-app = 土台 (rpmsg) + キープアライブ (チャネル mcore-keepalive、ab mcore の自動確定に必須) +
+#   CAN の中継 (rpmsg-can)。8MM の m4-fw.bin は can-gw のまま (8MM には M コアの A/B が無く、
+#   自動確定を使わない)
 # SPL パッチ 0007-imx8mp-debix-spl-m7-file-read / BL31 パッチ 0001-imx8mp-bl31-start-m7
 # とペア。kas/imx8mp-m7.yml が "1" にする。m7-fw.img は deploy するだけで Linux の
 # イメージには入れない。M コア専用パーティション p3 へは `ab mcore update` で手で置く。

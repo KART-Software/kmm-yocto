@@ -10,7 +10,7 @@
 | falcon 経路の途中で落ちる・固まる | SPL は falcon に入る前に `boot_os=no` を書くので、次の起動は U-Boot proper 経由になる。起動できると falcon-rearm が `boot_os=yes` に戻す | 電源を入れ直す。毎回 proper に落ちるなら、その面の `falcon.itb` が壊れている。Linux の更新で直す |
 | Linux の試起動が駄目 | commit しなければ、再起動で元の面に戻る。起動しない場合も、SPL が試行回数を数えて元の面に戻す | 再起動するだけ。確定後に戻したいときは `ab linux rollback` |
 | 試す面に `falcon.itb` が無い | SPL が U-Boot proper に落ち、試行切れで元の面に戻る | なし |
-| M コアの新しいファームが動かない | 試すのは 1 回だけで、rpmsg までつながらなければ再起動して確定済みの面に戻る | 確定後に戻したいときは `ab mcore rollback` |
+| M コアの新しいファームが動かない | 試すのは 1 回だけで、キープアライブが届き続けなければ再起動して確定済みの面に戻る | 確定後に戻したいときは `ab mcore rollback` |
 | SPL の A が壊れている(IVT が不正) | ROM が B を起動し、`ab-spl-selfheal` が B で A を直す | なし |
 
 proper 経由で起動させたいときは、機体で `fw_setenv boot_os no` してから再起動する。

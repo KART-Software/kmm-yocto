@@ -273,9 +273,17 @@ proper、またはそれらとカーネルの間の取り決め(`/chosen splash-
   無ければ `mcore_slot` の面。どちらも無ければ M コアは起動しない(手で置く運用で、
   置いていない機体も正常)
 - 起動時の `ab-mcore-confirm.service`(`/chosen/mcore,try` があるときだけ動く)が確かめて
-  `mcore_slot` を書き換える。当面の条件は「試した面を SPL が置けた + remoteproc が attached +
-  rpmsg のチャネルが 30 秒以内にでき、10 秒続く」。満たさなければ再起動して確定面に戻す。
-  最終形は M コアからのキープアライブ(issue #19)
+  `mcore_slot` を書き換える。見るのは M コアが動いているかだけで、CAN などの機能は見ない
+  (issue #19)。条件は「試した面を SPL が置けた + 30 秒以内に M コアのキープアライブが届く +
+  そのあと 10 秒、途切れず届き続け、その間に seq の抜けも M コアの起動し直しも無い」。
+  満たさなければ再起動して確定面に戻す。キープアライブを送らないファームは確定できない。
+  結果(面、版、確定したか、戻した理由)は `/data/ab/mcore-last` に残し、`ab mcore status` の
+  `MCORE_LAST_TRY` に出る(journal は RAM にあり、戻すための再起動で消えるため)
+- キープアライブ: M コア(data-logger-zephyr の main-app)が rpmsg のチャネル `mcore-keepalive` で
+  1 秒ごとに 16 バイト(magic "MCKA"、proto、len、uptime_ms、seq)を送る。Linux 側はカーネル
+  モジュール `mcore-keepalive` が受け、`/sys/bus/rpmsg/devices/*.mcore-keepalive.*/` に `state`
+  (waiting / alive / lost)などを出す。3 秒届かなければ lost にしてカーネルのログに出し、戻れば
+  それも出す。bind した時点で 1 通送り、M コアに Linux 側の宛先を覚えさせる
 - `ab mcore rollback` も反対の面を `mcore_try` で 1 回試し、同じ条件で確定する。反対の面に
   試行に失敗した版が残っていても、確かめずに確定しないため。`ab linux rollback` も同じ理由で、
   反対の面を試行(`upgrade_available=1`)として起動し、`ab linux commit` で確定する
@@ -325,6 +333,20 @@ B を起動し、ソフトから「次は B」とは頼めないので、**自�
 
 試起動中の電源断は、この変更では試していない(SPL の bootcount の書き込みは試行時だけで、
 デッドマンの書き込みと同じ env の 2 面化で守られる)。
+
+### 実機確認(2026-10-12、DEBIX、キープアライブでの M コアの確定)
+
+イメージは `mcore-keepalive` モジュール入り。M コアのファームは data-logger-zephyr の main-app
+(キープアライブ + CAN の中継)、比べるのはキープアライブを送らない can-gw と、試験用に 10 秒送るのを
+止める main-app。
+
+| 確認したこと | 結果 |
+|---|---|
+| main-app を `ab mcore update` | 1.4 秒で最初のキープアライブ、起動から 13.1 秒で確定。CAN 受信 約 145 件/秒 |
+| can-gw を `ab mcore update` | 30 秒待って確定せず、再起動して main-app の面に戻る。理由「30 秒以内に M コアのキープアライブが届かない」 |
+| 途中で 10 秒止まる main-app を `ab mcore rollback` で試行 | 確定を待つ間に lost になり、再起動して戻る。理由「キープアライブが 10 秒続かない (途切れた)」 |
+| どれも戻ったあと | 確定面の main-app で alive、CAN 約 145 件/秒、失敗したユニット 0、起動順の循環 0 |
+| can-gw のまま(チャネル無し)で `ab mcore status` | `MCORE_KEEPALIVE=none` で最後まで出る |
 
 ### 旧 SPL からの移行
 
