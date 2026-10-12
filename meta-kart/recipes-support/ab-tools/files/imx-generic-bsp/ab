@@ -496,6 +496,16 @@ mcore_check() {
 }
 
 mcore_running_state() { cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null || echo none; }
+# M コアのキープアライブ (kmm-yocto の mcore-keepalive カーネルモジュールが /sys に出す)。
+# M コアがチャネル "mcore-keepalive" を告知していなければ空。set -e の下で $(...) に使うので、
+# どちらも必ず 0 で終わる
+ka_dir() {
+	for _kd in /sys/bus/rpmsg/devices/*.mcore-keepalive.*; do
+		if [ -f "$_kd/state" ]; then echo "$_kd"; return 0; fi
+	done
+	return 0
+}
+ka_get() { _kd=$(ka_dir); if [ -n "$_kd" ]; then cat "$_kd/$1" 2>/dev/null || true; fi; }
 
 mcore_status() {
 	r=$(dt_str mcore,slot)
@@ -507,7 +517,14 @@ mcore_status() {
 	echo "MCORE_RUNNING=$r"
 	echo "MCORE_RUNNING_VERSION=$(dt_u32 mcore,version)"
 	echo "MCORE_TRIED_THIS_BOOT=$(dt_str mcore,try)"
+	echo "MCORE_LAST_TRY=$(cat "$STATE/mcore-last" 2>/dev/null || true)"
 	echo "MCORE_STATE=$(mcore_running_state)"
+	if [ -n "$(ka_dir)" ]; then
+		echo "MCORE_KEEPALIVE=$(ka_get state)"
+		echo "MCORE_KEEPALIVE_SEQ=$(ka_get seq) received=$(ka_get received) gaps=$(ka_get seq_gaps) restarts=$(ka_get restarts) last_rx_ms_ago=$(ka_get last_rx_ms_ago)"
+	else
+		echo "MCORE_KEEPALIVE=none"
+	fi
 	mcore_mount ro
 	for s in a b; do
 		if info=$(mcore_check "$RUN/mcore/mcore-$s.img"); then
@@ -567,10 +584,13 @@ mcore_rollback() {
 # 起動時のサービス (ab-mcore-confirm.service)。SPL が mcore_try で試した面を確かめて確定する。
 # 当面の条件: 試した面を SPL が置けた + remoteproc が attached + rpmsg のチャネルができる +
 # その状態が続く。最終形はキープアライブ (issue #19)。満たさなければ再起動して確定面へ戻す
+# M コアの自動確定 (issue #19): キープアライブだけを見る (CAN などの機能は見ない)。
+#   1. SPL が試す面を置けた (mcore,slot = mcore,try)
+#   2. MCORE_WAIT 秒以内に最初のキープアライブが届く (state が alive)
+#   3. そのあと MCORE_STABLE 秒、途切れず (state が alive のまま) 届き続け、その間に seq の抜けも
+#      M コアの起動し直しも無い。途切れの判定 (3 秒) は mcore-keepalive モジュールが行う
 MCORE_WAIT=30
 MCORE_STABLE=10
-mcore_channel() { ls /sys/bus/rpmsg/devices 2>/dev/null | grep -v -e rpmsg_ctrl -e rpmsg_ns | grep -q .; }
-
 mcore_confirm() {
 	tried=$(dt_str mcore,try)
 	[ -n "$tried" ] || return 0
@@ -580,37 +600,55 @@ mcore_confirm() {
 		fail="面 $tried のファームを SPL が置けなかった (無いか壊れている)"
 	else
 		i=0
-		until [ "$(mcore_running_state)" = attached ] && mcore_channel; do
+		until [ "$(ka_get state)" = alive ]; do
 			i=$((i + 1))
-			if [ $i -ge $MCORE_WAIT ]; then fail="${MCORE_WAIT} 秒以内に M コアの rpmsg がつながらない"; break; fi
+			if [ $i -ge $MCORE_WAIT ]; then fail="${MCORE_WAIT} 秒以内に M コアのキープアライブが届かない"; break; fi
 			sleep 1
 		done
 		if [ -z "$fail" ]; then
+			g0=$(ka_get seq_gaps); r0=$(ka_get restarts); n0=$(ka_get received)
 			i=0
 			while [ $i -lt $MCORE_STABLE ]; do
-				if [ "$(mcore_running_state)" != attached ] || ! mcore_channel; then
-					fail="M コアの rpmsg が ${MCORE_STABLE} 秒続かない"
+				sleep 1
+				i=$((i + 1))
+				if [ "$(ka_get state)" != alive ]; then
+					fail="M コアのキープアライブが ${MCORE_STABLE} 秒続かない (途切れた)"
 					break
 				fi
-				i=$((i + 1))
-				sleep 1
 			done
+			if [ -z "$fail" ]; then
+				n1=$(ka_get received)
+				if [ "$(ka_get restarts)" != "$r0" ]; then
+					fail="確定を待つ間に M コアが起動し直した"
+				elif [ "$(ka_get seq_gaps)" != "$g0" ]; then
+					fail="確定を待つ間にキープアライブの seq が抜けた"
+				elif [ $((n1 - n0)) -lt $((MCORE_STABLE - 1)) ]; then
+					fail="${MCORE_STABLE} 秒で $((n1 - n0)) 通しか届かない"
+				fi
+			fi
 		fi
 	fi
+	# 結果を /data に残す (journal は RAM にあり、戻すための再起動で消えるので、ab mcore status で見られるように)
+	ver=$(dt_u32 mcore,version)
 	if [ -z "$fail" ]; then
 		envset "mcore_slot=$tried"
+		mcore_record "面 $tried (版 $ver): 確定"
 		note "確定: M コアの面 $tried"
 		return 0
 	fi
+	mcore_record "面 $tried (版 $ver): 確定せず面 ${cur:-なし} に戻した: $fail"
 	note "M コアの面 $tried は確定しない: $fail"
 	if [ -n "$cur" ] && [ "$cur" != "$tried" ]; then
 		note "確定面 $cur に戻すため再起動します"
 		sync
 		reboot
 	fi
-	# 失敗したユニットにはしない (Linux の commit の確認を巻き込まないため)。記録は journal に残る
+	# 失敗したユニットにはしない (Linux の commit の確認を巻き込まないため)
 	return 0
 }
+
+# 最後の試行の結果を 1 行で残す。書けなくても確定の判定は止めない
+mcore_record() { { mkdir -p "$STATE" && echo "$1" > "$STATE/mcore-last" && sync; } 2>/dev/null || true; }
 
 # ---------------------------------------------------------------- main
 NO_REBOOT=0

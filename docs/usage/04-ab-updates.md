@@ -18,7 +18,7 @@ D=build/tmp/deploy/images/imx8mp-debix
 | 対象 | 操作 | 何が起きるか |
 |---|---|---|
 | `linux` | `try` / `commit` / `rollback` / `status` | `try` は空いている面に書き、普段と同じ falcon 経路で**1 回だけ**試起動する。確かめて `commit` する。`commit` せずに再起動すると元の面に戻る。SPL も試行回数を数え、`bootlimit` を超えると元の面に戻す。`rollback` は反対の面を同じように試起動する(書き込みはしない)ので、確かめてから `commit` する |
-| `mcore` | `update` / `rollback` / `status` | `update` は p3 の反対の面に書き、次の起動で 1 回試す。M コアが動けば(attached + rpmsg のチャネル)自動で確定し、駄目なら再起動して確定済みの面に戻る。`rollback` も同じように反対の面を試す |
+| `mcore` | `update` / `rollback` / `status` | `update` は p3 の反対の面に書き、次の起動で 1 回試す。M コアのキープアライブが届き続ければ自動で確定し([06-mcore-firmware.md](06-mcore-firmware.md))、駄目なら再起動して確定済みの面に戻る。`rollback` も同じように反対の面を試す |
 | `spl` | `update` / `rollback` / `status` | `update` は新しい版を A に、それまでの版を B に書く。ROM が B を起動するのは A が壊れているときだけなので、自動の判断はしない。`ab spl status` で確かめ、駄目なら `rollback` |
 
 `update` / `try` / `rollback` は自分で再起動する。`--no-reboot` を付けると書き込みと予約だけして
@@ -66,7 +66,9 @@ D=build/tmp/deploy/images/imx8mp-debix
 | `LINUX_BOOTCOUNT` | 試行の回数 / 上限 |
 | `LINUX_BOOT_PATH` | `falcon` / `proper`。旧 SPL では `unknown` |
 | `MCORE_SLOT` / `MCORE_RUNNING` | 確定済みの M コアの面 / この起動で SPL が置いた面 |
-| `MCORE_STATE` | remoteproc の状態。`attached` なら動いている |
+| `MCORE_STATE` | remoteproc の状態。`attached` なら Linux とつながっている |
+| `MCORE_KEEPALIVE` | M コアのキープアライブ。`alive` なら M コアが動いている。`none` はチャネルが無い(M コアが無いか、キープアライブを送らないファーム) |
+| `MCORE_LAST_TRY` | 最後に試した M コアのファームの結果。確定したか、戻したならその理由 |
 | `MCORE_A` / `MCORE_B` | 各面のファームの版・CRC・大きさ。`none` は空 |
 | `SPL_RUNNING_COPY` | ROM が起動した SPL のコピー(A / B) |
 | `SPL_A_AB` / `SPL_B_AB` | その SPL が A/B に対応した版なら 1 |

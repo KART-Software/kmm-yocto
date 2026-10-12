@@ -48,12 +48,12 @@ ssh root@<機体> systemctl restart kmm
 ./scripts/ab.sh --host <機体> mcore update build/tmp/deploy/images/imx8mp-debix/m7-fw.img
 ```
 
-機体は再起動して新しいファームを 1 回試し、rpmsg までつながれば自動で確定する。確定まで
+機体は再起動して新しいファームを 1 回試し、M コアのキープアライブが届き続ければ自動で確定する。確定まで
 1 分以内に終わる。確かめ方:
 
 ```bash
 ssh root@<機体> 'ab mcore status; ip -s link show rpmsgcan0'
-# MCORE_SLOT=a、MCORE_STATE=attached、rpmsgcan0 の RX が増えていればよい
+# MCORE_SLOT=a、MCORE_KEEPALIVE=alive、rpmsgcan0 の RX が増えていればよい
 ```
 
 XPI(8MM)は `m4-fw.img` がイメージの BOOT に入っていて、この作業は要らない。

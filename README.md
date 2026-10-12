@@ -40,7 +40,7 @@ Shared design principles:
 | Yocto | scarthgap (5.0), built with kas-container (Docker) |
 | Boot | **Falcon Mode** (SPL boots `falcon.itb` = ATF+kernel+DTB directly, skipping U-Boot proper) + SPL splash (zero-blackout handoff) |
 | Dead-man | falcon fires only when `boot_os=yes`; the SPL writes it back to `no` when it fires → a crash or power cut auto-falls back to proper next time. On Linux, `falcon-rearm.service` replenishes `yes` |
-| CAN | The CAN controller is **handed to the Cortex-M (M4/M7)**; `can-gw` (Zephyr) on the M-core links over rpmsg to the `rpmsg-can` kernel module and exposes **`rpmsgcan0`** (SocketCAN) |
+| CAN | The CAN controller is **handed to the Cortex-M (M4/M7)**; the CAN gateway of the M-core firmware (`main-app`, Zephyr) links over rpmsg to the `rpmsg-can` kernel module and exposes **`rpmsgcan0`** (SocketCAN) |
 | A/B OTA | Linux, the M-core firmware and the SPL each have their own A/B, all handled by the `ab` command. Linux: write the inactive slot over SSH (Tailscale OK) → boot once on trial → commit. If the trial fails, the SPL (8MP) or U-Boot (8MM) falls back to the old slot |
 | GUI | Wayland + Weston 13 (poky, kiosk) + C++/Qt6 Widgets (`kmm`). 8MP uses no GPU (pixman compositing) |
 | init / net | systemd / systemd-networkd, read-only rootfs (persistence on `/data`) |
@@ -167,14 +167,19 @@ full optimization log are in
 
 ## Cortex-M CAN gateway
 
-The CAN controller is **handed off to the Cortex-M coprocessor**. The CAN gateway
-firmware (`can-gw`, Zephyr) on the M-core links over rpmsg to the kernel's
+The CAN controller is **handed off to the Cortex-M coprocessor**. The M-core firmware
+(`main-app`, Zephyr) has a CAN gateway function that links over rpmsg to the kernel's
 `rpmsg-can` module and exposes the netdev **`rpmsgcan0`** (ordinary SocketCAN).
 
 - 8MM = **M4** owns the MCP2515 (ECSPI2); 8MP = **M7** owns FlexCAN1
 - The M firmware lives in a separate repo,
   [data-logger-zephyr](https://github.com/KART-Software/data-logger-zephyr)
-  (`apps/can-gw`, branching 8MM/8MP with SoC guards)
+  (`apps/main-app`, branching 8MM/8MP with SoC guards). It is split into a base
+  (rpmsg, keepalive) and functions (CAN gateway); the older `apps/can-gw` only had the gateway
+- **Keepalive**: the M-core sends a heartbeat every second on the rpmsg channel
+  `mcore-keepalive`; the `mcore-keepalive` kernel module shows it under
+  `/sys/bus/rpmsg/devices/*.mcore-keepalive.*/state` and logs when it is lost or back.
+  `ab mcore update` commits a new firmware only when this keepalive keeps arriving
 - **Falcon integration**: the SPL verifies the M-core firmware → stages it in DDR,
   and BL31 starts the M-core's root clock + places it in ITCM + boots it. Linux then
   attaches to the running M-core via `remoteproc`
@@ -314,7 +319,8 @@ licenses:
   `debix-lpddr4_timing.c` is Copyright NXP.
 - Linux kernel patches and device trees in `meta-kart/recipes-kernel-imx/linux/files/`:
   GPL-2.0, or the license stated in each file.
-- The rpmsg-can kernel module in `meta-kart/recipes-kernel-imx/rpmsg-can/`: GPL-2.0-only.
+- The rpmsg-can and mcore-keepalive kernel modules in `meta-kart/recipes-kernel-imx/rpmsg-can/` and
+  `meta-kart/recipes-kernel-imx/mcore-keepalive/`: GPL-2.0-only.
 - Arm Trusted Firmware patches in `meta-kart/recipes-bsp-imx/imx-atf/files/`: BSD-3-Clause.
 - Weston patches, `weston.service` and `weston-early.service` in
   `meta-kart/recipes-graphics/weston/files/`: MIT, as derived from Weston and poky's

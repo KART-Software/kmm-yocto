@@ -78,6 +78,7 @@ IMAGE_INSTALL:append:imx-generic-bsp = " \
 # ---------------------------------------------------------------------------
 IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
     rpmsg-can \
+    mcore-keepalive \
     edid-firmware \
     splash-wl \
 "

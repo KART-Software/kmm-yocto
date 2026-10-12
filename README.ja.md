@@ -38,7 +38,7 @@ NXP i.MX8M 系 SBC 向けの組み込み Linux イメージを Yocto (scarthgap)
 | Yocto | scarthgap (5.0)、kas-container (Docker) で構築 |
 | ブート | **Falcon Mode**(SPL が `falcon.itb` = ATF+カーネル+DTB を直接起動、U-Boot proper を飛ばす)+ SPL スプラッシュ(暗転ゼロ引き継ぎ)|
 | デッドマン | falcon は `boot_os=yes` の時だけ発動、SPL が発動時に `no` へ書き戻す → クラッシュ/電源断で次回は自動 proper。Linux 側 `falcon-rearm.service` が `yes` を補充 |
-| CAN | CAN コントローラを **Cortex-M(M4/M7)に譲渡**し、M 上の `can-gw`(Zephyr)が rpmsg で `rpmsg-can` カーネルモジュールと繋がり **`rpmsgcan0`**(SocketCAN)を生やす |
+| CAN | CAN コントローラを **Cortex-M(M4/M7)に譲渡**し、M コアのファーム(`main-app`、Zephyr)の CAN の中継が rpmsg で `rpmsg-can` カーネルモジュールと繋がり **`rpmsgcan0`**(SocketCAN)を生やす |
 | A/B OTA | Linux・M コアのファーム・SPL がそれぞれ独立した A/B を持ち、`ab` コマンド一つで扱う。Linux は SSH(Tailscale 可)経由で非アクティブ面へ書込 → 1 回試起動 → commit。試起動に失敗すると SPL(8MP)または U-Boot(8MM)が旧面へ戻す |
 | GUI | Wayland + Weston 13(poky、kiosk)+ C++/Qt6 Widgets(`kmm`)。8MP は GPU 不使用(pixman 合成)|
 | init / ネット | systemd / systemd-networkd、read-only rootfs(永続は `/data`)|
@@ -150,14 +150,18 @@ DEBIX の電源→GUI は約 **2.93s**(σ0.04、N=10)。段別内訳・最適化
 
 ## Cortex-M CAN ゲートウェイ
 
-CAN コントローラは **Cortex-M コプロセッサに譲渡**してある。M 上の CAN ゲートウェイ
-ファーム(`can-gw`、Zephyr)が rpmsg でカーネルの `rpmsg-can` モジュールと繋がり、
+CAN コントローラは **Cortex-M コプロセッサに譲渡**してある。M コアのファーム(`main-app`、
+Zephyr)の CAN の中継が rpmsg でカーネルの `rpmsg-can` モジュールと繋がり、
 netdev **`rpmsgcan0`**(通常の SocketCAN)を生やす。
 
 - 8MM = **M4** が MCP2515(ECSPI2)を、8MP = **M7** が FlexCAN1 を所有
 - M ファームは別リポジトリ
   [data-logger-zephyr](https://github.com/KART-Software/data-logger-zephyr)
-  (`apps/can-gw`、SoC ガードで 8MM/8MP を分岐)
+  (`apps/main-app`、SoC ガードで 8MM/8MP を分岐)。土台(rpmsg、キープアライブ)と機能(CAN の中継)に
+  ファイルが分かれている。前の `apps/can-gw` は CAN の中継だけを持っていた
+- **キープアライブ**:M コアが rpmsg のチャネル `mcore-keepalive` で 1 秒ごとに知らせ、カーネル
+  モジュール `mcore-keepalive` が `/sys/bus/rpmsg/devices/*.mcore-keepalive.*/state` に出す。途切れた
+  ときと戻ったときはカーネルのログに出る。`ab mcore update` は、これが届き続けるときだけ確定する
 - **falcon 統合**:SPL が M コアのファームを検証 → DDR ステージング、BL31 が M コアの
   ルートクロック起動 + ITCM 配置 + 起動。Linux は稼働中の M コアに `remoteproc` で attach
 - **M コアのファームは Linux とは独立した A/B**(8MP):p3 に `mcore-a.img` /
@@ -287,7 +291,7 @@ Copyright 2026 Ryomei Osaki
   `debix-lpddr4_timing.c`: GPL-2.0-or-later。`debix-lpddr4_timing.c` は Copyright NXP
 - `meta-kart/recipes-kernel-imx/linux/files/` の Linux カーネルのパッチと DTS:
   GPL-2.0、または各ファイルに記載のライセンス
-- `meta-kart/recipes-kernel-imx/rpmsg-can/` のカーネルモジュール: GPL-2.0-only
+- `meta-kart/recipes-kernel-imx/rpmsg-can/` と `meta-kart/recipes-kernel-imx/mcore-keepalive/` のカーネルモジュール: GPL-2.0-only
 - `meta-kart/recipes-bsp-imx/imx-atf/files/` の Arm Trusted Firmware のパッチ: BSD-3-Clause
 - `meta-kart/recipes-graphics/weston/files/` の Weston のパッチ、`weston.service`、
   `weston-early.service`: Weston と poky の weston-init 由来のため MIT
