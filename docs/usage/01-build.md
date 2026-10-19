@@ -19,14 +19,15 @@ sudo usermod -aG docker,dialout,plugdev $USER  # 反映には再ログイン
 
 ```bash
 ./scripts/build.sh imx8mp --emmc            # DEBIX の開発用イメージ、eMMC A/B
-./scripts/build.sh imx8mp --emmc --falcon   # DEBIX の製品ブート(Falcon + SPL スプラッシュ、M7 なし)
+./scripts/build.sh imx8mp --emmc --falcon   # DEBIX の製品ブート(Falcon、M7 なし。SPL スプラッシュは HDMI 用なので付かない)
 ./scripts/build.sh imx8mm --emmc            # XPI の eMMC A/B
 ./scripts/build.sh imx8mm --emmc --falcon   # XPI の製品ブート(Falcon + スプラッシュ、M4 なし)
 ./scripts/build.sh imx8mm --netboot         # XPI の TFTP/NFS ネットブート(DTS やドライバの試行用)
 ```
 
 `imx8mm` / `imx8mp` は開発用(debug-tweaks 入り)。`--emmc` で eMMC の A/B レイアウト、
-`--falcon` で Falcon Mode と SPL スプラッシュを足す。M コアの CAN ゲートウェイは別の
+`--falcon` で Falcon Mode と SPL スプラッシュを足す(DEBIX は表示が LVDS なので、HDMI 用の
+SPL スプラッシュは足さない)。M コアの CAN ゲートウェイは別の
 オーバーレイなので、次の直接指定で足す。
 
 ## 製品構成(kas を直接呼ぶ)
@@ -36,9 +37,9 @@ YAML を `:` でつなぐと左から順に重なる。**先にキャッシュ�
 ```bash
 export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
 
-# DEBIX: 開発用 + eMMC A/B + Falcon + スプラッシュ + M7 の CAN
+# DEBIX: 開発用 + eMMC A/B + Falcon + M7 の CAN (表示は LVDS。HDMI 用の SPL スプラッシュは付けない)
 kas-container build \
-  kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml:kas/imx8mp-m7.yml
+  kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-m7.yml
 
 # XPI: 製品(Tailscale SSH のみ、debug-tweaks なし)+ eMMC A/B + Falcon + スプラッシュ + M4 の CAN
 kas-container build \
@@ -81,7 +82,7 @@ kas-container dump --lock --update <構成> > /tmp/x && mv /tmp/x kas/<構成>.l
 | `imx-emmc-ab.yml` | 断片 | 8MM/8MP 共通の eMMC A/B の WKS 選択(実体は machine の `EMMC_AB_WKS`) |
 | `imx8mm-emmc-ab.yml` | 断片 | 8MM 専用の旧 A/B WKS |
 | `imx8mp-falcon.yml` / `imx8mm-falcon.yml` | オーバーレイ | SPL がカーネルを直接起動(`falcon.itb`) |
-| `imx8mp-splash.yml` / `imx8mm-splash.yml` | オーバーレイ | SPL スプラッシュ(**falcon の後ろに置く**) |
+| `imx8mp-splash.yml` / `imx8mm-splash.yml` | オーバーレイ | SPL スプラッシュ(**falcon の後ろに置く**)。`imx8mp-splash.yml` は HDMI 用で、表示が LVDS の DEBIX には付けない |
 | `imx8mp-m7.yml` / `imx8mm-m4.yml` | オーバーレイ | M コアの CAN ゲートウェイ(`rpmsgcan0`)と falcon 統合 |
 | `imx8mm-netboot.yml` | オーバーレイ | TFTP/NFS root(bring-up 用) |
 | `sdk.yml` | 補助 | Qt の SDK を qtbase だけに絞る(5) |

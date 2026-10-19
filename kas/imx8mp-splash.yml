@@ -2,6 +2,9 @@
 #
 #   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml
 #
+# 注意: HDMI 用。表示を LVDS パネルにした DTS (HDMI 一式が disabled) とは組み合わせない
+# (scripts/build.sh の --falcon も付けない)。LVDS 版は未実装 (open-issues.md #15)。
+#
 # SPL が HDMI 表示チェーン (GPC→blk-ctrl→Samsung PHY→DW-HDMI→PVI→LCDIFv3)
 # を直接叩き、手続き描画したロゴを電源投入直後に表示する。設計・定数の出典は
 # 0005 パッチ冒頭コメントと docs/imx8mp-debix-bringup/06-splash.md (予定)。

@@ -15,8 +15,11 @@
  *    (pca6416) を DEBIX で触らないよう supply/assert-gpios を削除する。
  *  - micfil (PDM): EVK で flexcan2 と SAI5 パッドを取り合う相手。DEBIX では PDM
  *    マイク未配線なので disabled (EVK の「can2 pin conflict with pdm」コメント参照)。
- *  - pcie/mipi_dsi/dsp: DEBIX では未使用 (PCIe は 19pin FPC のみ、表示は HDMI、
+ *  - pcie/mipi_dsi/dsp: DEBIX では未使用 (PCIe は 19pin FPC のみ、表示は LVDS、
  *    DSP は使わない)。工場 DT も disabled — 未接続プローブのエラーと起動遅延を避ける。
+ *  - 表示: J10 の LVDS0 → 変換基板 (debix-hat/lvds-adapter) → Riverdi RVT50HQLNWN00
+ *    (800x480)。経路は lcdif2 → LDB ch0 → LVDS PHY → panel-lvds。HDMI (lcdif3 + DW-HDMI
+ *    一式) は止める。
  *  - uart4: EVK 既定の disabled のまま = M7 コンソール予約 (01-m7.md)。
  *  - WiFi (88W8987 / usdhc1): 不使用 → EVK 既定の disabled のまま。
  */
@@ -99,15 +102,86 @@
 	status = "disabled";
 };
 
-/* LVDS 経路 (ldb + PHY) は未配線 + slim カーネル (slim-imx8mp.cfg 第二弾) で
- * ドライバも外した。ノードを有効に残すと imx-drm のコンポーネント束ねが
- * ldb を待ち続け、display-subsystem (= /dev/dri の表示カード) ごと現れず
- * weston が「no drm device found」で死ぬ (2026-09-02 実測)。 */
-&ldb {
+/* ===== 表示: LVDS パネル (J10 の LVDS0) =====
+ * lcdif2 → LDB の ch0 → LVDS PHY → panel-lvds。ldb/ldb_phy/lcdif2/lvds-channel@0 は
+ * EVK の dts が okay にしているので、ここでは出口の先を IT6263 からパネルに付け替える。
+ * DT とカーネルの cfg は必ずセット (slim-imx8mp.cfg の DRM_IMX8MP_LDB・DRM_PANEL_LVDS):
+ * ノードが有効でドライバが無いと imx-drm のコンポーネント束ねが ldb を待ち続け、
+ * display-subsystem (= /dev/dri の表示カード) ごと現れず weston が「no drm device found」
+ * で死ぬ (2026-09-02 実測)。
+ */
+/ {
+	/*
+	 * Riverdi RVT50HQLNWN00: 5 インチ 800x480、VESA 24 ビット (変換基板で SELB を High、
+	 * L/R・U/D も High = 反転なし)。タイミングはデータシート (DS_RVT50HQLNWN00 Rev.1.0)
+	 * の標準値。クロックだけ 25 MHz ではなく 24.75 MHz (= video_pll1 1039.5 MHz / 42):
+	 * LDB はピクセルクロックのちょうど 7 倍 (173.25 MHz = / 6) が要り、25 MHz だと同じ
+	 * PLL から 7 倍の比で割れない。パネルの範囲は 23〜27 MHz で、更新は約 60.4 Hz。
+	 *
+	 * 電源とバックライトは変換基板が J10 の 5 V から作る (3.3 V の LDO と LED の定電流)。
+	 * 5 V は J10 の負荷スイッチの EN (回路図の LVDS_PWR_EN = GPIO4_IO25) で入り、
+	 * GPIO4_IO25 は下の usb-rst-hog が起動時から High に保つので power-supply は書かない。
+	 * RESET/STBYB は変換基板の RC で順番に上がり、バックライトの制御線も J10 に無い。
+	 */
+	panel_lvds: panel-lvds {
+		compatible = "riverdi,rvt50hqlnwn00", "panel-lvds";
+		width-mm = <108>;
+		height-mm = <65>;
+		data-mapping = "vesa-24";
+
+		panel-timing {
+			clock-frequency = <24750000>;
+			hactive = <800>;
+			vactive = <480>;
+			hback-porch = <8>;
+			hfront-porch = <8>;
+			hsync-len = <4>;
+			vback-porch = <8>;
+			vfront-porch = <8>;
+			vsync-len = <4>;
+		};
+
+		port {
+			panel_lvds_in: endpoint {
+				remote-endpoint = <&lvds_out>;
+			};
+		};
+	};
+};
+
+&lvds_out {
+	remote-endpoint = <&panel_lvds_in>;
+};
+
+/* EVK の LVDS→HDMI ブリッジ (IT6263)。DEBIX に無い (ドライバも slim で外してある) */
+&lvds_bridge {
 	status = "disabled";
 };
 
-&ldb_phy {
+/* HDMI は使わない。lcdif3 と DW-HDMI・PHY・PVI、HDMI の割り込みと電源の区画
+ * (hdmi_blk_ctrl) を止める。hdmi_blk_ctrl の電源の区画と irqsteer_hdmi を使うのは
+ * ここで止める HDMI のノードだけ (imx8mp.dtsi)。 */
+&lcdif3 {
+	status = "disabled";
+};
+
+&hdmi {
+	status = "disabled";
+};
+
+&hdmiphy {
+	status = "disabled";
+};
+
+&hdmi_pavi {
+	status = "disabled";
+};
+
+&irqsteer_hdmi {
+	status = "disabled";
+};
+
+&hdmi_blk_ctrl {
 	status = "disabled";
 };
 
@@ -220,13 +294,9 @@
 	status = "disabled";
 };
 
-/* 表示に使わない CRTC (表示は lcdif3=HDMI のみ。lcdif1=DSI/lcdif2=LVDS は
- * 接続先を disabled 済みで、crtc だけ probe されて uevent を増やしていた) */
+/* 表示に使わない CRTC (表示は lcdif2=LVDS のみ。lcdif1=DSI は接続先を
+ * disabled 済みで、crtc だけ probe されて uevent を増やしていた) */
 &lcdif1 {
-	status = "disabled";
-};
-
-&lcdif2 {
 	status = "disabled";
 };
 
@@ -236,8 +306,8 @@
 	status = "disabled";
 };
 
-/* LVDS バックライト (EVK 遺産)。DEBIX のパネルは信号連動の自前バックライトで
- * この PWM は未配線。systemd-backlight@ が毎ブート failed になる発生源 */
+/* LVDS バックライト (EVK 遺産)。バックライトは変換基板の定電流で 5 V と連動して
+ * 点き、この PWM は未配線。systemd-backlight@ が毎ブート failed になる発生源 */
 &lvds_backlight {
 	status = "disabled";
 };
@@ -289,6 +359,8 @@
  * hub-reset-gpio = GPIO4_IO25) で起動時に両方 High にしていた。うちは gpio-hog で同じ状態を
  * 起動時に作る。Low/浮きのままだと Type-A に 5V が出ず、挿したデバイスは LED も点かない
  * (2026-09-21 実測: High にして ~20s で LTE ドングルが列挙)。SAI2 は disabled でパッドは空き。
+ * なお GPIO4_IO25 は回路図では J10 の 5 V の負荷スイッチの EN (LVDS_PWR_EN) でもあり、
+ * これが High なので LVDS パネルにも起動時から 5 V が入る (上の panel-lvds 参照)。
  */
 &iomuxc {
 	pinctrl_usb_pwr: usbpwrgrp {

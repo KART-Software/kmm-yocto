@@ -90,7 +90,6 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
 # 埋める相方 (8MM と同一レシピ・同一ロゴ座標。SPL splash 無しでも無害)。
 # ---------------------------------------------------------------------------
 IMAGE_INSTALL:append:imx8mp-debix = " \
-    edid-firmware \
     splash-wl \
 "
 # GPU は不使用 (weston=pixman、kmm=Qt Widgets raster)。galcore (Vivante blob

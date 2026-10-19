@@ -161,3 +161,14 @@
    - 未決: パネル仕様の「LVDS 信号出力 → 250ms 後にバックライト ON」を守るか(守ると +0.95s。
      SPL がロゴ描画後に STBYB 解除 → 2〜3 フレームで点灯、で実質不要にできる見込み、要実機)、
      5 インチで足りるか、タッチの要否(要るなら Riverdi 系)。
+   - **2026-10-20 時点(ブランチ dev/lvds-panel、実機未確認)**: Riverdi RVT50HQLNWN00 に決め、
+     変換基板(debix-hat/lvds-adapter、SELB・L/R・U/D は High 固定、RESET/STBYB は RC、
+     バックライトは基板の定電流で 5 V と連動)を発注した。カーネル側を切り替え済み:
+     DTS で HDMI 一式(lcdif3・hdmi・hdmiphy・hdmi_pavi・irqsteer_hdmi・hdmi_blk_ctrl)を
+     disabled、`lcdif2` → LDB ch0 → `panel-lvds`(vesa-24、800×480、24.75 MHz = video_pll1
+     1039.5 MHz / 42 で LDB の 173.25 MHz とちょうど 7 倍)、slim に `DRM_IMX8MP_LDB`・
+     `DRM_PANEL_LVDS`、cmdline から `drm.edid_firmware`、イメージから edid-firmware、
+     weston の出力を `LVDS-1` に。J10 の 5 V の EN(GPIO4_IO25)は USB 用の gpio-hog が
+     起動時から High にしている。HDMI 用の SPL スプラッシュ(kas/imx8mp-splash.yml)は
+     `--falcon` から外した。残り: SPL スプラッシュの LDB 版と takeover、パネル到着後の実機確認
+     (点灯・色の並び・向き・ちらつき)。
