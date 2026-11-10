@@ -173,7 +173,13 @@
      書き換えない)と、ケーブルの全 5 対で + と − が逆(J10 は偶数ピンが +、奇数ピンが −)。
      表示はビルドのときに選べる(machine の `DEBIX_DISPLAY`、既定 lvds。`kas/imx8mp-hdmi.yml` /
      build.sh `--hdmi` で HDMI、docs/usage/01-build.md「DEBIX の表示」)。HDMI 用の SPL スプラッシュ
-     (kas/imx8mp-splash.yml)は HDMI にする構成を取り込む。
-     残り: SPL スプラッシュの LDB 版と takeover。電源を入れたときにパネルが一瞬白く光って
-     1 秒ほどで黒になるのを、映らなかったときに見た(信号が来る前にパネルの電源が入るためと推定。
-     正しい信号のときにも出るかは未確認)。
+     (kas/imx8mp-splash.yml)は HDMI にする構成を取り込む。HDMI 版も実機で確認した(SPL の
+     スプラッシュ → カーネルの引き継ぎ → splash-wl → kmm、コールド起動で SPL のロゴ)。
+     映らなかったとき(パネルが信号を受け取れないとき)は、パネルの電源が入ると一瞬白く光って
+     1 秒ほどで黒になった。正しい信号では、再起動のときは白く光らず、splash-wl のロゴが一瞬出て
+     kmm になる。LVDS 版のコールド起動の見え方は未確認。
+     SPL のスプラッシュはロゴを A/B に関係なく常に p1(BOOTA)の logo.bin から読むが、BOOT に
+     logo.bin を入れるのは kas/imx8mp-splash.yml だけ。そのため A 面に LVDS 版を入れると、HDMI の
+     SPL スプラッシュでもロゴが出ない(黒のまま。2026-11-11 に p1 へ手で置いて確認)。表示によらず
+     logo.bin を BOOT に入れるように直す。
+     残り: SPL スプラッシュの LDB 版と takeover、上の logo.bin。
