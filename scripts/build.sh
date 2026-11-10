@@ -13,15 +13,16 @@
 #
 # Options:
 #   --emmc       eMMC A/B レイアウト (imx8mm/imx8mp; 省略時は SD 持ち込み用シングルスロット)
-#   --falcon     Falcon Mode (+ imx8mm は SPL スプラッシュ) を合成 (製品ブート経路; --emmc 必須)
-#                imx8mp の SPL スプラッシュ (kas/imx8mp-splash.yml) は HDMI 用なので、表示が
-#                LVDS の今は付けない (LVDS 版は未実装、docs/imx8mp-debix-bringup/open-issues.md #15)
+#   --falcon     Falcon Mode + SPL スプラッシュを合成 (製品ブート経路; --emmc 必須)
+#                imx8mp の SPL スプラッシュ (kas/imx8mp-splash.yml) は HDMI 用なので、--hdmi の
+#                ときだけ付く (LVDS 版は未実装、docs/imx8mp-debix-bringup/open-issues.md #15)
+#   --hdmi       表示を HDMI にする (imx8mp; kas/imx8mp-hdmi.yml)。省略時は J10 の LVDS パネル
 #   --netboot    TFTP/NFS root (imx8mm、bring-up 用)
 #   --sdcard     SD カードブート (RPi5 用)
 #   --nvme       NVMe ブート (RPi5 用)
 #
 # target と起動方式の組み合わせ (表に無いものはエラーで止める。target と起動方式は 1 つずつ):
-#   imx8mp       なし | --emmc [--falcon]
+#   imx8mp       なし | --emmc [--falcon]   (どれにも --hdmi を足せる)
 #   imx8mm       なし | --emmc [--falcon] | --netboot
 #   qemu         なし
 #   prod / dev   --sdcard | --nvme (必須)
@@ -30,7 +31,8 @@
 #
 # 例:
 #   ./scripts/build.sh imx8mp --emmc            # dev イメージ (U-Boot proper 起動)
-#   ./scripts/build.sh imx8mp --emmc --falcon   # 製品ブート (falcon、SPL スプラッシュなし、M7 なし)
+#   ./scripts/build.sh imx8mp --emmc --falcon   # 製品ブート (falcon、LVDS、SPL スプラッシュなし、M7 なし)
+#   ./scripts/build.sh imx8mp --emmc --falcon --hdmi  # 同じく HDMI (falcon + SPL スプラッシュ)
 #
 # Cortex-M CAN ゲートウェイ (M7/M4) は別オーバーレイ。--falcon の kas 構成に
 # :kas/imx8mp-m7.yml (または imx8mm-m4.yml) を足す。手順は README 参照。
@@ -44,7 +46,8 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TARGET=""
 BOOT=""
 FALCON=""
-USAGE="Usage: $0 <imx8mp|imx8mm|qemu|prod|dev> [--emmc|--netboot|--sdcard|--nvme] [--falcon]"
+HDMI=""
+USAGE="Usage: $0 <imx8mp|imx8mm|qemu|prod|dev> [--emmc|--netboot|--sdcard|--nvme] [--falcon] [--hdmi]"
 
 die() {
     echo "Error: $*" >&2
@@ -64,6 +67,10 @@ for arg in "$@"; do
         --falcon)
             [ -z "$FALCON" ] || die "--falcon given twice"
             FALCON=1
+            ;;
+        --hdmi)
+            [ -z "$HDMI" ] || die "--hdmi given twice"
+            HDMI=1
             ;;
         -h|--help)
             sed -n '2,/^set -e/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
@@ -101,6 +108,9 @@ if [ -n "$FALCON" ]; then
         *) die "--falcon is only supported for imx8mm/imx8mp" ;;
     esac
 fi
+if [ -n "$HDMI" ] && [ "$TARGET" != imx8mp ]; then
+    die "--hdmi is only supported for imx8mp (DEBIX の表示の選択)"
+fi
 
 # --- Map target to kas config ---
 case "$TARGET" in
@@ -131,6 +141,7 @@ case "$TARGET" in
             emmc)    KAS_CONFIG="kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml" ;;
             "")      KAS_CONFIG="kas/imx8mp-dev.yml" ;;
         esac
+        [ -z "$HDMI" ] || KAS_CONFIG="$KAS_CONFIG:kas/imx8mp-hdmi.yml"
         ;;
 esac
 
@@ -143,8 +154,8 @@ if [ -n "$FALCON" ]; then
         exit 1
     fi
     case "$TARGET" in
-        # 8MP の SPL スプラッシュは HDMI の表示チェーンを直接叩くので、LVDS の構成には付けない
-        imx8mp) KAS_CONFIG="$KAS_CONFIG:kas/imx8mp-falcon.yml" ;;
+        # 8MP の SPL スプラッシュは HDMI の表示チェーンを直接叩くので、HDMI のときだけ付ける
+        imx8mp) KAS_CONFIG="$KAS_CONFIG:kas/imx8mp-falcon.yml${HDMI:+:kas/imx8mp-splash.yml}" ;;
         imx8mm) KAS_CONFIG="$KAS_CONFIG:kas/imx8mm-falcon.yml:kas/imx8mm-splash.yml" ;;
         *) echo "Error: --falcon is only supported for imx8mm/imx8mp" >&2; exit 1 ;;
     esac

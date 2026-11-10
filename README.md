@@ -113,6 +113,11 @@ kas-container build \
 ./scripts/ab.sh --host <device> linux commit
 ```
 
+The display is the LVDS panel on J10 by default. For the HDMI panel, add
+`kas/imx8mp-splash.yml` right after `kas/imx8mp-falcon.yml`: it is the HDMI SPL splash and
+pulls in `kas/imx8mp-hdmi.yml`, which switches the display to HDMI
+([01-build.md](docs/usage/01-build.md)).
+
 - **Remote access**: prod images are reachable only over Tailscale SSH (the root
   password is locked). Dev images (debug-tweaks) allow LAN SSH as root with an empty
   password. The serial console logs in as root on every image, prod included:

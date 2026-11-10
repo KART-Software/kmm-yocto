@@ -1,0 +1,14 @@
+# DEBIX (8MP) の表示を HDMI にするオーバーレイ。既定は J10 の LVDS パネル。
+#
+#   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-hdmi.yml
+#   (製品ブート: ...:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml。スプラッシュはこのファイルを取り込む)
+#
+# machine conf の DEBIX_DISPLAY を hdmi にする。DTS の表示の部分 (imx8mp-debix-hdmi.dtsi)、
+# カーネルの引数の drm.edid_firmware=、イメージの edid-firmware がこれに従う。
+# scripts/build.sh では --hdmi。
+header:
+  version: 14
+
+local_conf_header:
+  display: |
+    DEBIX_DISPLAY = "hdmi"

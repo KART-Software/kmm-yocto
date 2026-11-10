@@ -43,6 +43,8 @@ do_configure:prepend:mx8mm-generic-bsp() {
 SRC_URI:append:imx8mp-debix = " \
     file://imx8mp-debix.dts \
     file://imx8mp-debix-m7.dts \
+    file://imx8mp-debix-lvds.dtsi \
+    file://imx8mp-debix-hdmi.dtsi \
     file://edid-firmware.cfg \
     file://can-builtin.cfg \
     file://slim-imx8mp.cfg \
@@ -51,5 +53,15 @@ SRC_URI:append:imx8mp-debix = " \
 "
 
 do_configure:prepend:imx8mp-debix() {
-    cp ${WORKDIR}/imx8mp-debix.dts ${WORKDIR}/imx8mp-debix-m7.dts ${S}/arch/arm64/boot/dts/freescale/
+    cp ${WORKDIR}/imx8mp-debix.dts ${WORKDIR}/imx8mp-debix-m7.dts \
+       ${WORKDIR}/imx8mp-debix-lvds.dtsi ${WORKDIR}/imx8mp-debix-hdmi.dtsi \
+       ${S}/arch/arm64/boot/dts/freescale/
+    # 表示 (machine conf の DEBIX_DISPLAY) の DTS を、imx8mp-debix.dts が include する名前で選ぶ。
+    # DTB の名前は表示によらず同じ (falcon.itb・extlinux・M7 版の DTS はそのまま)
+    case "${DEBIX_DISPLAY}" in
+    lvds|hdmi) ;;
+    *) bbfatal "DEBIX_DISPLAY は lvds か hdmi (今は '${DEBIX_DISPLAY}')" ;;
+    esac
+    echo '#include "imx8mp-debix-${DEBIX_DISPLAY}.dtsi"' \
+        > ${S}/arch/arm64/boot/dts/freescale/imx8mp-debix-display.dtsi
 }

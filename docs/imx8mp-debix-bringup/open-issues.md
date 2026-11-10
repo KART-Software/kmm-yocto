@@ -161,14 +161,19 @@
    - 未決: パネル仕様の「LVDS 信号出力 → 250ms 後にバックライト ON」を守るか(守ると +0.95s。
      SPL がロゴ描画後に STBYB 解除 → 2〜3 フレームで点灯、で実質不要にできる見込み、要実機)、
      5 インチで足りるか、タッチの要否(要るなら Riverdi 系)。
-   - **2026-10-20 時点(ブランチ dev/lvds-panel、実機未確認)**: Riverdi RVT50HQLNWN00 に決め、
-     変換基板(debix-hat/lvds-adapter、SELB・L/R・U/D は High 固定、RESET/STBYB は RC、
-     バックライトは基板の定電流で 5 V と連動)を発注した。カーネル側を切り替え済み:
-     DTS で HDMI 一式(lcdif3・hdmi・hdmiphy・hdmi_pavi・irqsteer_hdmi・hdmi_blk_ctrl)を
-     disabled、`lcdif2` → LDB ch0 → `panel-lvds`(vesa-24、800×480、24.75 MHz = video_pll1
-     1039.5 MHz / 42 で LDB の 173.25 MHz とちょうど 7 倍)、slim に `DRM_IMX8MP_LDB`・
-     `DRM_PANEL_LVDS`、cmdline から `drm.edid_firmware`、イメージから edid-firmware、
-     weston の出力を `LVDS-1` に。J10 の 5 V の EN(GPIO4_IO25)は USB 用の gpio-hog が
-     起動時から High にしている。HDMI 用の SPL スプラッシュ(kas/imx8mp-splash.yml)は
-     `--falcon` から外した。残り: SPL スプラッシュの LDB 版と takeover、パネル到着後の実機確認
-     (点灯・色の並び・向き・ちらつき)。
+   - **2026-11-10 時点(ブランチ dev/lvds-panel)**: Riverdi RVT50HQLNWN00 + 変換基板
+     (debix-hat/lvds-adapter、SELB・L/R・U/D は High 固定、RESET/STBYB は RC、バックライトは
+     基板の定電流で 5 V と連動)で実機に表示できた。向き・色の並び(vesa-24)・階調は正しく、
+     AprilTag は 60/60、ずれは RMS 0.52〜0.56 px(HDMI の 0.50 px と同等)。
+     `lcdif2` → LDB ch0 → `panel-lvds`(800×480、24.75 MHz = video_pll1 1039.5 MHz / 42 で
+     LDB の 173.25 MHz とちょうど 7 倍)、slim に `DRM_IMX8MP_LDB`・`DRM_PANEL_LVDS`。
+     J10 の 5 V の EN(GPIO4_IO25)は USB 用の gpio-hog が起動時から High にしている。
+     映らなかった原因は 2 つ: NXP の LDB のドライバが 1 チャネルのときピクセルクロックを
+     74.25 MHz に書き換える(パネルは約 3 倍で駆動されて黒。パッチ 0014 でパネルのときは
+     書き換えない)と、ケーブルの全 5 対で + と − が逆(J10 は偶数ピンが +、奇数ピンが −)。
+     表示はビルドのときに選べる(machine の `DEBIX_DISPLAY`、既定 lvds。`kas/imx8mp-hdmi.yml` /
+     build.sh `--hdmi` で HDMI、docs/usage/01-build.md「DEBIX の表示」)。HDMI 用の SPL スプラッシュ
+     (kas/imx8mp-splash.yml)は HDMI にする構成を取り込む。
+     残り: SPL スプラッシュの LDB 版と takeover。電源を入れたときにパネルが一瞬白く光って
+     1 秒ほどで黒になるのを、映らなかったときに見た(信号が来る前にパネルの電源が入るためと推定。
+     正しい信号のときにも出るかは未確認)。

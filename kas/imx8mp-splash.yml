@@ -2,8 +2,8 @@
 #
 #   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml
 #
-# 注意: HDMI 用。表示を LVDS パネルにした DTS (HDMI 一式が disabled) とは組み合わせない
-# (scripts/build.sh の --falcon も付けない)。LVDS 版は未実装 (open-issues.md #15)。
+# HDMI 用なので、表示を HDMI にする kas/imx8mp-hdmi.yml を取り込む (付けると表示は HDMI に
+# なる)。LVDS パネルの SPL スプラッシュは未実装 (open-issues.md #15)。
 #
 # SPL が HDMI 表示チェーン (GPC→blk-ctrl→Samsung PHY→DW-HDMI→PVI→LCDIFv3)
 # を直接叩き、手続き描画したロゴを電源投入直後に表示する。設計・定数の出典は
@@ -11,6 +11,8 @@
 # 0005 は 0002 (falcon) の上に当たるため、オーバーレイ順序が適用順序。
 header:
   version: 14
+  includes:
+    - imx8mp-hdmi.yml
 
 local_conf_header:
   splash: |
