@@ -14,7 +14,8 @@ seamless takeover)と同型の設計を、8MP の表示チェーンに再実装�
 
 | 何 | どこ |
 |---|---|
-| SPL 側実装(表示チェーン直叩き + ロゴ blit + proper 用停止) | `meta-kart/recipes-bsp-imx/u-boot/files/0005-imx8mp-debix-spl-splash.patch`(spl_splash.c/.h + spl.c フック)。LVDS の経路は `0009-imx8mp-debix-spl-splash-lvds.patch` |
+| SPL 側実装(表示チェーン直叩き + ロゴ blit + proper 用停止) | `meta-kart/recipes-bsp-imx/u-boot/files/0005-imx8mp-debix-spl-splash.patch`(spl_splash.c/.h + spl.c フック)。LVDS の経路は `0009-imx8mp-debix-spl-splash-lvds.patch`、proper への印の受け渡しは `0010-imx8mp-debix-splash-handoff-to-proper.patch` |
+| proper の養子縁組 | `0006-imx8mp-debix-proper-splash-adopt.patch`(U-Boot proper の `ft_board_setup`。判定は 0010) |
 | SPL config | `debix-splash.cfg`(CONFIG_SPL_SPLASH)。LVDS は `debix-splash-lvds.cfg`(CONFIG_SPL_SPLASH_LVDS、machine conf の `DEBIX_SPLASH_UBOOT_CFG` が表示に合わせて足す) |
 | ロゴ画素 | `spl_splash_logo.h`(8MM/splash-wl と単一ソース)→ ビルド時に `logo.bin` へ変換(`falcon-itb.bb`)し BOOT 領域に置く(`kas/imx8mp-falcon.yml`。表示やスプラッシュの有無によらず全イメージ)。SPL は A/B の面に関係なく p1 のものを読む(ロゴは更新しない前提) |
 | カーネル takeover パッチ | `meta-kart/recipes-kernel-imx/linux/files/` の HDMI 0010〜0013、LVDS 0015〜0018(下記)。表示ごとに常に入る(`linux-fslc-imx_%.bbappend`。SPL の印が無ければ従来動作なので、SPL だけ先に更新した機体でも壊れない) |
@@ -50,7 +51,10 @@ CCM (HDMI AXI/APB/24M ゲート)
   pad4(spl.bin)+0x14000+1404 が上限を超え、**DDR firmware の尻尾が黙って切られて
   Training FAILED で文鎮化**する(実測: 全長 0x3c990=OK / 0x3e1c8=NG)。
   SPL のサイズを増やす変更をしたら、ビルド後に全長 < 0x3d000 を確認する。今は HDMI 版が
-  u-boot-spl.bin 166,442B・全長 0x3cfa8(残り 88B)、LVDS 版が 165,762B・0x3cd00(残り 768B)。
+  u-boot-spl.bin 166,506B・全長 0x3cfe8(残り 24B)、LVDS 版が 165,826B・0x3cd40(残り 704B)。
+  HDMI 版はもう余裕が無い。増やすときは先に削る(表示の文字列など)か、早期ヒープの実使用量を
+  測って SPL_SYS_MALLOC_F_LEN を縮める(上限の正体は SPL の早期ヒープと gd が DDR FW の末尾を
+  踏むことと推定、実機未確認)。
   HDMI と LVDS の経路を両方入れる余地は無いので、Kconfig(SPL_SPLASH_HDMI / _LVDS)で片方だけ入れる。A/B 統一(04-falcon.md「A/B とスロット選択」)で増えた分を
   詰めるのに、SPL の GPT 読み取りを外し(debix-falcon.cfg)、表示の文字列も削った
 
@@ -114,6 +118,16 @@ J10 の 5 V (LVDS_PWR_EN = GPIO4_IO25、パッド SAI2_TXC) ← パネルの VDD
 |---|---|---|
 | **falcon**(通常) | 表示を回したまま渡す。`/chosen` に `splash-active` を注入し、/memory から FB の 2MB(0xBFE00000〜)を隠す | カーネル側 takeover(下記)が引き継ぐ |
 | **proper**(フォールバック) | **必ず停止してから渡す**(`spl_splash_quiesce()`: LCDIF EN 落とし → DISP_PARA off → HDMI は PHY 電源断、LVDS は LVDS_CTRL と LDB_CTRL を戻す。シリアルに `splash: off`) | proper U-Boot は **DDR 最上部 = FB 直上へ自己再配置**し、extlinux 経由の DTB には prop も /memory 隠しも無い。表示を回したまま渡すと、ブート途中の恒久ハングやカーネル text 破壊のパニックになる(両方実測)。フォールバック経路の黒画面は許容 |
+
+proper 経路でも、電源の区画と blk-ctrl のクロック/リセットは SPL が立ち上げたまま残る。素の
+blk-ctrl がこの稼働中の区画をやり直すとバスごと固まる(HDMI で実測)ので、U-Boot proper も
+カーネルの DTB に印を立てて引き継がせる(0006)。SPL が表示を立ち上げたかは、**SPL が proper 自身の
+DT(U-Boot の直後に置く、`OF_SEPARATE`)の `/chosen` に書く印**で伝える(0010、`splash_mark`)。
+印は表示ごとなので、別の表示を起こした SPL やスプラッシュの無い SPL のときは立たず、カーネルは
+通常の probe になる。以前は GPC `PU_PWRHSK` の handshake 要求のビット(HDMIMIX の bit13 /
+MEDIAMIX の bit14)で見ていたが、電源投入直後から 1 で(2026-11-11 実機。どの部品も HDMIMIX に
+触らない起動で bit13 = 1、ATF が起動時に入れるのは HSIOMIX と USB の PHY だけ)、いつも印を
+立てていた。
 
 ## カーネル seamless takeover(0010〜0013 + busfreq 無効)
 

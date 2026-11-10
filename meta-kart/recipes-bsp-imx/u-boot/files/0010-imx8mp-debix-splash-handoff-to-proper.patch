@@ -1,0 +1,120 @@
+From: build <build@localhost>
+Subject: [PATCH] imx8mp_evk: proper の養子縁組を、SPL が proper の DT に書いた印で判定する
+
+proper 経由の起動 (デッドマンで falcon が外れたとき) では、U-Boot proper が
+カーネルの DT に引き継ぎの印 (HDMI は splash-active、LVDS は splash-lvds) を
+立てる (0006)。その判定に使っていた GPC PU_PWRHSK の handshake 要求のビット
+(HDMIMIX の bit13 / MEDIAMIX の bit14) は電源投入直後から 1 で、SPL が表示を
+起こしたかの証拠にならず、proper はいつも印を立てていた (2026-11-11 実機:
+LVDS の SPL・ATF・HDMI の U-Boot proper・LVDS のカーネルのどれも HDMIMIX に
+触らない起動で PWRHSK = 0x586F7DEF、bit13 = 1。ATF が起動時に入れるのは
+HSIOMIX と USB の PHY だけ)。SPL とイメージの表示が食い違うとき、または
+スプラッシュの無い SPL のとき、カーネルが初期化されていない表示の区画を
+「動いている」とみなして引き継ぐことになる。
+
+SPL が表示を立ち上げていたら、proper 自身の DT (SPL が U-Boot の直後に置き、
+proper が OF_SEPARATE で使うもの) の /chosen に印を書き、proper はそれを見て
+カーネルの DT に立てる。印は表示ごとなので、別の表示を起こした SPL や
+スプラッシュの無い SPL のときは立たず、従来どおり通常 probe になる。
+falcon と proper で、印を立てる処理 (splash_mark) を共通にする。
+
+Upstream-Status: Inappropriate [boot-splash integration]
+
+diff --git a/board/freescale/imx8mp_evk/imx8mp_evk.c b/board/freescale/imx8mp_evk/imx8mp_evk.c
+--- a/board/freescale/imx8mp_evk/imx8mp_evk.c
++++ b/board/freescale/imx8mp_evk/imx8mp_evk.c
+@@ -140,11 +140,14 @@
+ 	 * 再シーケンスするとバスごと固まる (実測: console 切替直後に CPU が
+ 	 * PC=0 で停止、5/5 再現)。falcon 経路と同じくカーネルに養子縁組
+ 	 * (splash-active) させると 3/3 起動し表示も出る。
+-	 * 判定は GPC PU_PWRHSK (0x303a0190) の、SPL が立てた ADB400 handshake
+-	 * 要求 (HDMI は HDMIMIX の bit13、LVDS は MEDIAMIX の bit14)。SPL が表示を
+-	 * 起こさなかった場合は立たず、従来どおり通常 probe になる。印は表示ごと
+-	 * (spl_splash.h の SPLASH_PROP)。 */
+-	if (readl(0x303a0190) & BIT(SPLASH_GPC_HSK_BIT)) {
++	 * 判定は、SPL が proper 自身の DT (gd->fdt_blob) の /chosen に書いた印
++	 * (spl.c の spl_perform_fixups)。印は表示ごと (spl_splash.h の SPLASH_PROP)
++	 * なので、SPL が別の表示を起こした・起こさなかった (スプラッシュの無い
++	 * SPL) ときは立たず、従来どおり通常 probe になる。以前は GPC PU_PWRHSK の
++	 * handshake 要求のビットで見ていたが、電源投入直後から 1 で (2026-11-11 実機)
++	 * 証拠にならず、いつも印を立てていた。 */
++	if (fdt_getprop(gd->fdt_blob, fdt_path_offset(gd->fdt_blob, "/chosen"),
++			SPLASH_PROP, NULL)) {
+ 		int off = fdt_path_offset(blob, "/chosen");
+ 
+ 		if (off < 0)
+diff --git a/board/freescale/imx8mp_evk/spl.c b/board/freescale/imx8mp_evk/spl.c
+--- a/board/freescale/imx8mp_evk/spl.c
++++ b/board/freescale/imx8mp_evk/spl.c
+@@ -371,6 +371,18 @@
+ 	flush_dcache_range(shim, shim + 64);
+ }
+ 
++/* fdt の /chosen に表示の印 (SPLASH_PROP) を立てる。falcon ではカーネルの DT、
++ * proper では proper 自身の DT (SPL がイメージの直後に置いたもの) */
++static void splash_mark(void *fdt)
++{
++	int off;
++
++	fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
++	off = fdt_path_offset(fdt, "/chosen");
++	if (off >= 0)
++		fdt_setprop_empty(fdt, off, SPLASH_PROP);
++}
++
+ void spl_perform_fixups(struct spl_image_info *spl_image)
+ {
+ 	void *fdt = spl_image->fdt_addr;
+@@ -381,7 +393,12 @@
+ 	 */
+ 	if (spl_image->os == IH_OS_U_BOOT || !fdt) {
+ 		/* proper は FB 直上へ再配置し、prop も /memory 隠しも
+-		 * 渡せない経路 — 表示を止めてから渡す (関数コメント参照) */
++		 * 渡せない経路 — 表示を止めてから渡す (関数コメント参照)。
++		 * 表示を立ち上げていたことは proper 自身の DT の /chosen に印を
++		 * 書いて知らせ、proper がカーネルに引き継がせる
++		 * (imx8mp_evk.c の ft_board_setup) */
++		if (fdt && spl_splash_active())
++			splash_mark(fdt);
+ 		spl_splash_quiesce();
+ 		return;
+ 	}
+@@ -405,10 +422,7 @@
+ 		int off;
+ 
+ 		dram_init_banksize();
+-		fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
+-		off = fdt_path_offset(fdt, "/chosen");
+-		if (off >= 0)
+-			fdt_setprop_empty(fdt, off, SPLASH_PROP);
++		splash_mark(fdt);
+ 		off = fdt_path_offset(fdt, "/memory@40000000");
+ 		if (off < 0)
+ 			off = fdt_subnode_offset(fdt, 0, "memory");
+diff --git a/board/freescale/imx8mp_evk/spl_splash.h b/board/freescale/imx8mp_evk/spl_splash.h
+--- a/board/freescale/imx8mp_evk/spl_splash.h
++++ b/board/freescale/imx8mp_evk/spl_splash.h
+@@ -8,17 +8,16 @@
+ 
+ struct blk_desc;
+ 
+-/* カーネルに渡す /chosen の印と、proper が「SPL が表示の電源を入れた」と
+- * 見る GPC PU_PWRHSK (0x303a0190) の handshake 要求のビット。LVDS は別の印
+- * (splash-lvds) にして、HDMI の引き継ぎパッチ (0010-0013、splash-active で
+- * 発動) と LVDS のもの (splash-lvds) が、SPL と Linux の表示が食い違ったときに
+- * 電源の入っていない区画を「入っている」と取り違えないようにする */
++/* /chosen の印。SPL が表示を立ち上げたとき、falcon ではカーネルの DT に、
++ * proper では proper 自身の DT に書く (proper はそれを見てカーネルの DT にも
++ * 立てる)。LVDS は別の印 (splash-lvds) にして、HDMI の引き継ぎパッチ
++ * (0010-0013、splash-active で発動) と LVDS のもの (splash-lvds) が、SPL と
++ * Linux の表示が食い違ったときに電源の入っていない区画を「入っている」と
++ * 取り違えないようにする */
+ #if IS_ENABLED(CONFIG_SPL_SPLASH_LVDS)
+ #define SPLASH_PROP		"splash-lvds"
+-#define SPLASH_GPC_HSK_BIT	14	/* MEDIAMIX */
+ #else
+ #define SPLASH_PROP		"splash-active"
+-#define SPLASH_GPC_HSK_BIT	13	/* HDMIMIX */
+ #endif
+ 
+ #ifdef CONFIG_SPL_SPLASH
