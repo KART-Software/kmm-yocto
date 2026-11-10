@@ -45,7 +45,12 @@ mkdir -p /etc/systemd/system/splash-wl.service.d
 printf "[Service]\nExecStart=\nExecStart=/usr/bin/wl-image-view /etc/lcdval/weston.raw\n" \
     > /etc/systemd/system/splash-wl.service.d/lcdval.conf
 mkdir -p /etc/systemd/system/kmm.service.d
-printf "[Service]\nType=simple\nExecStart=\nExecStart=/usr/bin/wl-image-view /etc/lcdval/gui.raw\n" \
+# kmm.service は weston と並行に起動する (After= に weston が無い) ので、パターンは
+# weston より先に接続して、splash-wl (weston パターン) より先に出てしまう。kiosk-shell は
+# 最後に出た面を上に置くので、GUI パターンが weston パターンの下に隠れたままになる。
+# 本物の kmm は Qt の初期化で weston の起動の約 0.4 s 後に最初の画面を出すので、それに
+# 合わせて最初の描画を遅らせる (2026-11-11、LVDS)
+printf "[Service]\nType=simple\nExecStart=\nExecStart=/usr/bin/wl-image-view /etc/lcdval/gui.raw 800 480 --delay-ms 400\n" \
     > /etc/systemd/system/kmm.service.d/lcdval.conf
 systemctl daemon-reload
 
