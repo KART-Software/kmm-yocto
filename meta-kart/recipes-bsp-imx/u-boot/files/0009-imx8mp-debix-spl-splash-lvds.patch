@@ -1,0 +1,405 @@
+From: build <build@localhost>
+Subject: [PATCH] imx8mp_evk: SPL スプラッシュに LVDS パネル (J10) の経路を足す
+
+SPL スプラッシュ (0005) の表示を Kconfig で HDMI か LVDS に選べるようにする
+(SPL_SPLASH_HDMI / SPL_SPLASH_LVDS。ROM のブートイメージの上限のため片方だけ)。
+
+LVDS の経路: J10 の 5 V (LVDS_PWR_EN = GPIO4_IO25) → VIDEO_PLL1 1039.5 MHz →
+CCM (media_axi/apb、disp2_pix ÷42 = 24.75 MHz、media_ldb ÷6 = 173.25 MHz) →
+GPC MEDIAMIX → media blk-ctrl (バス、LCDIF2 の区画、hurry、NoC の優先度) →
+LCDIF2 (800x480、ポーチ 8、同期 4) → LDB ch0 (LDB_CTRL 0x21) → LVDS PHY
+(LVDS_CTRL 0x1075)。値は LVDS で表示中の Linux の実機レジスタダンプ、手順は
+カーネルのドライバ (clk-pll14xx / gpcv2 / imx8m-blk-ctrl / fsl-imx-ldb /
+phy-fsl-imx8mp-lvds)。クロックは DT の assigned-clocks と同じ親・レートにする。
+
+カーネルへの印は表示ごとに分ける (HDMI は従来の /chosen splash-active、
+LVDS は splash-lvds)。LVDS の SPL は、渡すカーネルの DT の LDB が無効
+(表示を HDMI にしたイメージ) なら表示を止めてから渡す。proper の養子縁組
+(0006) も、GPC の handshake 要求のビットと印を表示ごとにする。
+
+Upstream-Status: Inappropriate [boot-splash integration]
+
+diff --git a/board/freescale/imx8mp_evk/imx8mp_evk.c b/board/freescale/imx8mp_evk/imx8mp_evk.c
+--- a/board/freescale/imx8mp_evk/imx8mp_evk.c
++++ b/board/freescale/imx8mp_evk/imx8mp_evk.c
+@@ -26,6 +26,7 @@
+ #include <usb.h>
+ #include <dwc3-uboot.h>
+ #include <mmc.h>
++#include "spl_splash.h"
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -139,16 +140,17 @@
+ 	 * 再シーケンスするとバスごと固まる (実測: console 切替直後に CPU が
+ 	 * PC=0 で停止、5/5 再現)。falcon 経路と同じくカーネルに養子縁組
+ 	 * (splash-active) させると 3/3 起動し表示も出る。
+-	 * 判定は GPC PU_PWRHSK (0x303a0190) bit13 = SPL が立てた HDMIMIX の
+-	 * ADB400 handshake 要求。ロゴ無し等で SPL が表示を起こさなかった
+-	 * 場合は立たず、従来どおり通常 probe になる。 */
+-	if (readl(0x303a0190) & BIT(13)) {
++	 * 判定は GPC PU_PWRHSK (0x303a0190) の、SPL が立てた ADB400 handshake
++	 * 要求 (HDMI は HDMIMIX の bit13、LVDS は MEDIAMIX の bit14)。SPL が表示を
++	 * 起こさなかった場合は立たず、従来どおり通常 probe になる。印は表示ごと
++	 * (spl_splash.h の SPLASH_PROP)。 */
++	if (readl(0x303a0190) & BIT(SPLASH_GPC_HSK_BIT)) {
+ 		int off = fdt_path_offset(blob, "/chosen");
+ 
+ 		if (off < 0)
+ 			off = fdt_add_subnode(blob, 0, "chosen");
+-		if (off >= 0 && !fdt_setprop_empty(blob, off, "splash-active"))
+-			printf("splash: HDMI domain live, kernel adopts it\n");
++		if (off >= 0 && !fdt_setprop_empty(blob, off, SPLASH_PROP))
++			printf("splash: display domain live, kernel adopts it\n");
+ 		else
+ 			printf("splash: WARN could not set splash-active\n");
+ 	}
+diff --git a/board/freescale/imx8mp_evk/Kconfig b/board/freescale/imx8mp_evk/Kconfig
+--- a/board/freescale/imx8mp_evk/Kconfig
++++ b/board/freescale/imx8mp_evk/Kconfig
+@@ -15,8 +15,24 @@
+ endif
+ 
+ config SPL_SPLASH
+-	bool "SPL splash on DEBIX (LCDIFv3/DW-HDMI/Samsung PHY direct init)"
++	bool "SPL splash on DEBIX (LCDIFv3 + HDMI or LVDS direct init)"
+ 	depends on SPL_OS_BOOT
+ 	help
+-	  DEBIX (i.MX8MP) の HDMI 表示チェーンを SPL で直接初期化し、
++	  DEBIX (i.MX8MP) の表示チェーンを SPL で直接初期化し、
+ 	  手続き描画したロゴを電源投入直後に表示する。
++
++choice
++	prompt "SPL splash display"
++	depends on SPL_SPLASH
++	default SPL_SPLASH_HDMI
++	help
++	  SPL に入れる表示の経路。ROM のブートイメージの上限のため片方だけ。
++	  Linux の表示 (DTS) と揃える。
++
++config SPL_SPLASH_HDMI
++	bool "HDMI (DW-HDMI/Samsung PHY -> TFP401)"
++
++config SPL_SPLASH_LVDS
++	bool "LVDS (LCDIF2 -> LDB ch0 -> panel on J10)"
++
++endchoice
+diff --git a/board/freescale/imx8mp_evk/spl.c b/board/freescale/imx8mp_evk/spl.c
+--- a/board/freescale/imx8mp_evk/spl.c
++++ b/board/freescale/imx8mp_evk/spl.c
+@@ -386,6 +386,11 @@
+ 		return;
+ 	}
+ 
++	/* 表示が LVDS の SPL で、渡すカーネルが LVDS を使わない (表示を HDMI に
++	 * したイメージ) ときは、表示を止めてから渡す (spl_splash_kernel_match) */
++	if (spl_splash_active() && !spl_splash_kernel_match(fdt))
++		spl_splash_quiesce();
++
+ 	/* /memory を実 DRAM 構成で更新 (bootargs は DTB に焼き込み済み) */
+ 	spl_fixup_fdt(fdt);
+ 	flush_dcache_range((ulong)fdt,
+@@ -403,7 +408,7 @@
+ 		fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 128);
+ 		off = fdt_path_offset(fdt, "/chosen");
+ 		if (off >= 0)
+-			fdt_setprop_empty(fdt, off, "splash-active");
++			fdt_setprop_empty(fdt, off, SPLASH_PROP);
+ 		off = fdt_path_offset(fdt, "/memory@40000000");
+ 		if (off < 0)
+ 			off = fdt_subnode_offset(fdt, 0, "memory");
+diff --git a/board/freescale/imx8mp_evk/spl_splash.c b/board/freescale/imx8mp_evk/spl_splash.c
+--- a/board/freescale/imx8mp_evk/spl_splash.c
++++ b/board/freescale/imx8mp_evk/spl_splash.c
+@@ -1,8 +1,18 @@
+ // SPDX-License-Identifier: GPL-2.0+
+ /*
+  * SPL splash: DEBIX (i.MX8MP) の電源投入直後スプラッシュ。
++ * 表示は Kconfig の SPL_SPLASH_HDMI / SPL_SPLASH_LVDS で片方を選ぶ (SPL に両方は
++ * 入らない。ROM のブートイメージの上限、06-splash.md)。
+  *
+- * 経路: CCM (HDMI APB/AXI/24M) → GPC (HDMIMIX 電源) → HDMI blk-ctrl
++ * LVDS の経路: J10 の 5 V (GPIO4_IO25) → VIDEO_PLL1 1039.5 MHz → CCM (media) →
++ *       GPC (MEDIAMIX 電源) → media blk-ctrl (LCDIF2 の区画) → LCDIF2 (800x480)
++ *       → LDB ch0 → LVDS PHY → 変換基板 → Riverdi RVT50HQLNWN00
++ *   値は LVDS で表示中の Linux の実機レジスタダンプ (2026-11-11) と、
++ *   linux-fslc-imx 6.6: clk-pll14xx.c / gpcv2.c / imx8m-blk-ctrl.c /
++ *   fsl-imx-ldb.c / phy-fsl-imx8mp-lvds.c の手順。カーネルの DT の
++ *   assigned-clocks と同じ親・レートにするので、カーネルは「同じ値」として触らない
++ *
++ * HDMI の経路: CCM (HDMI APB/AXI/24M) → GPC (HDMIMIX 電源) → HDMI blk-ctrl
+  *       → Samsung HDMI PHY (33.75MHz PLL = ピクセルクロック源)
+  *       → DW-HDMI TX v2.13a (DVI モード) → PVI → LCDIFv3 (800x480)
+  *       → TFP401 パネル
+@@ -34,6 +44,7 @@
+ #include <linux/delay.h>
+ #include <linux/kernel.h>
+ #include <linux/types.h>
++#include <linux/libfdt.h>
+ #include "spl_splash.h"
+ /* ロゴは SPL に埋め込まず、p1 の logo.bin から読む (下のロゴの節) */
+ 
+@@ -47,11 +58,30 @@
+ 
+ #define CCM_BASE		0x30380000UL
+ #define GPC_BASE		0x303a0000UL
++#if IS_ENABLED(CONFIG_SPL_SPLASH_LVDS)
++#define ANATOP_BASE		0x30360000UL
++#define GPIO4_BASE		0x30230000UL
++#define IOMUXC_BASE		0x30330000UL
++#define NOC_BASE		0x32700000UL
++#define BLK_BASE		0x32ec0000UL	/* media blk-ctrl (LDB/LVDS PHY もここ) */
++#define LCDIF_BASE		0x32e90000UL	/* LCDIF2 */
++/* LCDIFv3 のタイミング (DTS の panel-lvds: ポーチ 8、同期 4。sync 反転なし) */
++#define LCDIF_CTRL_VAL		0x0
++#define LCDIF_HSYN		0x00080008	/* bp 8 fp 8 */
++#define LCDIF_VSYN		0x00080008	/* bp 8 fp 8 */
++#define LCDIF_PW		0x00040004	/* v 4 h 4 */
++#else
+ #define BLK_BASE		0x32fc0000UL	/* HDMI blk-ctrl */
+ #define PVI_BASE		0x32fc4000UL
+ #define LCDIF_BASE		0x32fc6000UL
+ #define HDMI_BASE		0x32fd8000UL	/* DW-HDMI TX (byte regs) */
+ #define PHY_BASE		0x32fdff00UL	/* Samsung HDMI PHY */
++/* CTRL=0x3 (H/Vsync 反転 = 両負)。タイミングは TFP401 EDID */
++#define LCDIF_CTRL_VAL		0x3
++#define LCDIF_HSYN		0x00B80028	/* bp184 fp40 */
++#define LCDIF_VSYN		0x001D000D	/* bp29 fp13 */
++#define LCDIF_PW		0x00030030	/* v3 h48 */
++#endif
+ 
+ static bool splash_ok;
+ 
+@@ -67,6 +97,109 @@
+ 	return -1;
+ }
+ 
++#if IS_ENABLED(CONFIG_SPL_SPLASH_LVDS)
++/* ---------------- パネルの電源 (J10 の 5 V) ----------------
++ * J10 の負荷スイッチの EN = LVDS_PWR_EN = GPIO4_IO25 (パッド SAI2_TXC、ALT5)。
++ * 変換基板がこの 5 V からパネルの 3.3 V とバックライトを作り、RESET/STBYB は
++ * 基板の RC で 10 / 47 ms 遅れて上がる (その間に下の経路が LVDS を出し始める)。
++ * カーネルの usb-rst-hog も同じピンを High にするので切れ目は無い。 */
++static void splash_panel_power(void)
++{
++	writel(5, IOMUXC_BASE + 0x1ac);			/* SAI2_TXC = GPIO4_IO25 */
++	setbits_le32(GPIO4_BASE + 0x0, BIT(25));	/* DR */
++	setbits_le32(GPIO4_BASE + 0x4, BIT(25));	/* GDIR = 出力 */
++}
++
++/* ---------------- クロック (VIDEO_PLL1 + CCM) ----------------
++ * VIDEO_PLL1 = 1039.5 MHz (clk-pll14xx.c の表: m 173, p 2, s 1, k 16384)。
++ * 手順も clk_pll1443x_set_rate と同じ (RST → BYPASS → 分周 → 3us →
++ * RST 解除 → LOCK 待ち → BYPASS 解除) + 出力ゲート CLKE (bit13)。
++ * CCM は実機ダンプの値 (= DT の assigned-clocks の親とレート):
++ *   media_axi 0x8a00 = sys_pll2_1000m /2 = 500 MHz
++ *   media_apb 0x8a80 = sys_pll1_800m  /4 = 200 MHz
++ *   media_disp2_pix 0x9300 = video_pll1_out /42 = 24.75 MHz (ピクセル)
++ *   media_ldb 0xbf00 = video_pll1_out /6 = 173.25 MHz (ピクセルの 7 倍)
++ *   CCGR93 (media の共有ゲート、0x45d0) = 3 */
++static int splash_clocks_init(void)
++{
++	int i;
++
++	writel(0, ANATOP_BASE + 0x28);			/* RST (24M 参照) */
++	writel(BIT(4), ANATOP_BASE + 0x28);		/* + BYPASS */
++	writel((173 << 12) | (2 << 4) | 1, ANATOP_BASE + 0x2c);
++	writel(16384, ANATOP_BASE + 0x30);
++	udelay(3);
++	writel(BIT(4) | BIT(9), ANATOP_BASE + 0x28);	/* RST 解除 */
++	for (i = 0; !(readl(ANATOP_BASE + 0x28) & BIT(31)); i++) {
++		if (i > 10000) {
++			printf("splash: pll lock timeout\n");
++			return -1;
++		}
++		udelay(1);
++	}
++	writel(BIT(9) | BIT(13), ANATOP_BASE + 0x28);	/* BYPASS 解除 + CLKE */
++
++	writel(0x11010000, CCM_BASE + 0x8a00);	/* media_axi 500M */
++	writel(0x12030000, CCM_BASE + 0x8a80);	/* media_apb 200M */
++	writel(0x11000029, CCM_BASE + 0x9300);	/* media_disp2_pix /42 */
++	writel(0x17000005, CCM_BASE + 0xbf00);	/* media_ldb /6 */
++	writel(0x3, CCM_BASE + 0x45d0);		/* CCGR93 media gate */
++	return 0;
++}
++
++/* ---------------- 電源 (GPC MEDIAMIX + media blk-ctrl) ----------------
++ * gpcv2.c imx_pgc_power_up + imx8m-blk-ctrl.c imx8mp_media_power_notifier /
++ * imx8m_blk_ctrl_power_on (mediablk-lcdif-2) / imx8m_blk_ctrl_qos_set の移植。
++ * MEDIAMIX = A53_DOMAIN bit12, Pxx bit10, hsk-req bit14, PGC インデックス 22。
++ * LDB と LVDS PHY は MEDIAMIX 直下 (blk-ctrl の区画は持たない)。 */
++static int splash_power_init(void)
++{
++	setbits_le32(GPC_BASE + 0x1cc, BIT(12));	/* A53 へ割当 */
++	udelay(5);
++	setbits_le32(GPC_BASE + 0x0d8, BIT(10));	/* power up 要求 */
++	if (poll32_clear(GPC_BASE + 0x0d8, BIT(10), 10000))
++		return -1;
++	clrbits_le32(GPC_BASE + 0x800 + 22 * 0x40, BIT(0));	/* PCR */
++	udelay(5);
++
++	/* バス (power notifier): クロック bit8 → リセット解除 bit8 */
++	setbits_le32(BLK_BASE + 0x4, BIT(8));
++	setbits_le32(BLK_BASE + 0x0, BIT(8));
++	udelay(5);
++	setbits_le32(GPC_BASE + 0x190, BIT(14));	/* ADB400 handshake 要求 */
++	udelay(10);
++
++	/* LCDIF2 の区画 (rst/clk bit11/12/24): リセットを入れたままクロック →
++	 * 5us → 解除 */
++	clrbits_le32(BLK_BASE + 0x0, BIT(11) | BIT(12) | BIT(24));
++	setbits_le32(BLK_BASE + 0x4, BIT(11) | BIT(12) | BIT(24));
++	udelay(5);
++	setbits_le32(BLK_BASE + 0x0, BIT(11) | BIT(12) | BIT(24));
++
++	/* QoS: LCDIF2 の hurry (ARCACHE bit13-15) と NoC の LCDIF 読み書きの優先度 */
++	setbits_le32(BLK_BASE + 0x4c, GENMASK(15, 13));
++	for (int off = 0x980; off <= 0xa00; off += 0x80) {
++		writel(0x80000202, NOC_BASE + off + 0x8);
++		writel(0, NOC_BASE + off + 0xc);
++		writel(1, NOC_BASE + off + 0x18);
++	}
++	return 0;
++}
++
++/* ---------------- LDB + LVDS PHY ----------------
++ * fsl-imx-ldb.c: LDB_CTRL (blk-ctrl +0x5c) = 0x21 (ch0 → DI0、24 ビット、
++ * VESA の並び、VS 正)。phy-fsl-imx8mp-lvds.c: LVDS_CTRL (+0x128) を
++ * init 値 (CC_ADJ 2 + PRE_EMPH) → + BG_EN → 15us (バンドギャップ) → + CH0_EN。
++ * カーネルと同じく LCDIF を走らせてから出す。 */
++static void splash_ldb_init(void)
++{
++	writel(0x21, BLK_BASE + 0x5c);
++	writel(0x1074, BLK_BASE + 0x128);
++	udelay(15);
++	writel(0x1075, BLK_BASE + 0x128);
++}
++
++#else
+ /* ---------------- クロック (CCM) ----------------
+  * 実機ダンプ再現値: HDMI_APB root 0x8b00 = 0x17000000 (sys_pll1_133m)
+  *                   HDMI_AXI root 0x8b80 = 0x17000000 (sys_pll2_500m)
+@@ -260,17 +393,18 @@
+ 	writel(0x00311004, PVI_BASE + 0x00);
+ 	writel(0x00311005, PVI_BASE + 0x00);
+ }
++#endif
+ 
+ /* ---------------- LCDIFv3 ----------------
+- * u-boot imx_lcdifv3.c の init 手順をライブ値で固定化。
+- * CTRL=0x3 (H/Vsync 反転 = 両負)、DESC5 のフォーマット 0x09 = ARGB8888。 */
++ * u-boot imx_lcdifv3.c の init 手順をライブ値で固定化。タイミングと CTRL は
++ * 表示ごとの定数 (上のベースアドレスの節)。DESC5 のフォーマット 0x09 = ARGB8888。 */
+ static void splash_lcdif_init(void)
+ {
+-	writel(0x3, LCDIF_BASE + 0x00);			/* CTRL: INV_HS|INV_VS */
++	writel(LCDIF_CTRL_VAL, LCDIF_BASE + 0x00);	/* CTRL */
+ 	writel(0x01E00320, LCDIF_BASE + 0x14);		/* DISP_SIZE 480x800 */
+-	writel(0x00B80028, LCDIF_BASE + 0x18);		/* HSYN bp184 fp40 */
+-	writel(0x001D000D, LCDIF_BASE + 0x1c);		/* VSYN bp29 fp13 */
+-	writel(0x00030030, LCDIF_BASE + 0x20);		/* PW v3 h48 */
++	writel(LCDIF_HSYN, LCDIF_BASE + 0x18);		/* HSYN */
++	writel(LCDIF_VSYN, LCDIF_BASE + 0x1c);		/* VSYN */
++	writel(LCDIF_PW, LCDIF_BASE + 0x20);		/* PW */
+ 
+ 	writel(0x01E00320, LCDIF_BASE + 0x200);		/* DESC0_1 480x800 */
+ 	writel(0x00A20C80, LCDIF_BASE + 0x208);		/* DESC0_3 pitch 3200 */
+@@ -296,6 +430,21 @@
+ 		p[i] = SPLASH_BG_XRGB;
+ 	flush_dcache_range(SPLASH_FB_ADDR, SPLASH_FB_ADDR + SPLASH_FB_SIZE);
+ 
++#if IS_ENABLED(CONFIG_SPL_SPLASH_LVDS)
++	/* パネルの電源を先に入れる (パネルの順番: VDD → 信号。RESET/STBYB は
++	 * 基板の RC で遅れて上がるので、それまでに信号が出ていればよい) */
++	splash_panel_power();
++	printf("clk ");
++	if (splash_clocks_init())
++		return;
++	printf("pwr ");
++	if (splash_power_init())
++		return;
++	printf("lcdif ");
++	splash_lcdif_init();
++	printf("ldb ");
++	splash_ldb_init();
++#else
+ 	printf("clk ");
+ 	splash_clocks_init();
+ 	printf("pwr ");
+@@ -309,6 +458,7 @@
+ 	splash_pvi_init();
+ 	printf("lcdif ");
+ 	splash_lcdif_init();
++#endif
+ 
+ 	splash_ok = true;
+ 	printf("logo on (%lu ms)\n", get_timer(start));
+@@ -388,7 +538,32 @@
+ 	writel(0x09000000 | BIT(30), LCDIF_BASE + 0x214);
+ 	mdelay(40);
+ 	writel(0, LCDIF_BASE + 0x10);
++#if IS_ENABLED(CONFIG_SPL_SPLASH_LVDS)
++	/* LVDS PHY を init 値へ (BG_EN/CH0_EN を落とす) → LDB を POR 値へ
++	 * (fsl-imx-ldb.c の ldb_bind と同じ)。パネルの 5 V はカーネルの hog が
++	 * 引き継ぐので入れたまま */
++	writel(0x1070, BLK_BASE + 0x128);
++	writel(0, BLK_BASE + 0x5c);
++#else
+ 	writeb(0x00, HDMI_BASE + 0x3000);
++#endif
+ 	splash_ok = false;
+-	printf("splash: off (proper handoff)\n");
++	printf("splash: off\n");
++}
++
++#if IS_ENABLED(CONFIG_SPL_SPLASH_LVDS)
++/* 渡すカーネルの DT が LVDS を使うか (LDB が有効か)。表示を HDMI にした
++ * イメージ (DEBIX_DISPLAY=hdmi) なら、表示を止めてから渡す (spl.c)。
++ * LVDS の SPL のまま HDMI の Linux を起動しても、カーネルが走査中の
++ * MEDIAMIX を知らずに電源を落とすことがないように。 */
++bool spl_splash_kernel_match(void *fdt)
++{
++	int off = fdt_path_offset(fdt, "/ldb-display-controller");
++	const char *st;
++
++	if (off < 0)
++		return false;
++	st = fdt_getprop(fdt, off, "status", NULL);
++	return !st || !strcmp(st, "okay");
+ }
++#endif
+diff --git a/board/freescale/imx8mp_evk/spl_splash.h b/board/freescale/imx8mp_evk/spl_splash.h
+--- a/board/freescale/imx8mp_evk/spl_splash.h
++++ b/board/freescale/imx8mp_evk/spl_splash.h
+@@ -8,6 +8,19 @@
+ 
+ struct blk_desc;
+ 
++/* カーネルに渡す /chosen の印と、proper が「SPL が表示の電源を入れた」と
++ * 見る GPC PU_PWRHSK (0x303a0190) の handshake 要求のビット。LVDS は別の印
++ * (splash-lvds) にして、HDMI の引き継ぎパッチ (0010-0013、splash-active で
++ * 発動) と LVDS のもの (splash-lvds) が、SPL と Linux の表示が食い違ったときに
++ * 電源の入っていない区画を「入っている」と取り違えないようにする */
++#if IS_ENABLED(CONFIG_SPL_SPLASH_LVDS)
++#define SPLASH_PROP		"splash-lvds"
++#define SPLASH_GPC_HSK_BIT	14	/* MEDIAMIX */
++#else
++#define SPLASH_PROP		"splash-active"
++#define SPLASH_GPC_HSK_BIT	13	/* HDMIMIX */
++#endif
++
+ #ifdef CONFIG_SPL_SPLASH
+ void spl_splash_prepare(void);
+ bool spl_splash_active(void);
+@@ -20,4 +33,10 @@
+ static inline void spl_splash_quiesce(void) {}
+ #endif
+ 
++#if IS_ENABLED(CONFIG_SPL_SPLASH_LVDS)
++bool spl_splash_kernel_match(void *fdt);
++#else
++static inline bool spl_splash_kernel_match(void *fdt) { return true; }
++#endif
++
+ #endif

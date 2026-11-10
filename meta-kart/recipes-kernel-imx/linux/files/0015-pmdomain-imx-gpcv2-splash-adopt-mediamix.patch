@@ -1,0 +1,38 @@
+From: build <build@localhost>
+Subject: [PATCH] pmdomain: imx: gpcv2: SPL の LVDS スプラッシュ稼働中は mediamix を ALWAYS_ON で養子縁組
+
+SPL が LVDS の表示 (MEDIAMIX の配下の LCDIF2 → LDB → LVDS PHY) を
+初期化してロゴを表示したままカーネルへ渡すとき (/chosen に splash-lvds)、
+MEDIAMIX ドメインを「最初から ON + GENPD_FLAG_ALWAYS_ON」で登録する。
+こうしない場合、genpd の帳簿 (off) と実ハード (on、LCDIF2 走査中) が乖離し、
+未使用ドメインの一斉電源断や最初の power_on の過渡で表示が消える。
+HDMI の 0010 (splash-active で hdmimix/hdmi-phy) の LVDS 版。
+印が無ければ従来どおり。
+
+Upstream-Status: Inappropriate [boot-splash integration]
+
+diff --git a/drivers/pmdomain/imx/gpcv2.c b/drivers/pmdomain/imx/gpcv2.c
+--- a/drivers/pmdomain/imx/gpcv2.c
++++ b/drivers/pmdomain/imx/gpcv2.c
+@@ -1452,7 +1452,20 @@ static int imx_pgc_domain_probe(struct platform_device *pdev)
+ 		regmap_update_bits(domain->regmap, domain->regs->map,
+ 				   domain->bits.map, domain->bits.map);
+ 
+-	ret = pm_genpd_init(&domain->genpd, NULL, true);
++	/* SPL スプラッシュが LVDS の表示 (MEDIAMIX の配下の LCDIF2 → LDB →
++	 * LVDS PHY) を稼働させたまま渡してくる (/chosen に splash-lvds)。
++	 * 実ハード状態 (ON) に合わせ ALWAYS_ON で登録し、電源断を禁止する */
++	{
++		bool adopt = of_property_read_bool(of_chosen, "splash-lvds") &&
++			     !strcmp(domain->genpd.name, "mediamix");
++
++		if (adopt) {
++			dev_info(domain->dev,
++				 "splash: adopting running domain\n");
++			domain->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
++		}
++		ret = pm_genpd_init(&domain->genpd, NULL, !adopt);
++	}
+ 	if (ret) {
+ 		dev_err(domain->dev, "Failed to init power domain\n");
+ 		goto out_domain_unmap;

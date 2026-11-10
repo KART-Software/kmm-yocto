@@ -102,14 +102,14 @@ export しないと bitbake がキャッシュに書けない):
 ```bash
 export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
 kas-container build \
-  kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-m7.yml
+  kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml:kas/imx8mp-m7.yml
 ./scripts/ab.sh --host <機体> linux try build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2
 ./scripts/ab.sh --host <機体> linux commit
 ```
 
-表示は J10 の LVDS パネルが既定。HDMI のパネルにするときは、`kas/imx8mp-falcon.yml` の直後に
-`kas/imx8mp-splash.yml` を足す(HDMI 用の SPL スプラッシュで、表示を HDMI にする
-`kas/imx8mp-hdmi.yml` を取り込む。[01-build.md](docs/usage/01-build.md))。
+表示は J10 の LVDS パネルが既定。HDMI のパネルにするときは、`kas/imx8mp-falcon.yml` の前に
+`kas/imx8mp-hdmi.yml` を足す(SPL スプラッシュも表示に合わせて変わる。
+[01-build.md](docs/usage/01-build.md))。
 
 - **リモートからの入り方**: prod イメージは Tailscale SSH だけ(root のパスワードがロック
   されている)。開発用イメージ(debug-tweaks)は root のパスワードが空で、LAN の SSH でも入れる。

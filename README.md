@@ -108,14 +108,13 @@ Building the DEBIX product composition and updating a running device looks like 
 ```bash
 export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
 kas-container build \
-  kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-m7.yml
+  kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml:kas/imx8mp-m7.yml
 ./scripts/ab.sh --host <device> linux try build/tmp/deploy/images/imx8mp-debix/kart-image-imx8mp-debix-emmc.wic.bz2
 ./scripts/ab.sh --host <device> linux commit
 ```
 
 The display is the LVDS panel on J10 by default. For the HDMI panel, add
-`kas/imx8mp-splash.yml` right after `kas/imx8mp-falcon.yml`: it is the HDMI SPL splash and
-pulls in `kas/imx8mp-hdmi.yml`, which switches the display to HDMI
+`kas/imx8mp-hdmi.yml` before `kas/imx8mp-falcon.yml`; the SPL splash follows the display
 ([01-build.md](docs/usage/01-build.md)).
 
 - **Remote access**: prod images are reachable only over Tailscale SSH (the root

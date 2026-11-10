@@ -52,6 +52,23 @@ SRC_URI:append:imx8mp-debix = " \
     file://0014-drm-imx-imx8mp-ldb-keep-panel-pixel-clock.patch \
 "
 
+# SPL スプラッシュの引き継ぎ (seamless takeover)。SPL が /chosen に印 (HDMI は splash-active、
+# LVDS は splash-lvds) を立てたときだけ働き、無ければ従来どおり。SPL は Linux と別に更新する
+# ので、スプラッシュの無い構成でも入れておく (スプラッシュ入りの SPL の機体で走っても壊れない)。
+# docs/imx8mp-debix-bringup/06-splash.md
+SRC_URI:append:debix-hdmi = " \
+    file://0010-pmdomain-imx-gpcv2-splash-adopt-8mp.patch \
+    file://0011-pmdomain-imx8mp-blk-ctrl-splash-adopt.patch \
+    file://0012-drm-imx-dw-hdmi-splash-skip-probe-phy-reset.patch \
+    file://0013-phy-fsl-samsung-hdmi-splash-skip-probe-reset.patch \
+"
+SRC_URI:append:debix-lvds = " \
+    file://0015-pmdomain-imx-gpcv2-splash-adopt-mediamix.patch \
+    file://0016-pmdomain-imx8m-blk-ctrl-splash-adopt-lcdif2.patch \
+    file://0017-drm-imx-ldb-splash-keep-lvds.patch \
+    file://0018-phy-fsl-imx8mp-lvds-splash-keep-output.patch \
+"
+
 do_configure:prepend:imx8mp-debix() {
     cp ${WORKDIR}/imx8mp-debix.dts ${WORKDIR}/imx8mp-debix-m7.dts \
        ${WORKDIR}/imx8mp-debix-lvds.dtsi ${WORKDIR}/imx8mp-debix-hdmi.dtsi \

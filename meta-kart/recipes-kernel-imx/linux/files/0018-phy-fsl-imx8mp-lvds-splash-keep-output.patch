@@ -1,0 +1,35 @@
+From: build <build@localhost>
+Subject: [PATCH] phy: fsl-imx8mp-lvds: SPL の LVDS スプラッシュ稼働中は init で出力を止めない
+
+phy_init (LDB の probe と bind で呼ばれる) は LVDS_CTRL を CC_ADJ/PRE_EMPH
+だけの値で書き直し、バンドギャップとチャネルの有効ビットを落とす。/chosen に
+splash-lvds があるとき (SPL が LVDS を出したまま渡してくる) は、その 2 つを
+今の値のまま残す。power_on はバンドギャップが立っていれば待たずに済む。
+HDMI の 0013 (Samsung HDMI PHY の probe 時リセット抑止) の LVDS 版。
+
+Upstream-Status: Inappropriate [boot-splash integration]
+
+diff --git a/drivers/phy/freescale/phy-fsl-imx8mp-lvds.c b/drivers/phy/freescale/phy-fsl-imx8mp-lvds.c
+--- a/drivers/phy/freescale/phy-fsl-imx8mp-lvds.c
++++ b/drivers/phy/freescale/phy-fsl-imx8mp-lvds.c
+@@ -105,12 +105,19 @@ phy_write(struct phy *phy, unsigned int reg, unsigned int value)
+ static int imx8mp_lvds_phy_init(struct phy *phy)
+ {
+ 	struct imx8mp_lvds_phy_priv *priv = dev_get_drvdata(phy->dev.parent);
++	unsigned int keep = 0;
+ 
+ 	clk_prepare_enable(priv->apb_clk);
+ 
+ 	mutex_lock(&priv->lock);
++	/* SPL スプラッシュの LVDS を引き継ぐとき (/chosen に splash-lvds) は、
++	 * 出力中のバンドギャップとチャネルの有効ビットを残す (素のままだと LDB の
++	 * probe で LVDS の出力が止まる)。power_on は立っていれば待たずに済む */
++	if (of_property_read_bool(of_chosen, "splash-lvds"))
++		keep = phy_read(phy, priv->devdata->lvds_ctrl) &
++		       (BG_EN | CH_EN(0) | CH_EN(1));
+ 	phy_write(phy, priv->devdata->lvds_ctrl,
+-			CC_ADJ(0x2) | PRE_EMPH_EN | PRE_EMPH_ADJ(0x3));
++			CC_ADJ(0x2) | PRE_EMPH_EN | PRE_EMPH_ADJ(0x3) | keep);
+ 	mutex_unlock(&priv->lock);
+ 
+ 	clk_disable_unprepare(priv->apb_clk);

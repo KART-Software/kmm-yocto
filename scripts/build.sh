@@ -13,9 +13,8 @@
 #
 # Options:
 #   --emmc       eMMC A/B レイアウト (imx8mm/imx8mp; 省略時は SD 持ち込み用シングルスロット)
-#   --falcon     Falcon Mode + SPL スプラッシュを合成 (製品ブート経路; --emmc 必須)
-#                imx8mp の SPL スプラッシュ (kas/imx8mp-splash.yml) は HDMI 用なので、--hdmi の
-#                ときだけ付く (LVDS 版は未実装、docs/imx8mp-debix-bringup/open-issues.md #15)
+#   --falcon     Falcon Mode + SPL スプラッシュを合成 (製品ブート経路; --emmc 必須)。
+#                imx8mp のスプラッシュは表示 (LVDS / --hdmi) に合わせる
 #   --hdmi       表示を HDMI にする (imx8mp; kas/imx8mp-hdmi.yml)。省略時は J10 の LVDS パネル
 #   --netboot    TFTP/NFS root (imx8mm、bring-up 用)
 #   --sdcard     SD カードブート (RPi5 用)
@@ -31,8 +30,8 @@
 #
 # 例:
 #   ./scripts/build.sh imx8mp --emmc            # dev イメージ (U-Boot proper 起動)
-#   ./scripts/build.sh imx8mp --emmc --falcon   # 製品ブート (falcon、LVDS、SPL スプラッシュなし、M7 なし)
-#   ./scripts/build.sh imx8mp --emmc --falcon --hdmi  # 同じく HDMI (falcon + SPL スプラッシュ)
+#   ./scripts/build.sh imx8mp --emmc --falcon   # 製品ブート (falcon + SPL スプラッシュ、LVDS、M7 なし)
+#   ./scripts/build.sh imx8mp --emmc --falcon --hdmi  # 同じく表示を HDMI に
 #
 # Cortex-M CAN ゲートウェイ (M7/M4) は別オーバーレイ。--falcon の kas 構成に
 # :kas/imx8mp-m7.yml (または imx8mm-m4.yml) を足す。手順は README 参照。
@@ -154,8 +153,7 @@ if [ -n "$FALCON" ]; then
         exit 1
     fi
     case "$TARGET" in
-        # 8MP の SPL スプラッシュは HDMI の表示チェーンを直接叩くので、HDMI のときだけ付ける
-        imx8mp) KAS_CONFIG="$KAS_CONFIG:kas/imx8mp-falcon.yml${HDMI:+:kas/imx8mp-splash.yml}" ;;
+        imx8mp) KAS_CONFIG="$KAS_CONFIG:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml" ;;
         imx8mm) KAS_CONFIG="$KAS_CONFIG:kas/imx8mm-falcon.yml:kas/imx8mm-splash.yml" ;;
         *) echo "Error: --falcon is only supported for imx8mm/imx8mp" >&2; exit 1 ;;
     esac
