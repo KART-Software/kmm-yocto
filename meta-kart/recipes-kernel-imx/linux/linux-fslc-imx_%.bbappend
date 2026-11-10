@@ -47,6 +47,7 @@ SRC_URI:append:imx8mp-debix = " \
     file://can-builtin.cfg \
     file://slim-imx8mp.cfg \
     file://boottune-imx8mp.cfg \
+    file://0014-drm-imx-imx8mp-ldb-keep-panel-pixel-clock.patch \
 "
 
 do_configure:prepend:imx8mp-debix() {
