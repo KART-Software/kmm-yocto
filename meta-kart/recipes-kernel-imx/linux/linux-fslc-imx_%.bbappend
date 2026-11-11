@@ -50,6 +50,7 @@ SRC_URI:append:imx8mp-debix = " \
     file://slim-imx8mp.cfg \
     file://boottune-imx8mp.cfg \
     file://0014-drm-imx-imx8mp-ldb-keep-panel-pixel-clock.patch \
+    file://0019-clk-imx-composite-8m-skip-redundant-gate-write.patch \
 "
 
 # SPL スプラッシュの引き継ぎ (seamless takeover)。SPL が /chosen に印 (HDMI は splash-active、

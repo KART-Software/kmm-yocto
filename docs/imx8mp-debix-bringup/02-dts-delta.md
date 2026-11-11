@@ -39,6 +39,7 @@ can1(J2 Pin35/37)は loopback のみ確認。
 | mipi_dsi / dsi(32e6) | disabled | okay | パネル無し。表示は LVDS か HDMI |
 | dsp(audio) | disabled | okay | 未使用 |
 | ldb/lvds 系 | disabled(パネル変種のみ okay) | 混在 | 表示の選択に従う。LVDS(既定)は ldb・PHY・lcdif2 を使って panel-lvds を付け、HDMI 一式を disabled。HDMI のときは ldb・PHY・lcdif2 を disabled(`imx8mp-debix-lvds.dtsi` / `imx8mp-debix-hdmi.dtsi`) |
+| media_blk_ctrl の assigned-clocks | — | DISP1_PIX を含む | LVDS のときは DISP1_PIX(lcdif1 = DSI、DEBIX では止めてある)を外す。SPL のスプラッシュを引き継ぐとき、付け替えが video PLL の出力を一瞬落として表示が崩れる(06-splash.md「LVDS の経路」) |
 
 ## そのままで良さそう(実機ブートで最終確認)
 

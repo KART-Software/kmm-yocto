@@ -99,10 +99,25 @@ J10 の 5 V (LVDS_PWR_EN = GPIO4_IO25、パッド SAI2_TXC) ← パネルの VDD
 - LCDIFv3 のドライバは probe でも runtime resume でもリセットしない(リセットのビットを下ろすだけ)
   ので、HDMI と同じくパッチは要らない。weston の初回 modeset は LDB_CTRL・LVDS_CTRL に同じ値を
   書き、PHY はバンドギャップが立っているので待たずに済む
+- **DT の media blk-ctrl のクロックの初期設定から DISP1_PIX を外す**(`imx8mp-debix-lvds.dtsi`)と
+  **0019 composite-8m**(既に有効なルートの gate を書き直さない): この 2 つが無いと、カーネルが
+  表示のクロックを最初に有効にする時点(media blk-ctrl と LDB の probe、カーネル 0.145〜0.16 s、
+  ロゴから約 0.73 s)でパネルの表示が 1〜2 フレーム崩れる。原因は 2 つ:
+  - SPL は disp1 に触らない(リセット値の osc_24m)。EVK の DT は blk-ctrl の probe の直前に disp1 の
+    親を video_pll1_out に付け替え、ルートクロックは CLK_OPS_PARENT_ENABLE 付きなので、付け替えの
+    間だけ新しい親を有効にして戻す。まだ誰も video_pll1_out を握っていない時点なので、PLL の出力
+    (GEN_CTRL の CLKE)が実際に落ち、ピクセルクロックと LDB のシリアルクロックが止まる
+  - ルートの gate は、M コアが動いていないとき(`mcore_booted` が偽、既定)は汎用の clk_gate_ops で、
+    enable のたびに CCM の TARGET_ROOT に同じ値を書く。media_ldb(0x3038bf00)は同じ値を書いても
+    表示が崩れる(SPL のままの表示で 12 回中 7 回。CCGR93・disp2・media_axi/apb のルート・video PLL は
+    書かないときと変わらない)
 
 検証(2026-11-11、製品構成 = falcon + splash + M7):
 - AprilTag の 3 段(下記「検証手法」の lcd-validation)をコールド起動で 3 回: SPL の段 →
-  weston の段 → GUI の段が、どれも**黒いフレーム 0**(各 約 670 フレーム)で続いた。SPL の段は
+  weston の段 → GUI の段が、どれも**黒いフレーム 0**(各 約 670 フレーム)で続いた。
+  ただし SPL の段の途中(ロゴの約 0.73 s 後)の 1〜2 フレームの崩れは、上の DISP1_PIX と 0019 を
+  入れる前は毎回のように出ていた(タグが 40〜57/60 に減る、ときに 0)。両方を入れて 8 回中 0 回、
+  片方ずつだと DT だけで 8 回中 3 回(軽い)、0019 だけで 8 回中 8 回(2026-11-11)。SPL の段は
   電源の投入の指示から約 1.5 s(DP100 → DC-DC の立ち上がりを含む)、weston の段はその約 2.05 s 後、
   GUI の段はさらに約 0.4 s 後
 - 同じツリーの HDMI 版(表示を HDMI にしたイメージ + HDMI の SPL)も、SPL のロゴ → kmm が途切れずに

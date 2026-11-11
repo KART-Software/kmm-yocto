@@ -93,3 +93,23 @@
 &hdmi_blk_ctrl {
 	status = "disabled";
 };
+
+/* media blk-ctrl のクロックの初期設定から DISP1_PIX (lcdif1 = MIPI DSI のピクセル。
+ * DEBIX では lcdif1・DSI とも止めてある) を外す。SPL は disp1 に触らない (リセット値の
+ * osc_24m のまま) ので、EVK の設定のままだとカーネルが blk-ctrl の probe の直前に disp1 の
+ * 親を video_pll1_out に付け替える。ルートクロックは CLK_OPS_PARENT_ENABLE 付きで、
+ * 付け替えの間だけ新しい親を有効にして戻すため、まだ誰も video_pll1_out を握っていない
+ * この時点では PLL の出力 (GEN_CTRL の CLKE) が実際に落ちる。SPL のスプラッシュを出した
+ * まま引き継いでいると、ピクセルクロックと LDB のシリアルクロックが止まり、パネルの表示が
+ * 1〜2 フレーム崩れた (2026-11-11 実測)。残りは EVK と同じ */
+&media_blk_ctrl {
+	assigned-clocks = <&clk IMX8MP_CLK_MEDIA_AXI>,
+			  <&clk IMX8MP_CLK_MEDIA_APB>,
+			  <&clk IMX8MP_CLK_MEDIA_DISP2_PIX>,
+			  <&clk IMX8MP_VIDEO_PLL1>;
+	assigned-clock-parents = <&clk IMX8MP_SYS_PLL2_1000M>,
+				 <&clk IMX8MP_SYS_PLL1_800M>,
+				 <&clk IMX8MP_VIDEO_PLL1_OUT>;
+	assigned-clock-rates = <500000000>, <200000000>,
+			       <0>, <1039500000>;
+};

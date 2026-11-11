@@ -1,0 +1,73 @@
+From: build <build@localhost>
+Subject: [PATCH] clk: imx: composite-8m: 既に有効なルートのゲートを書き直さない
+
+8M のルートクロック (composite) の gate は、M コアが動いていないとき (既定、
+mcore_booted が偽) は汎用の clk_gate_ops を使い、enable のたびに CCM の
+TARGET_ROOT を読んで bit28 を立てて書き戻す。ビットが既に立っていても書く。
+CCM の TARGET_ROOT は同じ値を書いてもクロックを切り替え直し、その瞬間
+クロックが乱れる。
+
+DEBIX (8MP) で LVDS のパネルに SPL のスプラッシュを出したまま引き継ぐと、
+カーネルが表示のクロックを最初に有効にする時点 (media blk-ctrl と LDB の probe) で、
+パネルの表示が 1〜2 フレーム崩れていた。SPL のままの表示で media_ldb の
+TARGET_ROOT (0x3038bf00) に今と同じ値を書くと 12 回中 7 回で表示が崩れる
+(CCGR93・ピクセル・media_axi/apb のルート・video PLL に同じことをしても、
+書かないときと変わらない)。崩れのもう一つの原因 (DT の media blk-ctrl の
+DISP1_PIX の親の付け替え) を DT で外しても 8 回中 3 回は軽く崩れ、この
+パッチも入れると 8 回中 0 回になった (2026-11-11 実測)。
+
+gate を、既にビットが立っていれば書かない enable に替える (M コアが動いて
+いるときの imx8m_clk_composite_gate_ops の enable も同じに直す)。値は
+変わらないので、それ以外の動きは同じ。
+
+Upstream-Status: Pending
+
+diff --git a/drivers/clk/imx/clk-composite-8m.c b/drivers/clk/imx/clk-composite-8m.c
+--- a/drivers/clk/imx/clk-composite-8m.c
++++ b/drivers/clk/imx/clk-composite-8m.c
+@@ -212,9 +212,14 @@
+ 
+ 	spin_lock_irqsave(gate->lock, flags);
+ 
++	/* 既に有効なら書かない。CCM の TARGET_ROOT は同じ値を書いてもクロックを
++	 * 切り替え直して一瞬乱れる (8MP の media_ldb で LVDS のシリアルクロックが
++	 * 乱れ、パネルの表示が 1〜2 フレーム崩れた) */
+ 	val = readl(gate->reg);
+-	val |= BIT(gate->bit_idx);
+-	writel(val, gate->reg);
++	if (!(val & BIT(gate->bit_idx))) {
++		val |= BIT(gate->bit_idx);
++		writel(val, gate->reg);
++	}
+ 
+ 	spin_unlock_irqrestore(gate->lock, flags);
+ 
+@@ -232,6 +237,19 @@
+ 	.is_enabled = clk_gate_is_enabled,
+ };
+ 
++static void imx8m_clk_composite_gate_off(struct clk_hw *hw)
++{
++	clk_gate_ops.disable(hw);
++}
++
++/* M コアが動いていないとき (既定) の gate。clk_gate_ops と同じだが、enable は
++ * 既に有効なルートを書き直さない (上の imx8m_clk_composite_gate_enable) */
++static const struct clk_ops imx8m_clk_composite_gate_rw_ops = {
++	.enable = imx8m_clk_composite_gate_enable,
++	.disable = imx8m_clk_composite_gate_off,
++	.is_enabled = clk_gate_is_enabled,
++};
++
+ struct clk_hw *__imx8m_clk_hw_composite(const char *name,
+ 					const char * const *parent_names,
+ 					int num_parents, void __iomem *reg,
+@@ -295,7 +313,7 @@
+ 	gate->bit_idx = PCG_CGC_SHIFT;
+ 	gate->lock = &imx_ccm_lock;
+ 	if (!mcore_booted)
+-		gate_ops = &clk_gate_ops;
++		gate_ops = &imx8m_clk_composite_gate_rw_ops;
+ 	else
+ 		gate_ops = &imx8m_clk_composite_gate_ops;
+ 
