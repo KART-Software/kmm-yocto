@@ -19,7 +19,7 @@ sudo usermod -aG docker,dialout,plugdev $USER  # 反映には再ログイン
 
 ```bash
 ./scripts/build.sh imx8mp --emmc            # DEBIX の開発用イメージ、eMMC A/B
-./scripts/build.sh imx8mp --emmc --falcon   # DEBIX の製品ブート(Falcon + SPL スプラッシュ、表示は LVDS、M7 なし)
+./scripts/build.sh imx8mp --emmc --falcon   # DEBIX の製品ブート(Falcon + SPL スプラッシュ + M7 の CAN、表示は LVDS)
 ./scripts/build.sh imx8mp --emmc --falcon --hdmi  # 同じく表示を HDMI に
 ./scripts/build.sh imx8mm --emmc            # XPI の eMMC A/B
 ./scripts/build.sh imx8mm --emmc --falcon   # XPI の製品ブート(Falcon + スプラッシュ、M4 なし)
@@ -29,7 +29,10 @@ sudo usermod -aG docker,dialout,plugdev $USER  # 反映には再ログイン
 `imx8mm` / `imx8mp` は開発用(debug-tweaks 入り)。`--emmc` で eMMC の A/B レイアウト、
 `--falcon` で Falcon Mode と SPL スプラッシュを足す。`--hdmi` は DEBIX の表示を HDMI にする
 (SPL スプラッシュも表示に合わせる。下の「DEBIX の表示」)。
-M コアの CAN ゲートウェイは別のオーバーレイなので、次の直接指定で足す。
+DEBIX の `--falcon` には Cortex-M7 の CAN の中継(`kas/imx8mp-m7.yml`)も入る。M7 は falcon の
+SPL(p3 の `mcore-a/b.img` を読む)と BL31 が起動するので、falcon なしでは動かない。`--falcon` なしの
+DEBIX は M7 なしで、CAN は Linux の `can0`(機体の `/data/kmm.env` の `CAN_INTERFACE` もそれに合わせる)。
+XPI の M4 の CAN ゲートウェイは別のオーバーレイなので、次の直接指定で足す。
 
 ## 製品構成(kas を直接呼ぶ)
 

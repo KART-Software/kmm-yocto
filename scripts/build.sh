@@ -14,7 +14,9 @@
 # Options:
 #   --emmc       eMMC A/B レイアウト (imx8mm/imx8mp; 省略時は SD 持ち込み用シングルスロット)
 #   --falcon     Falcon Mode + SPL スプラッシュを合成 (製品ブート経路; --emmc 必須)。
-#                imx8mp のスプラッシュは表示 (LVDS / --hdmi) に合わせる
+#                imx8mp のスプラッシュは表示 (LVDS / --hdmi) に合わせる。imx8mp は Cortex-M7 の
+#                CAN ゲートウェイ (kas/imx8mp-m7.yml) も入れる (M7 は falcon の SPL と BL31 が
+#                起動するので falcon と一体。--falcon なしの imx8mp は M7 なしで、CAN は Linux の can0)
 #   --hdmi       表示を HDMI にする (imx8mp; kas/imx8mp-hdmi.yml)。省略時は J10 の LVDS パネル
 #   --netboot    TFTP/NFS root (imx8mm、bring-up 用)
 #   --sdcard     SD カードブート (RPi5 用)
@@ -30,11 +32,11 @@
 #
 # 例:
 #   ./scripts/build.sh imx8mp --emmc            # dev イメージ (U-Boot proper 起動)
-#   ./scripts/build.sh imx8mp --emmc --falcon   # 製品ブート (falcon + SPL スプラッシュ、LVDS、M7 なし)
+#   ./scripts/build.sh imx8mp --emmc --falcon   # 製品ブート (falcon + SPL スプラッシュ + M7、LVDS)
 #   ./scripts/build.sh imx8mp --emmc --falcon --hdmi  # 同じく表示を HDMI に
 #
-# Cortex-M CAN ゲートウェイ (M7/M4) は別オーバーレイ。--falcon の kas 構成に
-# :kas/imx8mp-m7.yml (または imx8mm-m4.yml) を足す。手順は README 参照。
+# XPI (imx8mm) の Cortex-M4 の CAN ゲートウェイは別オーバーレイ。--falcon の kas 構成に
+# :kas/imx8mm-m4.yml を足す。手順は docs/usage/01-build.md。
 
 set -euo pipefail
 
@@ -145,15 +147,16 @@ case "$TARGET" in
 esac
 
 # --- Optional Falcon Mode + SPL splash overlay (product boot path) ---
-# M7/M4 CAN gateway is intentionally kept separate: append the M-core overlay
-# (kas/imx8mp-m7.yml / kas/imx8mm-m4.yml) to the printed KAS_CONFIG by hand.
+# imx8mp also gets the Cortex-M7 CAN gateway: the M7 is started by the falcon SPL
+# (p3 mcore-a/b.img) and BL31, so it only works together with falcon. The XPI M4
+# overlay (kas/imx8mm-m4.yml) stays separate: append it to KAS_CONFIG by hand.
 if [ -n "$FALCON" ]; then
     if [ "$BOOT" != "emmc" ]; then
         echo "Error: --falcon requires --emmc (falcon boots falcon.itb from the eMMC A/B layout)" >&2
         exit 1
     fi
     case "$TARGET" in
-        imx8mp) KAS_CONFIG="$KAS_CONFIG:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml" ;;
+        imx8mp) KAS_CONFIG="$KAS_CONFIG:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml:kas/imx8mp-m7.yml" ;;
         imx8mm) KAS_CONFIG="$KAS_CONFIG:kas/imx8mm-falcon.yml:kas/imx8mm-splash.yml" ;;
         *) echo "Error: --falcon is only supported for imx8mm/imx8mp" >&2; exit 1 ;;
     esac
