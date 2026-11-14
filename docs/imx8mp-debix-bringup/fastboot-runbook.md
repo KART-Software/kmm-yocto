@@ -49,7 +49,7 @@ Phase 3 は「±0 の追認」にしかならないことが RM+実測で確定�
    直近の ums 実験で USB ガジェットがホストに enumerate されなかった
    未解決があるため、ここが通らない限り着工しない
    (boot パーティションモードで像を壊すと落ち先が SDP 一本の可能性)
-2. シリアル(/dev/ttyUSB1)・dp100・カメラ(/dev/kart-debix-cam)が生きていること
+2. シリアル(/dev/ttyUSB1)・dp100・カメラ(/dev/debix-cam)が生きていること
 3. tftp 復旧経路(/srv/tftp + uboot-break.py)の再確認
 
 ## 手順

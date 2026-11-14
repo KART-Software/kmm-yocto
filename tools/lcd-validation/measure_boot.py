@@ -4,7 +4,7 @@
 保存済み Calibration (固定 Homography) でブート中の表示を計測する。
 
 例 (電源制御込み、実機ベンチ):
-  python measure_boot.py --device /dev/kart-debix-cam \\
+  python measure_boot.py --device /dev/debix-cam \\
       --calibration calibration.json --power-cycle --duration 20
 
 --power-cycle 無しの場合はツール起動後に手動で電源を入れる。

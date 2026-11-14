@@ -12,7 +12,9 @@ python3 -m venv .venv
 .venv/bin/pip install opencv-python-headless numpy
 ```
 
-実機ベンチのカメラは udev 永続名 `/dev/kart-debix-cam`(C930e)。
+実機ベンチのカメラは udev 永続名 `/dev/debix-cam`(C930e)。udev のルールは `.claude/skills/lcd-validation/99-debix-cam.rules`
+(plugdev から開ける・固定名を張る。`sudo cp .claude/skills/lcd-validation/99-debix-cam.rules /etc/udev/rules.d/ &&
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=video4linux`)。
 
 ## 使い方
 
@@ -48,7 +50,7 @@ kiosk-shell は最後にマップされた surface を前面に出すので、km
 GUI 完全起動 + Calibration Pattern 表示状態で:
 
 ```bash
-.venv/bin/python calibrate.py --device /dev/kart-debix-cam \
+.venv/bin/python calibrate.py --device /dev/debix-cam \
     --output calibration.json --debug-dir out/calib-debug
 ```
 
@@ -60,7 +62,7 @@ GUI 完全起動 + Calibration Pattern 表示状態で:
 ### 4. 計測(§30)
 
 ```bash
-.venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
+.venv/bin/python measure_boot.py --device /dev/debix-cam \
     --calibration calibration.json --power-cycle --duration 20
 ```
 
@@ -82,7 +84,7 @@ GUI 完全起動 + Calibration Pattern 表示状態で:
 .venv/bin/python generate_pattern.py --stage bootloader \
     --output out/bootloader.png --logo out/bootloader.logo
 ./target-stage-setup.sh install     # logo.bin 交換 + unit drop-in x2
-.venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
+.venv/bin/python measure_boot.py --device /dev/debix-cam \
     --calibration out/calibration.json --power-cycle --duration 22
 ./target-stage-setup.sh uninstall   # 完全に元へ戻す
 ```

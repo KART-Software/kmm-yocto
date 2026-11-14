@@ -5,7 +5,7 @@
 (README の wl-image-view 手順参照)。
 
 例:
-  python calibrate.py --device /dev/kart-debix-cam --output calibration.json
+  python calibrate.py --device /dev/debix-cam --output calibration.json
 """
 import argparse
 import json

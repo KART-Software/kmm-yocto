@@ -27,7 +27,7 @@ def main():
     if "--save" in sys.argv:
         save = sys.argv[sys.argv.index("--save") + 1]
 
-    cam = Camera("/dev/kart-debix-cam", width=1920, height=1080)
+    cam = Camera("/dev/debix-cam", width=1920, height=1080)
     cam.setup(SETTINGS)
     _, frame = cam.read()
     cam.release()
