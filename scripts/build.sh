@@ -14,9 +14,9 @@
 # Options:
 #   --emmc       eMMC A/B レイアウト (imx8mm/imx8mp; 省略時は SD 持ち込み用シングルスロット)
 #   --falcon     Falcon Mode + SPL スプラッシュを合成 (製品ブート経路; --emmc 必須)。
-#                imx8mp のスプラッシュは表示 (LVDS / --hdmi) に合わせる。imx8mp は Cortex-M7 の
-#                CAN ゲートウェイ (kas/imx8mp-m7.yml) も入れる (M7 は falcon の SPL と BL31 が
-#                起動するので falcon と一体。--falcon なしの imx8mp は M7 なしで、CAN は Linux の can0)
+#                imx8mp のスプラッシュは表示 (LVDS / --hdmi) に合わせる。imx8mp は M7 の起動
+#                (kas/imx8mp-m7.yml) も入れる。M7 は falcon の SPL と BL31 が起動するので falcon と一体で、
+#                --falcon なしの imx8mp は M7 を起動しない
 #   --hdmi       表示を HDMI にする (imx8mp; kas/imx8mp-hdmi.yml)。省略時は J10 の LVDS パネル
 #   --netboot    TFTP/NFS root (imx8mm、bring-up 用)
 #   --sdcard     SD カードブート (RPi5 用)
@@ -35,8 +35,8 @@
 #   ./scripts/build.sh imx8mp --emmc --falcon   # 製品ブート (falcon + SPL スプラッシュ + M7、LVDS)
 #   ./scripts/build.sh imx8mp --emmc --falcon --hdmi  # 同じく表示を HDMI に
 #
-# XPI (imx8mm) の Cortex-M4 の CAN ゲートウェイは別オーバーレイ。--falcon の kas 構成に
-# :kas/imx8mm-m4.yml を足す。手順は docs/usage/01-build.md。
+# XPI (imx8mm) の M4 の起動は別オーバーレイ。--falcon の kas 構成に :kas/imx8mm-m4.yml を足す。
+# 手順は docs/usage/01-build.md。
 
 set -euo pipefail
 
@@ -147,7 +147,7 @@ case "$TARGET" in
 esac
 
 # --- Optional Falcon Mode + SPL splash overlay (product boot path) ---
-# imx8mp also gets the Cortex-M7 CAN gateway: the M7 is started by the falcon SPL
+# imx8mp also gets the M7 boot (kas/imx8mp-m7.yml): the M7 is started by the falcon SPL
 # (p3 mcore-a/b.img) and BL31, so it only works together with falcon. The XPI M4
 # overlay (kas/imx8mm-m4.yml) stays separate: append it to KAS_CONFIG by hand.
 if [ -n "$FALCON" ]; then
