@@ -113,6 +113,11 @@ kas-container build \
 ./scripts/ab.sh --host <device> linux commit
 ```
 
+`./scripts/build.sh imx8mp --emmc --falcon` builds the same composition (the M7 comes with
+`--falcon`). The display is the LVDS panel on J10 by default. For the HDMI panel, add
+`kas/imx8mp-hdmi.yml` before `kas/imx8mp-falcon.yml`; the SPL splash follows the display
+([01-build.md](docs/usage/01-build.md)).
+
 - **Remote access**: prod images are reachable only over Tailscale SSH (the root
   password is locked). Dev images (debug-tweaks) allow LAN SSH as root with an empty
   password. The serial console logs in as root on every image, prod included:

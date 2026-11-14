@@ -107,6 +107,11 @@ kas-container build \
 ./scripts/ab.sh --host <機体> linux commit
 ```
 
+`./scripts/build.sh imx8mp --emmc --falcon` でも同じ構成になる(M7 は `--falcon` に含まれる)。
+表示は J10 の LVDS パネルが既定。HDMI のパネルにするときは、`kas/imx8mp-falcon.yml` の前に
+`kas/imx8mp-hdmi.yml` を足す(SPL スプラッシュも表示に合わせて変わる。
+[01-build.md](docs/usage/01-build.md))。
+
 - **リモートからの入り方**: prod イメージは Tailscale SSH だけ(root のパスワードがロック
   されている)。開発用イメージ(debug-tweaks)は root のパスワードが空で、LAN の SSH でも入れる。
   シリアルコンソールは prod も含めて全イメージで root に自動ログインする(基板に物理的に触れる人は

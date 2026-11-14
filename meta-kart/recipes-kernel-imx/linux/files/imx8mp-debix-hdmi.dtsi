@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * imx8mp-debix-hdmi.dtsi — DEBIX の表示を HDMI にする (DEBIX_DISPLAY = "hdmi"、kas/imx8mp-hdmi.yml)。
+ * imx8mp-debix.dts が include する (カーネルのレシピがこのファイルを選ぶ)。
+ *
+ * 表示は EVK の dts のままの lcdif3 → DW-HDMI → HDMI PHY (HDMI → TFP401 → RGB の LCD)。
+ * EDID はファイルで渡す (イメージの edid-firmware と machine conf の drm.edid_firmware=)。
+ */
+
+/* LVDS の経路 (ldb + PHY) は使わないので止める。EVK の dts は okay にしているが、出口の先
+ * (EVK の LVDS→HDMI ブリッジ IT6263) が DEBIX に無い。有効に残すと imx-drm のコンポーネント
+ * 束ねが ldb を待ち続け、display-subsystem (= /dev/dri の表示カード) ごと現れず weston が
+ * 「no drm device found」で死ぬ (2026-09-02 に LDB のドライバを外した状態で実測)。 */
+&ldb {
+	status = "disabled";
+};
+
+&ldb_phy {
+	status = "disabled";
+};
+
+/* LVDS の CRTC。接続先を止めてあり、crtc だけ probe されて uevent を増やしていた */
+&lcdif2 {
+	status = "disabled";
+};

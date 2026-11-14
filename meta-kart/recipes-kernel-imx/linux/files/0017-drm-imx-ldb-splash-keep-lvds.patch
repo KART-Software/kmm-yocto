@@ -1,0 +1,53 @@
+From: build <build@localhost>
+Subject: [PATCH] drm/imx: ldb: SPL の LVDS スプラッシュ稼働中は LDB を止めず、クロックをピンする
+
+/chosen に splash-lvds があるとき (SPL が LVDS を出したまま渡してくる):
+
+ - fsl-imx-ldb.c: bind で LDB_CTRL を POR の 0 に戻さない (戻すと LVDS の
+   データが止まる)。weston の初回 modeset が同じ値を書き直す
+ - imx8mp-ldb.c: LDB のクロック (media_ldb_root = シリアルクロック) を probe の
+   時点から恒久ピンする。bind を待つと clk_disable_unused が走査中に止めうる
+
+印が無ければ従来どおり。
+
+Upstream-Status: Inappropriate [boot-splash integration]
+
+diff --git a/drivers/gpu/drm/bridge/fsl-imx-ldb.c b/drivers/gpu/drm/bridge/fsl-imx-ldb.c
+--- a/drivers/gpu/drm/bridge/fsl-imx-ldb.c
++++ b/drivers/gpu/drm/bridge/fsl-imx-ldb.c
+@@ -241,8 +241,11 @@ int ldb_bind(struct ldb *ldb, struct drm_encoder **encoder)
+ 	if (pm_runtime_enabled(dev))
+ 		pm_runtime_get_sync(dev);
+ 
+-	/* disable LDB by resetting the control register to POR default */
+-	regmap_write(ldb->regmap, ldb->ctrl_reg, 0);
++	/* disable LDB by resetting the control register to POR default.
++	 * SPL スプラッシュが LVDS を稼働させたまま渡してきたとき (/chosen に
++	 * splash-lvds) は止めない。weston の初回 modeset が同じ値を書き直す */
++	if (!of_property_read_bool(of_chosen, "splash-lvds"))
++		regmap_write(ldb->regmap, ldb->ctrl_reg, 0);
+ 
+ 	if (pm_runtime_enabled(dev))
+ 		pm_runtime_put(dev);
+diff --git a/drivers/gpu/drm/imx/imx8mp-ldb.c b/drivers/gpu/drm/imx/imx8mp-ldb.c
+--- a/drivers/gpu/drm/imx/imx8mp-ldb.c
++++ b/drivers/gpu/drm/imx/imx8mp-ldb.c
+@@ -406,6 +406,18 @@ static int imx8mp_ldb_probe(struct platform_device *pdev)
+ 
+ 	dev_set_drvdata(dev, imx8mp_ldb);
+ 
++	/* SPL スプラッシュの LVDS を引き継ぐとき (/chosen に splash-lvds) は、
++	 * LDB のクロック (シリアルクロック) を probe の時点から恒久ピンする。
++	 * 表示の束ね (bind) を待つと、clk_disable_unused が走査中に止めうる */
++	if (of_property_read_bool(of_chosen, "splash-lvds")) {
++		struct clk *clk = devm_clk_get(dev, "ldb");
++
++		if (IS_ERR(clk) || clk_prepare_enable(clk))
++			dev_warn(dev, "splash: ldb clk pin failed\n");
++		else
++			dev_info(dev, "splash: keeping ldb clock\n");
++	}
++
+ 	return component_add(dev, &imx8mp_ldb_ops);
+ }
+ 

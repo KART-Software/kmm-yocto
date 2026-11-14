@@ -15,8 +15,10 @@
  *    (pca6416) を DEBIX で触らないよう supply/assert-gpios を削除する。
  *  - micfil (PDM): EVK で flexcan2 と SAI5 パッドを取り合う相手。DEBIX では PDM
  *    マイク未配線なので disabled (EVK の「can2 pin conflict with pdm」コメント参照)。
- *  - pcie/mipi_dsi/dsp: DEBIX では未使用 (PCIe は 19pin FPC のみ、表示は HDMI、
+ *  - pcie/mipi_dsi/dsp: DEBIX では未使用 (PCIe は 19pin FPC のみ、表示は LVDS か HDMI、
  *    DSP は使わない)。工場 DT も disabled — 未接続プローブのエラーと起動遅延を避ける。
+ *  - 表示: J10 の LVDS パネル (既定) か HDMI を、ビルドのときに選ぶ (下の「表示」。中身は
+ *    imx8mp-debix-lvds.dtsi / imx8mp-debix-hdmi.dtsi)。
  *  - uart4: EVK 既定の disabled のまま = M7 コンソール予約 (01-m7.md)。
  *  - WiFi (88W8987 / usdhc1): 不使用 → EVK 既定の disabled のまま。
  */
@@ -99,17 +101,12 @@
 	status = "disabled";
 };
 
-/* LVDS 経路 (ldb + PHY) は未配線 + slim カーネル (slim-imx8mp.cfg 第二弾) で
- * ドライバも外した。ノードを有効に残すと imx-drm のコンポーネント束ねが
- * ldb を待ち続け、display-subsystem (= /dev/dri の表示カード) ごと現れず
- * weston が「no drm device found」で死ぬ (2026-09-02 実測)。 */
-&ldb {
-	status = "disabled";
-};
-
-&ldb_phy {
-	status = "disabled";
-};
+/* ===== 表示 =====
+ * J10 の LVDS パネル (既定) か HDMI かを、ビルドのときに machine conf の DEBIX_DISPLAY で選ぶ
+ * (kas/imx8mp-hdmi.yml が hdmi にする)。カーネルのレシピが imx8mp-debix-lvds.dtsi /
+ * imx8mp-debix-hdmi.dtsi の片方を、この名前で include させる。
+ */
+#include "imx8mp-debix-display.dtsi"
 
 /* ===== EVK 遺産の死にノード掃除 (2026-09-03、起動時間: udev/probe 削減) =====
  * DEBIX で消費者がいない EVK 有効化ノードを落とす。効果は
@@ -220,13 +217,9 @@
 	status = "disabled";
 };
 
-/* 表示に使わない CRTC (表示は lcdif3=HDMI のみ。lcdif1=DSI/lcdif2=LVDS は
- * 接続先を disabled 済みで、crtc だけ probe されて uevent を増やしていた) */
+/* 表示に使わない CRTC (lcdif1=DSI。接続先を disabled 済みで、crtc だけ probe されて
+ * uevent を増やしていた)。lcdif2 (LVDS) と lcdif3 (HDMI) は表示の dtsi が片方を止める */
 &lcdif1 {
-	status = "disabled";
-};
-
-&lcdif2 {
 	status = "disabled";
 };
 
@@ -236,8 +229,9 @@
 	status = "disabled";
 };
 
-/* LVDS バックライト (EVK 遺産)。DEBIX のパネルは信号連動の自前バックライトで
- * この PWM は未配線。systemd-backlight@ が毎ブート failed になる発生源 */
+/* LVDS バックライト (EVK 遺産) の PWM。DEBIX では未配線 (LVDS パネルのバックライトは
+ * 変換基板の定電流で J10 の 5 V と連動して点く)。systemd-backlight@ が毎ブート failed に
+ * なる発生源 */
 &lvds_backlight {
 	status = "disabled";
 };
@@ -289,6 +283,8 @@
  * hub-reset-gpio = GPIO4_IO25) で起動時に両方 High にしていた。うちは gpio-hog で同じ状態を
  * 起動時に作る。Low/浮きのままだと Type-A に 5V が出ず、挿したデバイスは LED も点かない
  * (2026-09-21 実測: High にして ~20s で LTE ドングルが列挙)。SAI2 は disabled でパッドは空き。
+ * なお GPIO4_IO25 は回路図では J10 の 5 V の負荷スイッチの EN (LVDS_PWR_EN) でもあり、
+ * これが High なので LVDS パネルにも起動時から 5 V が入る (imx8mp-debix-lvds.dtsi 参照)。
  */
 &iomuxc {
 	pinctrl_usb_pwr: usbpwrgrp {

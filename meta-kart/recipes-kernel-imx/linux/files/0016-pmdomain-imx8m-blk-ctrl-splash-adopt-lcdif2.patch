@@ -1,0 +1,59 @@
+From: build <build@localhost>
+Subject: [PATCH] pmdomain: imx8m-blk-ctrl: SPL の LVDS スプラッシュ稼働中は mediablk-lcdif-2 を養子縁組
+
+/chosen に splash-lvds があるとき、8MP の media blk-ctrl の LCDIF2 の区画
+(mediablk-lcdif-2) を:
+
+ - 区画のクロック (disp2/apb/axi) を prepare_enable して恒久ピン。素のままだと
+   clk_disable_unused で走査中の LCDIF2 ごとクロックが落ちる
+ - GENPD_FLAG_ALWAYS_ON + 初期状態 ON で登録。power_on が呼ばれないので、
+   区画のリセット (BLK_SFT_RSTN を一旦落とす) が走らない。QoS (hurry と NoC)
+   は SPL が設定済み
+
+0015 (gpcv2 の mediamix) とペア。HDMI の 0011 の LVDS 版。
+
+Upstream-Status: Inappropriate [boot-splash integration]
+
+diff --git a/drivers/pmdomain/imx/imx8m-blk-ctrl.c b/drivers/pmdomain/imx/imx8m-blk-ctrl.c
+--- a/drivers/pmdomain/imx/imx8m-blk-ctrl.c
++++ b/drivers/pmdomain/imx/imx8m-blk-ctrl.c
+@@ -277,6 +277,7 @@ static int imx8m_blk_ctrl_probe(struct platform_device *pdev)
+ 	for (i = 0; i < bc_data->num_domains; i++) {
+ 		const struct imx8m_blk_ctrl_domain_data *data = &bc_data->domains[i];
+ 		struct imx8m_blk_ctrl_domain *domain = &bc->domains[i];
++		bool adopt;
+ 		int j;
+ 
+ 		domain->data = data;
+@@ -317,7 +318,30 @@ static int imx8m_blk_ctrl_probe(struct platform_device *pdev)
+ 		domain->genpd.power_off = imx8m_blk_ctrl_power_off;
+ 		domain->bc = bc;
+ 
+-		ret = pm_genpd_init(&domain->genpd, NULL, true);
++		/* SPL スプラッシュが LVDS の表示を稼働させたまま渡してくる
++		 * (/chosen に splash-lvds)。LCDIF2 の区画はクロックを恒久ピンし、
++		 * 実状態 (ON) で ALWAYS_ON 登録する。素のままだと最初の power_on
++		 * が区画のリセットを入れて走査中の LCDIF2 を止め、
++		 * clk_disable_unused がクロックを落とす。gpcv2 (MEDIAMIX) と対 */
++		adopt = of_property_read_bool(of_chosen, "splash-lvds") &&
++			of_device_is_compatible(dev->of_node,
++						"fsl,imx8mp-media-blk-ctrl") &&
++			!strcmp(data->name, "mediablk-lcdif-2");
++		if (adopt) {
++			ret = clk_bulk_prepare_enable(data->num_clks,
++						      domain->clks);
++			if (ret) {
++				dev_warn(dev,
++					 "splash: clk pin failed (%d), normal init\n",
++					 ret);
++				adopt = false;
++			} else {
++				dev_info(dev, "splash: adopting %s\n",
++					 data->name);
++				domain->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
++			}
++		}
++		ret = pm_genpd_init(&domain->genpd, NULL, !adopt);
+ 		if (ret) {
+ 			dev_err_probe(dev, ret,
+ 				      "failed to init power domain \"%s\"\n",

@@ -90,9 +90,10 @@ IMAGE_INSTALL:append:mx8mm-generic-bsp = " \
 # 埋める相方 (8MM と同一レシピ・同一ロゴ座標。SPL splash 無しでも無害)。
 # ---------------------------------------------------------------------------
 IMAGE_INSTALL:append:imx8mp-debix = " \
-    edid-firmware \
     splash-wl \
 "
+# HDMI の表示のときだけ、パネルの EDID をファイルで渡す (machine conf の drm.edid_firmware=)
+IMAGE_INSTALL:append:debix-hdmi = " edid-firmware"
 # GPU は不使用 (weston=pixman、kmm=Qt Widgets raster)。galcore (Vivante blob
 # カーネルモジュール) は libgal-imx の RRECOMMENDS で入ってくるだけなので遮断。
 # Vivante の EGL/GLES/GAL/VSC ライブラリ自体は qtbase が RDEPENDS するため残る

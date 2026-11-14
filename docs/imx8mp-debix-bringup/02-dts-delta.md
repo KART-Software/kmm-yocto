@@ -36,9 +36,10 @@ can1(J2 Pin35/37)は loopback のみ確認。
 | ノード | 工場 | 6.6 EVK | 理由 |
 |---|---|---|---|
 | pcie(33800000) | disabled | okay | DEBIX は 19pin FPC のみ。未接続でリンク待ちのプローブエラー/起動遅延の元 |
-| mipi_dsi / dsi(32e6) | disabled | okay | パネル無し。HDMI 運用 |
+| mipi_dsi / dsi(32e6) | disabled | okay | パネル無し。表示は LVDS か HDMI |
 | dsp(audio) | disabled | okay | 未使用 |
-| ldb/lvds 系 | disabled(パネル変種のみ okay) | 混在 | HDMI 運用なので disabled 側に揃える |
+| ldb/lvds 系 | disabled(パネル変種のみ okay) | 混在 | 表示の選択に従う。LVDS(既定)は ldb・PHY・lcdif2 を使って panel-lvds を付け、HDMI 一式を disabled。HDMI のときは ldb・PHY・lcdif2 を disabled(`imx8mp-debix-lvds.dtsi` / `imx8mp-debix-hdmi.dtsi`) |
+| media_blk_ctrl の assigned-clocks | — | DISP1_PIX を含む | LVDS のときは DISP1_PIX(lcdif1 = DSI、DEBIX では止めてある)を外す。SPL のスプラッシュを引き継ぐとき、付け替えが video PLL の出力を一瞬落として表示が崩れる(06-splash.md「LVDS の経路」) |
 
 ## そのままで良さそう(実機ブートで最終確認)
 
@@ -47,7 +48,8 @@ can1(J2 Pin35/37)は loopback のみ確認。
 - **uart1/2/3**: okay(uart2 = コンソール ttymxc1、J2 Pin9/11)
 - **uart4**: 工場は A53 のシリアルとして okay、**6.6 EVK は disabled — 本設計では
   M7 コンソールに割り当てるので disabled のままが正解**(8MM の uart4=M4 と同じ構図)
-- hdmi/lcdif1-3/gpu/vpu: HDMI チェーンは両方 okay で工場実機の動作確認済み
+- hdmi/lcdif1-3/gpu/vpu: HDMI チェーンは両方 okay で工場実機の動作確認済み(表示を HDMI にした
+  ときはこのまま使う。LVDS のときは HDMI 一式を disabled)
 
 ## 独自に追加するもの(工場 DTS にも無い)
 

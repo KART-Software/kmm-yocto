@@ -19,15 +19,20 @@ sudo usermod -aG docker,dialout,plugdev $USER  # 反映には再ログイン
 
 ```bash
 ./scripts/build.sh imx8mp --emmc            # DEBIX の開発用イメージ、eMMC A/B
-./scripts/build.sh imx8mp --emmc --falcon   # DEBIX の製品ブート(Falcon + SPL スプラッシュ、M7 なし)
+./scripts/build.sh imx8mp --emmc --falcon   # DEBIX の製品ブート(Falcon + SPL スプラッシュ + M7、表示は LVDS)
+./scripts/build.sh imx8mp --emmc --falcon --hdmi  # 同じく表示を HDMI に
 ./scripts/build.sh imx8mm --emmc            # XPI の eMMC A/B
 ./scripts/build.sh imx8mm --emmc --falcon   # XPI の製品ブート(Falcon + スプラッシュ、M4 なし)
 ./scripts/build.sh imx8mm --netboot         # XPI の TFTP/NFS ネットブート(DTS やドライバの試行用)
 ```
 
 `imx8mm` / `imx8mp` は開発用(debug-tweaks 入り)。`--emmc` で eMMC の A/B レイアウト、
-`--falcon` で Falcon Mode と SPL スプラッシュを足す。M コアの CAN ゲートウェイは別の
-オーバーレイなので、次の直接指定で足す。
+`--falcon` で Falcon Mode と SPL スプラッシュを足す。`--hdmi` は DEBIX の表示を HDMI にする
+(SPL スプラッシュも表示に合わせる。下の「DEBIX の表示」)。
+DEBIX の `--falcon` には M7 の起動(`kas/imx8mp-m7.yml`)も入る。M7 は falcon の SPL(p3 の
+`mcore-a/b.img` を読む)と BL31 が起動するので、falcon なしでは動かない。`--falcon` なしの DEBIX は
+M7 を起動しない。
+XPI の M4 は別のオーバーレイなので、次の直接指定で足す。
 
 ## 製品構成(kas を直接呼ぶ)
 
@@ -36,11 +41,15 @@ YAML を `:` でつなぐと左から順に重なる。**先にキャッシュ�
 ```bash
 export DL_DIR=$PWD/downloads SSTATE_DIR=$PWD/sstate-cache
 
-# DEBIX: 開発用 + eMMC A/B + Falcon + スプラッシュ + M7 の CAN
+# DEBIX: 開発用 + eMMC A/B + Falcon + スプラッシュ + M7 (表示は J10 の LVDS パネル)
 kas-container build \
   kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml:kas/imx8mp-m7.yml
 
-# XPI: 製品(Tailscale SSH のみ、debug-tweaks なし)+ eMMC A/B + Falcon + スプラッシュ + M4 の CAN
+# DEBIX を HDMI で: falcon の前に imx8mp-hdmi.yml
+kas-container build \
+  kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-hdmi.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml:kas/imx8mp-m7.yml
+
+# XPI: 製品(Tailscale SSH のみ、debug-tweaks なし)+ eMMC A/B + Falcon + スプラッシュ + M4
 kas-container build \
   kas/imx8mm-prod.yml:kas/imx8mm-emmc-ab.yml:kas/imx8mm-falcon.yml:kas/imx8mm-splash.yml:kas/imx8mm-m4.yml
 ```
@@ -49,6 +58,29 @@ kas-container build \
   `TOPDIR=/build` を基準に解決され、`Failed to create a file in SSTATE_DIR: Permission denied`
   で止まる。キャッシュは `build/` の外に置いてあるので、`rm -rf build` しても消えない
 - 8MP には `imx8mm-prod.yml` に相当する prod 構成がまだ無い。ベンチは開発用で動いている
+
+## DEBIX の表示(LVDS / HDMI)
+
+DEBIX の表示は、ビルドのときに machine の `DEBIX_DISPLAY` で選ぶ。既定は `lvds`(J10 の
+LVDS パネル)で、`kas/imx8mp-hdmi.yml`(build.sh の `--hdmi`)が `hdmi` にする。これに従って
+変わるのは次のもの。
+
+| | LVDS(既定) | HDMI |
+|---|---|---|
+| DTS の表示の部分 | `imx8mp-debix-lvds.dtsi`(lcdif2 → LDB → パネル。HDMI 一式を止める) | `imx8mp-debix-hdmi.dtsi`(lcdif3 → HDMI。LDB を止める) |
+| カーネルの引数 | なし | `drm.edid_firmware=HDMI-A-1:...`(EDID をファイルで渡す) |
+| イメージ | なし | `edid-firmware` |
+| SPL スプラッシュの経路(`kas/imx8mp-splash.yml` のとき) | LVDS(`debix-splash-lvds.cfg`) | HDMI |
+| カーネルの引き継ぎのパッチ | 0015〜0018 | 0010〜0013 |
+
+DTB の名前は表示によらず同じ(`imx8mp-debix.dtb`、M7 版は `imx8mp-debix-m7.dtb`)。weston.ini は
+両方の出力の名前を持っている。SPL スプラッシュの詳細は
+[../imx8mp-debix-bringup/06-splash.md](../imx8mp-debix-bringup/06-splash.md)。SPL は Linux と別に
+更新する(`ab spl update`)ので、SPL とイメージの表示は揃える(食い違っても起動はする。HDMI の
+イメージを LVDS の SPL で起動すると HDMI にロゴは出ず、LVDS のイメージを HDMI の SPL で起動すると
+LVDS にロゴは出ない)。
+機体の表示を切り替えるときは、もう片方のイメージを作って `ab.sh ... linux try` で入れる
+([04-ab-updates.md](04-ab-updates.md))。
 
 ## 成果物
 
@@ -81,8 +113,9 @@ kas-container dump --lock --update <構成> > /tmp/x && mv /tmp/x kas/<構成>.l
 | `imx-emmc-ab.yml` | 断片 | 8MM/8MP 共通の eMMC A/B の WKS 選択(実体は machine の `EMMC_AB_WKS`) |
 | `imx8mm-emmc-ab.yml` | 断片 | 8MM 専用の旧 A/B WKS |
 | `imx8mp-falcon.yml` / `imx8mm-falcon.yml` | オーバーレイ | SPL がカーネルを直接起動(`falcon.itb`) |
-| `imx8mp-splash.yml` / `imx8mm-splash.yml` | オーバーレイ | SPL スプラッシュ(**falcon の後ろに置く**) |
-| `imx8mp-m7.yml` / `imx8mm-m4.yml` | オーバーレイ | M コアの CAN ゲートウェイ(`rpmsgcan0`)と falcon 統合 |
+| `imx8mp-splash.yml` / `imx8mm-splash.yml` | オーバーレイ | SPL スプラッシュ(**falcon の後ろに置く**)。`imx8mp-splash.yml` の経路は DEBIX の表示(LVDS / HDMI)に従う |
+| `imx8mp-hdmi.yml` | オーバーレイ | DEBIX の表示を HDMI にする(既定は J10 の LVDS パネル)。falcon より前に置く |
+| `imx8mp-m7.yml` / `imx8mm-m4.yml` | オーバーレイ | M コア(M7 / M4)の起動(falcon 統合) |
 | `imx8mm-netboot.yml` | オーバーレイ | TFTP/NFS root(bring-up 用) |
 | `sdk.yml` | 補助 | Qt の SDK を qtbase だけに絞る(5) |
 | `rpi5*.yml` / `boot-*.yml` / `qemu*.yml` | 旧 | RPi5・QEMU |

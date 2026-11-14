@@ -58,10 +58,14 @@ ssh root@192.168.0.7 'chmod +x /tmp/wl-image-view; su kart -s /bin/sh -c \
     --calibration out/calibration.json --power-cycle --duration 20
 ```
 
-## 実測で確定した設定 (2026-09-02、変える前に README の表を読む)
+## 実測で確定した設定 (変える前に README の表を読む)
 
-1920x1080/30/MJPG、白レベル **224**、exposure **250** / gain 32 /
-**focus 35** / dynamic_framerate 0。この組で **60/60 連続検出、RMS 0.50px**。
+1920x1080/30/MJPG、白レベル **224**、dynamic_framerate 0。
+- HDMI の TFP401 パネル (2026-09-02): exposure **250** / gain 32 / **focus 35** で 60/60、RMS 0.50px
+- **LVDS の Riverdi パネル (2026-11-11、今の表示)**: exposure **30** / gain 0 / focus 30 /
+  zoom 100 で 60/60、RMS 0.50px (1000 cd/m² で明るいので 250 だと白が飽和する)
+
+カメラの制御には `v4l2-ctl` (v4l-utils) が要る。無いと警告だけで制御を飛ばす。
 
 ## C930e の罠 (全部実測)
 
@@ -104,6 +108,24 @@ GUI だけパターンにすると、ロゴがパターンの上に乗った boo
 - SPL blit の 1bit パターン (白=255) でも確定露出のまま 60/60・PASS。
   正常時は weston stable が gui に即被さって未達になる
 - **install したまま放置しない** — uninstall まで含めて 1 実験
+- kmm.service は weston と並行に起動するので、GUI のパターンは最初の描画を 400 ms 遅らせて
+  いる (target-stage-setup.sh)。遅らせないと GUI の段が weston の段の下に隠れて「GUI 未到達」に
+  なる (2026-11-11)。結果の 0.000 s は電源断の前の画面 (前の起動の最後の段) なので、
+  CSV で電源断 (stage=none) より後だけを見る
+
+## 一瞬の乱れの時刻をカーネルの出来事に結びつける (2026-11-11)
+
+数フレームの崩れ (タグが 58 未満に落ちるフレーム) がカーネルのどの初期化で起きるかは、
+カメラとシリアルの遅れが違うので時刻の突き合わせだけでは数十 ms しか絞れない。
+falcon.itb の DTB の bootargs だけ書き換えて (カーネルは同じ = モジュールが合う) 次を使う:
+- `initcall_blacklist=<関数名>,...` で初期化を止め、崩れが消えるか・移るかを見る
+- `earlycon=ec_imx6q,0x30890000,115200 loglevel=8 initcall_debug` (quiet を外す) で
+  カーネルの進みをシリアルの速さに落とす。崩れの時刻がずれた先で出ていた行が犯人
+- 疑わしいレジスタは、SPL のままの表示で devmem で同じ値を書いて数える (書かない対照も取る)
+詳細と実例は learning/05 の §8.2。**カーネルを差し替えるときは版の文字列 (uname -r) を
+A 面と揃えないと fec などのモジュールが読めず、LAN から届かなくなる** (揃え方: kas の一時設定で
+`LINUX_VERSION_EXTENSION:pn-linux-fslc-imx = "-fslc-g<A 面のハッシュ>"` と
+`# CONFIG_LOCALVERSION_AUTO is not set` の cfg を足してビルドする)
 
 ## 未実装 (設計書 Phase 5-6 の残り)
 

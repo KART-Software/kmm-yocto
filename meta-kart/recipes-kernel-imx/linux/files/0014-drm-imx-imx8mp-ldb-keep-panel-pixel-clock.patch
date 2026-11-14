@@ -1,0 +1,34 @@
+From: build <build@localhost>
+Subject: [PATCH] drm/imx: imx8mp-ldb: パネルのときはピクセルクロックを 74.25 MHz に書き換えない
+
+imx8mp_ldb_encoder_atomic_check() は 1 チャネルの出力のとき、モードの
+クロックを無条件に 74.25 MHz に書き換える (EVK の IT6263 = LVDS→HDMI
+向けの直し)。mode_valid() はパネルのときは何でも通すのに、ここで
+800x480 のパネル (DTS で 24.75 MHz) が約 3 倍の 74.25 MHz で駆動され、
+パネルが同期できず真っ黒になる (DEBIX + Riverdi RVT50HQLNWN00 で実測:
+media_disp2_pix 74.25 MHz、media_ldb 519.75 MHz)。
+
+チャネルにパネルがつながっているときは書き換えをしない。パネルの
+クロックは、video_pll1 からピクセルクロックとその 7 倍の LDB の
+クロックの両方を割り出せる値を DTS で選ぶ (imx8mp-debix.dts)。
+
+Upstream-Status: Pending
+
+--- a/drivers/gpu/drm/imx/imx8mp-ldb.c
++++ b/drivers/gpu/drm/imx/imx8mp-ldb.c
+@@ -187,6 +187,15 @@
+ 	}
+ 
+ 	/*
++	 * パネルのときはパネル自身のタイミングを使う。mode_valid() はパネルなら
++	 * 何でも通すが、下の直しが 74.25 MHz に書き換えると、25 MHz 前後の
++	 * 800x480 パネルが約 3 倍のクロックで駆動されて真っ黒になる。パネルの
++	 * クロックは video_pll1 から作れる値を DTS で選ぶ
++	 */
++	if (ldb_ch->panel)
++		return 0;
++
++	/*
+ 	 * Due to limited video PLL frequency points on i.MX8mp,
+ 	 * we do mode fixup here in case any mode is unsupported.
+ 	 */

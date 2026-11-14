@@ -123,6 +123,30 @@ gui が ~50ms 後に被さるため未達になるのが正常(Mixed フレー�
 E2E (パターン切替の疑似ブート) で stage timing + 全検証 PASS、
 処理 ~23fps (detect 29ms が支配的)。
 
+### LVDS パネル (Riverdi RVT50HQLNWN00、1000 cd/m²) での設定 (2026-11-11)
+
+表示を J10 の LVDS パネルにしてからの値。パネルが明るいので露出を大きく下げる
+(250 のままだと白が飽和する)。パターン (白レベル 224、SPL の段は 1bit で白 255) はそのまま。
+
+| 項目 | 値 |
+|---|---|
+| exposure_time_absolute | **30** (20〜40 でも 60/60) |
+| gain | 0 |
+| focus_absolute | 30 (0 でも 60/60) |
+| zoom_absolute | 100 |
+
+結果: 60/60、Homography RMS 0.50px / max 1.13px。3 段の実ブート計測 (コールド 3 回) で
+SPL → weston → GUI の各段が黒いフレーム 0 で続いた。
+
+- カメラの制御は `v4l2-ctl` (v4l-utils) を使う。無いと警告を出して制御を飛ばし、自動露出の
+  ままになる
+- kmm.service は weston と並行に起動する (After= に weston が無い) ので、
+  `target-stage-setup.sh` は GUI のパターンの最初の描画を 400 ms 遅らせる (本物の kmm が
+  Qt の初期化で weston の起動の約 0.4 s 後に最初の画面を出すのに合わせる)。遅らせないと
+  GUI のパターンが splash-wl の代わりのパターンより先に出て、その下に隠れたままになる。
+  wl-image-view の引数は `<file.raw> [w h] [--delay-ms N]` の順で、`--delay-ms` を使うときは
+  幅と高さも書く
+
 ### 運用上の教訓 (実測)
 
 - **C930e はコントロールが streamon で既定へ巻き戻る**。設定は必ず

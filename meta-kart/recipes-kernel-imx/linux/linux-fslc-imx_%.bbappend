@@ -43,12 +43,43 @@ do_configure:prepend:mx8mm-generic-bsp() {
 SRC_URI:append:imx8mp-debix = " \
     file://imx8mp-debix.dts \
     file://imx8mp-debix-m7.dts \
+    file://imx8mp-debix-lvds.dtsi \
+    file://imx8mp-debix-hdmi.dtsi \
     file://edid-firmware.cfg \
     file://can-builtin.cfg \
     file://slim-imx8mp.cfg \
     file://boottune-imx8mp.cfg \
+    file://0014-drm-imx-imx8mp-ldb-keep-panel-pixel-clock.patch \
+    file://0019-clk-imx-composite-8m-skip-redundant-gate-write.patch \
+"
+
+# SPL スプラッシュの引き継ぎ (seamless takeover)。SPL が /chosen に印 (HDMI は splash-active、
+# LVDS は splash-lvds) を立てたときだけ働き、無ければ従来どおり。SPL は Linux と別に更新する
+# ので、スプラッシュの無い構成でも入れておく (スプラッシュ入りの SPL の機体で走っても壊れない)。
+# docs/imx8mp-debix-bringup/06-splash.md
+SRC_URI:append:debix-hdmi = " \
+    file://0010-pmdomain-imx-gpcv2-splash-adopt-8mp.patch \
+    file://0011-pmdomain-imx8mp-blk-ctrl-splash-adopt.patch \
+    file://0012-drm-imx-dw-hdmi-splash-skip-probe-phy-reset.patch \
+    file://0013-phy-fsl-samsung-hdmi-splash-skip-probe-reset.patch \
+"
+SRC_URI:append:debix-lvds = " \
+    file://0015-pmdomain-imx-gpcv2-splash-adopt-mediamix.patch \
+    file://0016-pmdomain-imx8m-blk-ctrl-splash-adopt-lcdif2.patch \
+    file://0017-drm-imx-ldb-splash-keep-lvds.patch \
+    file://0018-phy-fsl-imx8mp-lvds-splash-keep-output.patch \
 "
 
 do_configure:prepend:imx8mp-debix() {
-    cp ${WORKDIR}/imx8mp-debix.dts ${WORKDIR}/imx8mp-debix-m7.dts ${S}/arch/arm64/boot/dts/freescale/
+    cp ${WORKDIR}/imx8mp-debix.dts ${WORKDIR}/imx8mp-debix-m7.dts \
+       ${WORKDIR}/imx8mp-debix-lvds.dtsi ${WORKDIR}/imx8mp-debix-hdmi.dtsi \
+       ${S}/arch/arm64/boot/dts/freescale/
+    # 表示 (machine conf の DEBIX_DISPLAY) の DTS を、imx8mp-debix.dts が include する名前で選ぶ。
+    # DTB の名前は表示によらず同じ (falcon.itb・extlinux・M7 版の DTS はそのまま)
+    case "${DEBIX_DISPLAY}" in
+    lvds|hdmi) ;;
+    *) bbfatal "DEBIX_DISPLAY は lvds か hdmi (今は '${DEBIX_DISPLAY}')" ;;
+    esac
+    echo '#include "imx8mp-debix-${DEBIX_DISPLAY}.dtsi"' \
+        > ${S}/arch/arm64/boot/dts/freescale/imx8mp-debix-display.dtsi
 }

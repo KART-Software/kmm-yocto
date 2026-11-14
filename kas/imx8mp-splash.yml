@@ -2,21 +2,19 @@
 #
 #   kas-container build kas/imx8mp-dev.yml:kas/imx-emmc-ab.yml:kas/imx8mp-falcon.yml:kas/imx8mp-splash.yml
 #
-# SPL が HDMI 表示チェーン (GPC→blk-ctrl→Samsung PHY→DW-HDMI→PVI→LCDIFv3)
-# を直接叩き、手続き描画したロゴを電源投入直後に表示する。設計・定数の出典は
-# 0005 パッチ冒頭コメントと docs/imx8mp-debix-bringup/06-splash.md (予定)。
-# 0005 は 0002 (falcon) の上に当たるため、オーバーレイ順序が適用順序。
+# SPL が表示チェーンを直接叩き、ロゴ (p1 の logo.bin、imx8mp-falcon.yml が BOOT に入れる) を
+# 電源投入直後に表示する。表示は machine の DEBIX_DISPLAY に従う (既定 lvds = J10 の LVDS
+# パネル、kas/imx8mp-hdmi.yml で hdmi):
+#   lvds: J10 の 5 V → VIDEO_PLL1 → MEDIAMIX → LCDIF2 → LDB → LVDS PHY (0009、debix-splash-lvds.cfg)
+#   hdmi: GPC → blk-ctrl → Samsung PHY → DW-HDMI → PVI → LCDIFv3 (0005)
+# SPL に入るのは片方だけ (ROM のブートイメージの上限)。U-Boot の表示の設定は machine conf の
+# DEBIX_SPLASH_UBOOT_CFG が表示に合わせる。カーネルの引き継ぎのパッチ (HDMI 0010-0013、
+# LVDS 0015-0018) は表示ごとに常に入っている (linux-fslc-imx_%.bbappend。SPL が /chosen に
+# 印を立てたときだけ働く)。設計と定数の出典は docs/imx8mp-debix-bringup/06-splash.md。
+# 0005 は 0002 (falcon) の上に、0009 は 0005/0006 の上に、0010 は 0009 の上に当たる。
 header:
   version: 14
 
 local_conf_header:
   splash: |
-    SRC_URI:append:pn-u-boot-imx = " file://debix-splash.cfg file://0005-imx8mp-debix-spl-splash.patch file://0006-imx8mp-debix-proper-splash-adopt.patch file://spl_splash_logo.h"
-    IMAGE_BOOT_FILES:append = " logo.bin"
-
-  # カーネル seamless takeover (8MM の 0004-0009 に相当する 8MP 版)。
-  # SPL が /chosen splash-active を立てたときだけ発火し、
-  # probe 時の電源断・クロック断・PHY リセットからスプラッシュを守る。
-  # busfreq ハング対策は imx8mp-debix.dts 側 (無条件無効化) を参照。
-  splash-takeover: |
-    SRC_URI:append:pn-linux-fslc-imx = " file://0010-pmdomain-imx-gpcv2-splash-adopt-8mp.patch file://0011-pmdomain-imx8mp-blk-ctrl-splash-adopt.patch file://0012-drm-imx-dw-hdmi-splash-skip-probe-phy-reset.patch file://0013-phy-fsl-samsung-hdmi-splash-skip-probe-reset.patch"
+    SRC_URI:append:pn-u-boot-imx = " file://debix-splash.cfg ${DEBIX_SPLASH_UBOOT_CFG} file://0005-imx8mp-debix-spl-splash.patch file://0006-imx8mp-debix-proper-splash-adopt.patch file://0009-imx8mp-debix-spl-splash-lvds.patch file://0010-imx8mp-debix-splash-handoff-to-proper.patch file://spl_splash_logo.h"

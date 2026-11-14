@@ -136,28 +136,31 @@
    で非回帰(rearm の eMMC 書きが kmm ロード 1.5s と同時間帯でも影響なし)、ordering cycle 0・
    failed 0。env 2 面化(#13)済みなので補充書き込み中の電源断でも安全。両スロット OTA 済み。
 
-15. **表示を LVDS パネル直結へ(将来案、2026-10-01 時点の検討結果)**: 現状は HDMI →
-   TFP401 → RGB LCD。DEBIX の LVDS(J10、2×15 ピン)は LDB 駆動で LVDS0/LVDS1 の 2 チャネル
-   (各データ 4 ペア + クロック)、シングル 1366×768@60 / デュアル 1080p60、電源は 5V のみで
-   バックライト制御・タッチ信号は無い(マニュアル v1.11 §2.3.4.2)。ツリーでは `ldb` /
-   `ldb_phy` / `lcdif2` を disabled、slim カーネルで LDB ドライバも外している(02-dts-delta.md)。
-   - **動機は起動速度ではない**。SPL 側の表示チェーンは HDMI 24ms → LVDS 数 ms、カーネル側は
-     card0 が kernel 0.30s で出ていて weston の律速は udev/seed なので GUI 時刻は動かない。
-     ロゴは TFP401 経路の立ち上がり分(約 0.25s)が消えて +0.75s 前後になるが、TFP401 を
-     常時給電にすれば +0.8s 前後まで詰まるため差は 50ms 程度。効くのは屋外向け高輝度
-     パネルが選べること、EDID/TMDS ロック等の不確定要素と HDMI 固有の takeover 細工
-     (0010〜0013)が不要になること、バックライト ON/OFF をこちらが握れること、配線が減ること。
-   - 候補(5 インチ 800×480 IPS 1000cd/m²、LVDS シングル 4 ペア、40 ピン FPC、ピン配置同一):
-     DLC-T5.0ASL#1(¥6.6k、−30〜85℃、LED 19.6〜23.1V@60mA、形式記載なし、タッチ版なし)/
-     Riverdi RVT50HQLNWN00(¥9.2k、−20〜70℃、LED 12V@140mA、VESA 8bit、電源シーケンス記載、
-     静電タッチ版 RVT50HQLNWC00 あり)。どちらも 25MHz、hbp/hfp 8・hsync 4・vbp/vfp 8・vsync 4。
-   - 必要な作業: LDB + LVDS PHY ドライバの復活(DT とカーネル cfg は必ずセット。2026-09-02 に
-     `ldb` 有効 + ドライバ無しで imx-drm の束ねが止まり /dev/dri ごと消えた)、`panel-lvds`
-     ノード(`data-mapping` は vesa-24、化けたら jeida-24)、`lcdif2` 有効化、SPL スプラッシュの
-     LDB 版(0005 相当。LCDIF2 → LDB → PHY で HDMI 版より短い)と takeover(LDB/PHY を probe で
-     リセットしない)、キャリアボードに 3.3V LDO・5V → LED 定電流ドライバ(PWM 調光、EN)・
-     STBYB/RESET の GPIO。バッテリー直結は不可(LED は定電流駆動、7〜15V 変動に昇圧専用 IC
-     は使えない)。
-   - 未決: パネル仕様の「LVDS 信号出力 → 250ms 後にバックライト ON」を守るか(守ると +0.95s。
-     SPL がロゴ描画後に STBYB 解除 → 2〜3 フレームで点灯、で実質不要にできる見込み、要実機)、
-     5 インチで足りるか、タッチの要否(要るなら Riverdi 系)。
+15. (解決 2026-11-11 → 表示の選択は [../usage/01-build.md](../usage/01-build.md)「DEBIX の表示」、
+   SPL スプラッシュと引き継ぎは [06-splash.md](06-splash.md)「LVDS の経路」): 表示を J10 の LVDS
+   パネル(Riverdi RVT50HQLNWN00 + 変換基板 debix-hat/lvds-adapter)にした(既定。HDMI はビルドで
+   選べる)。タイミングとクロックの決め方は imx8mp-debix-lvds.dtsi のコメント、NXP の LDB の
+   ドライバが 1 チャネルのクロックを 74.25 MHz に書き換える件はパッチ 0014。実機で表示(向き・色の
+   並び vesa-24・階調、AprilTag 60/60)と、SPL → GUI の黒の無い引き継ぎ(falcon / proper)を確認した。
+   立ち上げで踏んだもの: ケーブルの全 5 対で + と − が逆だった(J10 は偶数ピンが +)。パネルは
+   信号を受け取れないと、電源が入って一瞬白く光り 1 秒ほどで黒になる。
+
+16. (解決 2026-11-11 → [06-splash.md](06-splash.md)「LVDS の経路」): **LVDS の SPL スプラッシュが、
+   ロゴが出てから約 0.73 s 後に 1〜2 フレーム乱れる**。カーネルが表示のクロックを最初に有効にする
+   時点(media blk-ctrl と LDB の probe)で、DT の DISP1_PIX の親の付け替えが video PLL の出力を一瞬落とし、
+   ルートの gate が media_ldb に同じ値を書き直していた。DT から DISP1_PIX を外し、パッチ 0019 で
+   同じ値を書かないようにして 8 回中 0 回。切り分けは起動の引数(`initcall_blacklist`、`earlycon` +
+   `initcall_debug` でカーネルの進みをシリアルの速さに落として時刻を引き伸ばす)と、SPL のままの表示で
+   レジスタに同じ値を書く試験で行った。HDMI では起きない(HDMI 版で 0019 の有無とも 8 回中 0 回。
+   HDMI のピクセルクロックは HDMI PHY の PLL で video PLL を使わず、HDMI のクロックの DT の指定は
+   SPL の設定と同じなので付け替えも起きない)。
+
+17. **SPL のロゴから weston に切り替わる瞬間に、画面が 1 フレーム黒くなる**(2026-11-12、LVDS・HDMI 共通、
+   未対策): AprilTag の 3 段の計測(コールド)で、SPL の段の最後のフレームと weston の段の最初のフレームの
+   間に、ほぼ黒いフレームが 1 枚(カメラの 1 フレーム = 約 33 ms 以内)入る。8 回あたり HDMI で 1〜3 回、
+   LVDS で 1〜5 回。目視でも一瞬乱れて見える。weston の背景色(weston.ini の `[shell] background-color`、
+   普段は黒)をマゼンタにすると、そのフレームはマゼンタになった = **weston(kiosk-shell)が最初の
+   フレームを、クライアント(スプラッシュ)の絵を載せる前の背景だけで出している**。表示のハードの途切れ
+   ではない(HDMI の送信部の最初の設定 `dw_hdmi_setup` を丸ごと飛ばしても、HDMI PHY の PLL を設定し
+   直さなくても、同じように出る)。06-splash.md の LVDS の検証(3 回)では出ていなかった。
+
