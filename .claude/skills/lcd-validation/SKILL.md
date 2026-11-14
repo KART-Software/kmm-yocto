@@ -47,14 +47,14 @@ ssh root@192.168.0.7 'chmod +x /tmp/wl-image-view; su kart -s /bin/sh -c \
 #   ※ pgrep -f + kill は ssh 自身の cmdline に自己マッチして死ぬ — pidof を使う
 
 # 3. キャリブレーション (実測確定のカメラ設定込み)
-.venv/bin/python calibrate.py --device /dev/kart-debix-cam \
+.venv/bin/python calibrate.py --device /dev/debix-cam \
     --width 1920 --height 1080 \
     --controls '{"exposure_time_absolute": 250, "gain": 32,
                  "exposure_dynamic_framerate": 0, "focus_absolute": 35}' \
     --output out/calibration.json --debug-dir out/calib-debug
 
 # 4. 計測 (電源サイクル込み。Homography は固定 — 再計算禁止が設計の最重要ルール)
-.venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
+.venv/bin/python measure_boot.py --device /dev/debix-cam \
     --calibration out/calibration.json --power-cycle --duration 20
 ```
 
@@ -73,7 +73,7 @@ ssh root@192.168.0.7 'chmod +x /tmp/wl-image-view; su kart -s /bin/sh -c \
    ツールは `Camera.setup()` がこの順序を実装済み。自前で v4l2-ctl を叩く
    ときも「1 フレーム読んでから設定」
 2. **zoom_absolute が不揮発で残る** (zoom=299 が残って画角が切れた事故あり)。
-   検出欠けが出たらまず `v4l2-ctl -d /dev/kart-debix-cam --list-ctrls` で
+   検出欠けが出たらまず `v4l2-ctl -d /dev/debix-cam --list-ctrls` で
    zoom/pan/tilt を確認
 3. focus_absolute は 0 (無限遠) で右下がボケ、50 以上で全滅 — 35 近辺
 4. 検出が欠けたら数値だけ追わず `out/calib-debug/annotated.png` を目で見る
@@ -87,7 +87,7 @@ GUI だけ(あるいは一部だけ)wl-image-view に差し替える自己流は
 
 ```bash
 ./target-stage-setup.sh install    # logo.bin→LOGO、splash-wl→weston.raw、kmm→gui.raw (可逆)
-.venv/bin/python measure_boot.py --device /dev/kart-debix-cam \
+.venv/bin/python measure_boot.py --device /dev/debix-cam \
     --calibration out/calibration.json --power-cycle --duration 22
 ./target-stage-setup.sh uninstall  # 必ず戻す (製品状態に復帰)
 ```
@@ -135,5 +135,5 @@ Pixel/Phase 検証。
 ## 関連
 
 - カメラ/電源/シリアルの基礎操作と輝度タイムライン版: `imx8mm-xpi-bench` skill
-  (カメラ節は DEBIX ベンチにもそのまま適用、カメラは `/dev/kart-debix-cam`)
+  (カメラ節は DEBIX ベンチにもそのまま適用、カメラは `/dev/debix-cam`)
 - 表示チェーンとスプラッシュ設計: `docs/imx8mp-debix-bringup/06-splash.md`
