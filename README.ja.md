@@ -4,8 +4,8 @@
 
 NXP i.MX8M 系 SBC 向けの組み込み Linux イメージを Yocto (scarthgap) + kas-container で
 構築するプロジェクト。自作 SPL / U-Boot / カーネルを載せ、Wayland/Weston 上で C++/Qt6 の
-キオスク GUI (`kmm`) を動かす。**Falcon Mode**(SPL 直カーネル)、**Cortex-M コプロセッサ
-経由の CAN ゲートウェイ**、A/B OTA、SPL スプラッシュ、Tailscale、read-only rootfs 対応。
+キオスク GUI (`kmm`) を動かす。**Falcon Mode**(SPL 直カーネル)、**Cortex-M コプロセッサ**
+(M コアのファーム)、A/B OTA、SPL スプラッシュ、Tailscale、read-only rootfs 対応。
 
 現行の製品ターゲットは 2 つの i.MX8M ボードで、設計(Falcon・M コア CAN・A/B OTA・
 冗長 env・スプラッシュ・Tailscale)を共有する:
@@ -15,13 +15,13 @@ NXP i.MX8M 系 SBC 向けの組み込み Linux イメージを Yocto (scarthgap)
 | SoC | i.MX8M **Mini** Quad A53 @1.8GHz + **Cortex-M4** | i.MX8M **Plus** Quad Lite A53 + **Cortex-M7** |
 | ボード | Geniatech XPI-iMX8MM (RPi 互換フォームファクタ) | Polyhex DEBIX Infinity (EMB-IMX8MP-06) |
 | RAM | 2GB LPDDR4(実測、スペック表 1GB より上位) | 4GB LPDDR4(falcon /memory は 3GB+1GB) |
-| 表示 | MIPI-DSI → **LT9611** → HDMI | **lcdif3 → Samsung HDMI PHY**、TFP401 LCD は EDID FW 供給 |
+| 表示 | MIPI-DSI → **LT9611** → HDMI | **LVDS パネル**(lcdif2 → LDB → panel-lvds)。HDMI(lcdif3 → Samsung HDMI PHY → TFP401 LCD)はビルドで選択 |
 | CAN | **MCP2515**(ECSPI2)を M4 が所有 → rpmsg | **FlexCAN1** を M7 が所有 → rpmsg |
 | カーネル | linux-fslc **6.12**(mainline 系) | linux-fslc-imx **6.6**(NXP BSP 系) |
 | BSP | u-boot-fslc + mainline ATF | u-boot-imx + imx-atf(`IMX_DEFAULT_BSP=nxp`) |
 | U-Boot A/B | ROM **SIT** 表フォールバック | ROM **fuse** 既定オフセット(4MiB)フォールバック |
 | env | 単一コピー | **2 面冗長**(`CONFIG_SYS_REDUNDAND_ENVIRONMENT`) |
-| 電源→GUI | ≈4.9s | **≈2.93s**(σ0.04) |
+| 電源→GUI | ≈4.9s | **≈2.96s**(σ0.02) |
 | ブートモード切替 | 物理 DIP **S1**(eMMC / Serial) | DIP を **USB リレー**で遠隔切替(`debix-boot-switch` スキル) |
 | bring-up 記録 | [docs/imx8mm-xpi-bringup/](docs/imx8mm-xpi-bringup/) | [docs/imx8mp-debix-bringup/](docs/imx8mp-debix-bringup/) |
 | ハード構成図 | [hardware.png](docs/imx8mm-xpi-bringup/hardware.png) | [hardware.png](docs/imx8mp-debix-bringup/hardware.png) |
@@ -55,7 +55,7 @@ NXP i.MX8M 系 SBC 向けの組み込み Linux イメージを Yocto (scarthgap)
 | SoC | i.MX8M Plus **Quad Lite** A53 + Cortex-M7 | VPU/NPU はヒューズアウト、DTS で無効化 |
 | RAM | 4GB LPDDR4(Micron MT53E1G32D2NP) | 自作 timing 表(Model A 3732MTS + 16Gb ダイ密度移植) |
 | eMMC | `/dev/mmcblk2` | A/B: imx-boot A=32KiB / B=4MiB、env 7MiB、BOOTA/B(p1/p2)・MCORE(p3、M コアのファームの A/B)・rootA/B(p5/p6)・data(p7) |
-| 表示 | HDMI(lcdif3 → Samsung HDMI PHY → DW-HDMI) | TFP401 LCD(800x480@33.75MHz)は EDID FW 供給 + `drm.edid_firmware` |
+| 表示 | J10 の LVDS パネル(lcdif2 → LDB ch0 → LVDS PHY → panel-lvds)。Riverdi RVT50HQLNWN00(800x480)を変換基板 debix-hat/lvds-adapter で | 既定。HDMI(lcdif3 → Samsung HDMI PHY → DW-HDMI → TFP401 LCD、EDID は FW 供給 + `drm.edid_firmware`)は `build.sh --hdmi` / `kas/imx8mp-hdmi.yml` で選ぶ([01-build.md](docs/usage/01-build.md)「DEBIX の表示」) |
 | CAN | FlexCAN1 を M7 が所有 → `rpmsgcan0`。FlexCAN2 = `can0`(未使用予備) | J2 Pin31/33 → 絶縁トランシーバ |
 | ブートモード | DIP(001=UUU / 010=eMMC / 011=SD) | bit2/bit3 を USB リレーで遠隔駆動(`debix-boot-switch`)|
 
@@ -147,17 +147,17 @@ systemd/weston/kmm**。U-Boot proper が出てくるのは復旧のとき(デッ
   書く。デッドマン書き込み中の電源断でも他面が残り A/B 状態は無傷
   ([open-issues #13](docs/imx8mp-debix-bringup/open-issues.md))
 
-DEBIX の電源→GUI は約 **2.93s**(σ0.04、N=10)。段別内訳・最適化の全記録は
+DEBIX の電源→GUI は約 **2.96s**(σ0.02、N=10、表示は LVDS)。段別内訳・最適化の全記録は
 [30-boot-time.md](docs/imx8mp-debix-bringup/30-boot-time.md)。XPI は約 4.9s
 ([09-boot-sequence.md](docs/imx8mm-xpi-bringup/09-boot-sequence.md))。
 
 ---
 
-## Cortex-M CAN ゲートウェイ
+## Cortex-M コプロセッサ(M コア)
 
-CAN コントローラは **Cortex-M コプロセッサに譲渡**してある。M コアのファーム(`main-app`、
-Zephyr)の CAN の中継が rpmsg でカーネルの `rpmsg-can` モジュールと繋がり、
-netdev **`rpmsgcan0`**(通常の SocketCAN)を生やす。
+Linux とは別に、Cortex-M コプロセッサ(M コア)で M コアのファーム(`main-app`、Zephyr)を動かす。
+CAN はその機能のひとつで、CAN コントローラを **M コアに譲渡**し、M コアのファームの CAN の中継が
+rpmsg でカーネルの `rpmsg-can` モジュールと繋がり、netdev **`rpmsgcan0`**(通常の SocketCAN)を生やす。
 
 - 8MM = **M4** が MCP2515(ECSPI2)を、8MP = **M7** が FlexCAN1 を所有
 - M ファームは別リポジトリ
@@ -200,7 +200,7 @@ kmm-yocto/
 │   ├── imx-emmc-ab.yml           # 8MM/8MP 共通 eMMC A/B WKS 選択
 │   ├── imx8m{p,m}-falcon.yml     # SPL 直カーネル起動
 │   ├── imx8m{p,m}-splash.yml     # SPL スプラッシュ
-│   ├── imx8mp-m7.yml / imx8mm-m4.yml   # M コア CAN ゲートウェイ + falcon 統合
+│   ├── imx8mp-m7.yml / imx8mm-m4.yml   # M コア(M7 / M4)の起動(falcon 統合)
 │   └── rpi5*.yml / boot-*.yml / qemu*.yml / sdk.yml   # 旧 RPi5 / QEMU / SDK
 ├── meta-kart/                    # 製品 BitBake レイヤ
 │   ├── conf/machine/             # imx8mp-debix.conf, imx8mm-xpi.conf
@@ -239,7 +239,7 @@ kmm-yocto/
 | 06-splash | SPL スプラッシュ・暗ブートの真因と修正(weston 13)|
 | 07-emmc-boot-rom | eMMC boot ROM / fast boot 化の調査(保留)|
 | 08-dark-boot | 暗ブート調査の経緯 |
-| 30-boot-time | 起動時間短縮の継続記録(電源→GUI 2.93s)|
+| 30-boot-time | 起動時間短縮の継続記録(電源→GUI 2.96s)|
 | open-issues | 未解決事項・実機の暫定状態 |
 
 ### XPI (i.MX8MM) — [docs/imx8mm-xpi-bringup/](docs/imx8mm-xpi-bringup/)

@@ -5,7 +5,7 @@
 A project that builds embedded Linux images for NXP i.MX8M-family SBCs with
 Yocto (scarthgap) + kas-container. It ships a custom SPL / U-Boot / kernel and
 runs a C++/Qt6 kiosk GUI (`kmm`) on Wayland/Weston. Features **Falcon Mode**
-(SPL boots the kernel directly), a **CAN gateway via a Cortex-M coprocessor**,
+(SPL boots the kernel directly), a **Cortex-M coprocessor** with its own firmware,
 A/B OTA, an SPL splash, Tailscale, and a read-only rootfs.
 
 There are currently two production targets — both i.MX8M boards sharing the same
@@ -16,13 +16,13 @@ design (Falcon, M-core CAN, A/B OTA, redundant env, splash, Tailscale):
 | SoC | i.MX8M **Mini** Quad A53 @1.8GHz + **Cortex-M4** | i.MX8M **Plus** Quad Lite A53 + **Cortex-M7** |
 | Board | Geniatech XPI-iMX8MM (RPi-compatible form factor) | Polyhex DEBIX Infinity (EMB-IMX8MP-06) |
 | RAM | 2GB LPDDR4 (measured; higher than the 1GB spec sheet) | 4GB LPDDR4 (falcon /memory is 3GB+1GB) |
-| Display | MIPI-DSI → **LT9611** → HDMI | **lcdif3 → Samsung HDMI PHY**; TFP401 LCD gets EDID via firmware |
+| Display | MIPI-DSI → **LT9611** → HDMI | **LVDS panel** (lcdif2 → LDB → panel-lvds); HDMI (lcdif3 → Samsung HDMI PHY → TFP401 LCD) selectable at build time |
 | CAN | **MCP2515** (ECSPI2) owned by M4 → rpmsg | **FlexCAN1** owned by M7 → rpmsg |
 | Kernel | linux-fslc **6.12** (mainline-based) | linux-fslc-imx **6.6** (NXP BSP-based) |
 | BSP | u-boot-fslc + mainline ATF | u-boot-imx + imx-atf (`IMX_DEFAULT_BSP=nxp`) |
 | U-Boot A/B | ROM **SIT**-table fallback | ROM **fuse** default-offset (4MiB) fallback |
 | env | single copy | **2-copy redundant** (`CONFIG_SYS_REDUNDAND_ENVIRONMENT`) |
-| Power→GUI | ≈4.9s | **≈2.93s** (σ0.04) |
+| Power→GUI | ≈4.9s | **≈2.96s** (σ0.02) |
 | Boot-mode switch | physical DIP **S1** (eMMC / Serial) | DIP driven remotely over a **USB relay** (`debix-boot-switch` skill) |
 | bring-up log | [docs/imx8mm-xpi-bringup/](docs/imx8mm-xpi-bringup/) | [docs/imx8mp-debix-bringup/](docs/imx8mp-debix-bringup/) |
 | hardware diagram | [hardware.png](docs/imx8mm-xpi-bringup/hardware.png) | [hardware.png](docs/imx8mp-debix-bringup/hardware.png) |
@@ -57,7 +57,7 @@ Shared design principles:
 | SoC | i.MX8M Plus **Quad Lite** A53 + Cortex-M7 | VPU/NPU are fused out, disabled in DTS |
 | RAM | 4GB LPDDR4 (Micron MT53E1G32D2NP) | Custom timing table (Model A 3732MTS + 16Gb die-density port) |
 | eMMC | `/dev/mmcblk2` | A/B: imx-boot A=32KiB / B=4MiB, env 7MiB, BOOTA/B (p1/p2) · MCORE (p3, M-core firmware A/B) · rootA/B (p5/p6) · data (p7) |
-| Display | HDMI (lcdif3 → Samsung HDMI PHY → DW-HDMI) | TFP401 LCD (800x480@33.75MHz) gets EDID via firmware + `drm.edid_firmware` |
+| Display | LVDS panel on J10 (lcdif2 → LDB ch0 → LVDS PHY → panel-lvds): Riverdi RVT50HQLNWN00 (800x480) through the debix-hat/lvds-adapter board | Default. HDMI (lcdif3 → Samsung HDMI PHY → DW-HDMI → TFP401 LCD, EDID via firmware + `drm.edid_firmware`) is selected with `build.sh --hdmi` / `kas/imx8mp-hdmi.yml` ([01-build.md](docs/usage/01-build.md)) |
 | CAN | FlexCAN1 owned by M7 → `rpmsgcan0`. FlexCAN2 = `can0` (unused spare) | J2 Pin31/33 → isolated transceiver |
 | Boot mode | DIP (001=UUU / 010=eMMC / 011=SD) | bit2/bit3 driven remotely by a USB relay (`debix-boot-switch`) |
 
@@ -163,18 +163,19 @@ proper.
   leaves the other copy intact, so A/B state is unharmed
   ([open-issues #13](docs/imx8mp-debix-bringup/open-issues.md))
 
-DEBIX power→GUI is about **2.93s** (σ0.04, N=10). The per-stage breakdown and the
+DEBIX power→GUI is about **2.96s** (σ0.02, N=10, LVDS display). The per-stage breakdown and the
 full optimization log are in
 [30-boot-time.md](docs/imx8mp-debix-bringup/30-boot-time.md). XPI is about 4.9s
 ([09-boot-sequence.md](docs/imx8mm-xpi-bringup/09-boot-sequence.md)).
 
 ---
 
-## Cortex-M CAN gateway
+## Cortex-M coprocessor (M-core)
 
-The CAN controller is **handed off to the Cortex-M coprocessor**. The M-core firmware
-(`main-app`, Zephyr) has a CAN gateway function that links over rpmsg to the kernel's
-`rpmsg-can` module and exposes the netdev **`rpmsgcan0`** (ordinary SocketCAN).
+Alongside Linux, the Cortex-M coprocessor (M-core) runs the M-core firmware (`main-app`,
+Zephyr). CAN is one of its functions: the CAN controller is **handed off to the M-core**,
+and the firmware's CAN gateway function links over rpmsg to the kernel's `rpmsg-can`
+module and exposes the netdev **`rpmsgcan0`** (ordinary SocketCAN).
 
 - 8MM = **M4** owns the MCP2515 (ECSPI2); 8MP = **M7** owns FlexCAN1
 - The M firmware lives in a separate repo,
@@ -224,7 +225,7 @@ kmm-yocto/
 │   ├── imx-emmc-ab.yml           # shared 8MM/8MP eMMC A/B WKS selection
 │   ├── imx8m{p,m}-falcon.yml     # SPL-direct kernel boot
 │   ├── imx8m{p,m}-splash.yml     # SPL splash
-│   ├── imx8mp-m7.yml / imx8mm-m4.yml   # M-core CAN gateway + falcon integration
+│   ├── imx8mp-m7.yml / imx8mm-m4.yml   # M-core (M7 / M4) boot (falcon integration)
 │   └── rpi5*.yml / boot-*.yml / qemu*.yml / sdk.yml   # legacy RPi5 / QEMU / SDK
 ├── meta-kart/                    # product BitBake layer
 │   ├── conf/machine/             # imx8mp-debix.conf, imx8mm-xpi.conf
@@ -263,7 +264,7 @@ bench operations and recovery (see "Getting started" above).
 | 06-splash | SPL splash · dark-boot root cause and fix (weston 13) |
 | 07-emmc-boot-rom | eMMC boot ROM / fast-boot investigation (on hold) |
 | 08-dark-boot | history of the dark-boot investigation |
-| 30-boot-time | ongoing boot-time reduction log (power→GUI 2.93s) |
+| 30-boot-time | ongoing boot-time reduction log (power→GUI 2.96s) |
 | open-issues | open items and interim on-device state |
 
 ### XPI (i.MX8MM) — [docs/imx8mm-xpi-bringup/](docs/imx8mm-xpi-bringup/)
