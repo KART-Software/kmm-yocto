@@ -1,0 +1,11 @@
+# lcd-validation のカメラ (Logitech C930e、046d:0843) の video4linux ノードを一般ユーザ (plugdev) から
+# 開けるようにし、映像のノード (index 0) に固定名 /dev/debix-cam を張る。
+# 既定は root:video 0660 で、カメラを挿し直すたびに sudo で権限を付け直していたのを避けるため。
+# DP100 / USB リレー (.claude/skills/debix-boot-switch/99-*.rules) と同じ形。
+#
+# インストール:
+#   sudo cp .claude/skills/lcd-validation/99-debix-cam.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=video4linux
+#   ls -l /dev/debix-cam
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="0843", GROUP="plugdev", MODE="0660"
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="0843", ATTR{index}=="0", SYMLINK+="debix-cam"
